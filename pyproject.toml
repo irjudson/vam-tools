@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lightroom-tools"
-version = "0.1.0"
-description = "A collection of tools for managing and organizing Lightroom photo libraries"
+name = "vam-tools"
+version = "2.0.0"
+description = "Visual Asset Management tools for organizing and managing photo/video libraries"
 authors = [
     {name = "Ivan R. Judson", email = "irjudson@gmail.com"}
 ]
@@ -29,21 +29,32 @@ classifiers = [
 ]
 dependencies = [
     "Pillow>=9.0.0",
+    "pillow-heif>=0.10.0",
+    "pyexiftool>=0.5.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+    "arrow>=1.2.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
     "black>=22.0.0",
     "flake8>=4.0.0",
     "mypy>=0.950",
+    "isort>=5.10.0",
+    "types-Pillow>=9.0.0",
 ]
 
 [project.scripts]
-lightroom-tools = "lightroom_tools.cli:main"
-image-date-analyzer = "lightroom_tools.image_date_analyzer:main"
-duplicate-image-finder = "lightroom_tools.duplicate_image_finder:main"
-reorganize-lightroom-catalog = "lightroom_tools.reorganize_lightroom_catalog:main"
+# V1 Legacy CLI (deprecated, use vam-* commands)
+vam-v1 = "vam_tools.cli.main:cli"
+# V2 CLI (current)
+vam-analyze = "vam_tools.v2.cli_analyze:analyze"
+vam-web = "vam_tools.v2.cli_web:web"
 
 [project.urls]
 Homepage = "https://github.com/irjudson/lightroom-tools"
@@ -52,19 +63,63 @@ Issues = "https://github.com/irjudson/lightroom-tools/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["lightroom_tools*"]
-exclude = ["tests*"]
+include = ["vam_tools*"]
+exclude = ["tests*", ".old_lightroom_code*"]
 
 [tool.black]
 line-length = 88
 target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | \.old_lightroom_code
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+skip_gitignore = true
+extend_skip_glob = [".old_lightroom_code/*"]
 
 [tool.mypy]
 python_version = "3.8"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+exclude = [
+    '\.old_lightroom_code',
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
+addopts = [
+    "--cov=vam_tools",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[tool.coverage.run]
+omit = [
+    "tests/*",
+    ".old_lightroom_code/*",
+]

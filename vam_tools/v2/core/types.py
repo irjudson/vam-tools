@@ -1,0 +1,299 @@
+"""
+Type definitions for the catalog system.
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Dict, List, Optional, Set
+
+
+class FileType(Enum):
+    """Type of media file."""
+
+    IMAGE = "image"
+    VIDEO = "video"
+    UNKNOWN = "unknown"
+
+
+class CatalogPhase(Enum):
+    """Current phase of catalog processing."""
+
+    ANALYZING = "analyzing"
+    REVIEWING = "reviewing"
+    VERIFIED = "verified"
+    EXECUTING = "executing"
+    COMPLETE = "complete"
+
+
+class ImageStatus(Enum):
+    """Status of an individual image."""
+
+    PENDING = "pending"
+    ANALYZING = "analyzing"
+    NEEDS_REVIEW = "needs_review"
+    APPROVED = "approved"
+    EXECUTED = "executed"
+
+
+class DuplicateRole(Enum):
+    """Role of an image in a duplicate group."""
+
+    PRIMARY = "primary"
+    DUPLICATE = "duplicate"
+
+
+class BurstRole(Enum):
+    """Role of an image in a burst group."""
+
+    PRIMARY = "primary"
+    BURST_IMAGE = "burst_image"
+
+
+class OperationType(Enum):
+    """Type of file operation."""
+
+    MOVE = "move"
+    DELETE = "delete"
+    SKIP = "skip"
+    EXIF_MERGE = "exif_merge"
+
+
+class OperationStatus(Enum):
+    """Status of an operation."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+    FAILED = "failed"
+    ROLLED_BACK = "rolled_back"
+
+
+class ReviewType(Enum):
+    """Type of review item."""
+
+    DATE_CONFLICT = "date_conflict"
+    SUSPICIOUS_DATE = "suspicious_date"
+    NO_DATE = "no_date"
+    BURST_REVIEW = "burst_review"
+    NAME_COLLISION = "name_collision"
+    MANUAL_SELECTION = "manual_selection"
+
+
+class ReviewPriority(Enum):
+    """Priority level for review items."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class ReviewStatus(Enum):
+    """Status of a review item."""
+
+    PENDING = "pending"
+    REVIEWING = "reviewing"
+    RESOLVED = "resolved"
+
+
+@dataclass
+class DateInfo:
+    """Date information extracted from various sources."""
+
+    exif_dates: Dict[str, Optional[datetime]] = field(default_factory=dict)
+    filename_date: Optional[datetime] = None
+    directory_date: Optional[str] = None
+    filesystem_created: Optional[datetime] = None
+    filesystem_modified: Optional[datetime] = None
+    selected_date: Optional[datetime] = None
+    selected_source: Optional[str] = None
+    confidence: int = 0
+    suspicious: bool = False
+    user_verified: bool = False
+
+
+@dataclass
+class ImageMetadata:
+    """Complete metadata for an image."""
+
+    exif: Dict[str, any] = field(default_factory=dict)
+    format: Optional[str] = None
+    resolution: Optional[tuple[int, int]] = None
+    size_bytes: Optional[int] = None
+    merged_from: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ExecutionPlan:
+    """Plan for executing operations on an image."""
+
+    action: OperationType
+    target_path: Optional[Path] = None
+    target_exists: bool = False
+    target_checksum: Optional[str] = None
+    burst_folder: Optional[Path] = None
+    reason: Optional[str] = None
+
+
+@dataclass
+class ExecutionInfo:
+    """Information about execution status."""
+
+    executed: bool = False
+    executed_at: Optional[datetime] = None
+    verified: bool = False
+    rollback_info: Dict[str, any] = field(default_factory=dict)
+
+
+@dataclass
+class QualityScore:
+    """Quality scoring for an image."""
+
+    format_score: float = 0.0
+    resolution_score: float = 0.0
+    size_score: float = 0.0
+    exif_score: float = 0.0
+    ai_score: Optional[float] = None
+    total_score: float = 0.0
+
+
+@dataclass
+class ImageRecord:
+    """Complete record for a single image."""
+
+    id: str  # SHA256 checksum
+    source_path: Path
+    file_type: FileType
+    checksum: str
+    dates: DateInfo = field(default_factory=DateInfo)
+    metadata: ImageMetadata = field(default_factory=ImageMetadata)
+    duplicate_group_id: Optional[str] = None
+    duplicate_role: Optional[DuplicateRole] = None
+    burst_group_id: Optional[str] = None
+    burst_role: Optional[BurstRole] = None
+    status: ImageStatus = ImageStatus.PENDING
+    issues: List[str] = field(default_factory=list)
+    plan: Optional[ExecutionPlan] = None
+    execution: ExecutionInfo = field(default_factory=ExecutionInfo)
+
+
+@dataclass
+class DuplicateGroup:
+    """Group of duplicate images."""
+
+    id: str
+    images: List[str]  # Image IDs (checksums)
+    primary: Optional[str] = None  # Primary image ID
+    perceptual_hash: Optional[str] = None
+    quality_scores: Dict[str, QualityScore] = field(default_factory=dict)
+    date_conflict: bool = False
+    needs_review: bool = False
+    user_override: Optional[str] = None
+
+
+@dataclass
+class BurstGroup:
+    """Group of burst images."""
+
+    id: str
+    images: List[str]  # Image IDs (checksums)
+    primary: Optional[str] = None  # Primary image ID
+    time_span_seconds: float = 0.0
+    ai_scores: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    needs_review: bool = False
+    user_override: Optional[str] = None
+
+
+@dataclass
+class ReviewItem:
+    """Item in the review queue."""
+
+    id: str
+    type: ReviewType
+    priority: ReviewPriority
+    images: List[str]  # Image IDs
+    description: str
+    details: Dict[str, any] = field(default_factory=dict)
+    status: ReviewStatus = ReviewStatus.PENDING
+    resolution: Optional[Dict[str, any]] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None
+
+
+@dataclass
+class Operation:
+    """A single file operation."""
+
+    seq: int
+    type: OperationType
+    source: Path
+    target: Optional[Path] = None
+    checksum_before: Optional[str] = None
+    checksum_after: Optional[str] = None
+    status: OperationStatus = OperationStatus.PENDING
+    timestamp: Optional[datetime] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class Transaction:
+    """Transaction log for file operations."""
+
+    id: str
+    started: datetime
+    completed: Optional[datetime] = None
+    phase: str = ""
+    operations: List[Operation] = field(default_factory=list)
+    rollback_available: bool = True
+    status: str = "in_progress"
+
+
+@dataclass
+class Statistics:
+    """Catalog statistics."""
+
+    total_images: int = 0
+    total_videos: int = 0
+    total_size_bytes: int = 0
+    organized: int = 0
+    needs_review: int = 0
+    no_date: int = 0
+    duplicate_groups: int = 0
+    duplicates_total: int = 0
+    burst_groups: int = 0
+    burst_images: int = 0
+    unique_images: int = 0
+
+
+@dataclass
+class CatalogState:
+    """Current state of catalog processing."""
+
+    phase: CatalogPhase = CatalogPhase.ANALYZING
+    last_checkpoint: Optional[datetime] = None
+    checkpoint_interval_seconds: int = 300  # 5 minutes
+    images_processed: int = 0
+    images_total: int = 0
+    progress_percentage: float = 0.0
+
+    # Catalog-level properties (populated by get_state())
+    version: str = "2.0.0"
+    catalog_id: str = ""
+    created: Optional[datetime] = None
+    last_updated: Optional[datetime] = None
+
+
+@dataclass
+class CatalogConfiguration:
+    """Configuration for catalog processing."""
+
+    source_directories: List[Path] = field(default_factory=list)
+    import_directory: Optional[Path] = None
+    date_format: str = "YYYY-MM"
+    file_naming: str = "{date}_{time}_{checksum}.{ext}"
+    burst_threshold_seconds: float = 10.0
+    burst_min_images: int = 3
+    ai_model: str = "hybrid"
+    video_support: bool = True
+    checkpoint_interval_seconds: int = 300

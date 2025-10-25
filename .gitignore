@@ -51,3 +51,30 @@ duplicate_images.txt
 image_dates.txt
 nocreationdate.txt
 *.log
+
+# Catalog files (database/state files)
+.catalog.json
+.catalog.backup.json
+.catalog.backup.*.json
+.catalog.lock
+.catalog.tmp
+.transactions/
+
+# Coverage and testing
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Claude Code
+.claude/
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+secrets/
+credentials/
+*.key
+*.pem
