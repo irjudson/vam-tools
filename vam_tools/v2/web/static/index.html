@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAM Tools - Catalog Viewer</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            line-height: 1.6;
+        }
+
+        #app {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: #0f172a;
+            padding: 2rem 2rem 0 2rem;
+            margin: 0 -2rem;
+        }
+
+        .content-area {
+            padding: 0 2rem 2rem 2rem;
+        }
+
+        header {
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #60a5fa;
+            margin-bottom: 0.5rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #93c5fd;
+            margin: 2rem 0 1rem 0;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+        }
+
+        .stat-card h3 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #60a5fa;
+        }
+
+        .stat-card .subvalue {
+            font-size: 0.875rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        select, button {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+
+        select:hover, button:hover {
+            border-color: #60a5fa;
+        }
+
+        button {
+            background: #3b82f6;
+            border-color: #3b82f6;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #2563eb;
+        }
+
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .image-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .image-card:hover {
+            transform: translateY(-2px);
+            border-color: #60a5fa;
+        }
+
+        .image-thumbnail {
+            width: 100%;
+            height: 200px;
+            background: #0f172a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .image-thumbnail img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .image-info {
+            padding: 1rem;
+        }
+
+        .image-path {
+            font-size: 0.875rem;
+            color: #94a3b8;
+            margin-bottom: 0.5rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .image-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-top: 0.5rem;
+        }
+
+        .badge-warning {
+            background: #fbbf24;
+            color: #78350f;
+        }
+
+        .badge-error {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        .badge-info {
+            background: #3b82f6;
+            color: #fff;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #94a3b8;
+        }
+
+        .spinner {
+            border: 3px solid #334155;
+            border-top: 3px solid #60a5fa;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 2rem;
+        }
+
+        .pagination button {
+            padding: 0.5rem 1rem;
+        }
+
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow: auto;
+            padding: 2rem;
+        }
+
+        .modal-image {
+            max-width: 100%;
+            max-height: 60vh;
+            object-fit: contain;
+            margin-bottom: 1rem;
+        }
+
+        .close-button {
+            float: right;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #94a3b8;
+        }
+
+        .close-button:hover {
+            color: #e2e8f0;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .detail-item {
+            font-size: 0.875rem;
+        }
+
+        .detail-item strong {
+            color: #93c5fd;
+        }
+
+        kbd {
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 0.25rem;
+            padding: 0.125rem 0.375rem;
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: #e2e8f0;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div v-if="loading" class="loading" style="padding: 2rem;">
+            <div class="spinner"></div>
+            <p>Loading catalog...</p>
+        </div>
+
+        <div v-else>
+            <!-- Sticky Header Section -->
+            <div class="sticky-header">
+                <header>
+                    <h1>📷 VAM Tools Catalog Viewer</h1>
+                    <p style="color: #94a3b8;">
+                        Explore and review your photo catalog
+                        <span v-if="autoRefresh" style="margin-left: 1rem; font-size: 0.875rem;">
+                            🔄 Auto-refresh: {{ refreshCountdown }}s
+                        </span>
+                    </p>
+                </header>
+
+                <!-- Statistics Dashboard -->
+                <div class="stats-grid">
+                <div class="stat-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h3>File Types</h3>
+                        <button @click="toggleFileTypeView"
+                                style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
+                            {{ fileTypeView === 'category' ? '📊 Category' : '📝 Extension' }}
+                        </button>
+                    </div>
+                    <div style="height: 200px; position: relative;">
+                        <canvas ref="fileTypeChart"></canvas>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <h3>Size Distribution</h3>
+                    <div style="height: 200px; position: relative;">
+                        <canvas ref="sizeChart"></canvas>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <h3>Issues</h3>
+                    <div style="height: 200px; position: relative;">
+                        <canvas ref="issuesChart"></canvas>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <h3>Overview</h3>
+                    <div class="value">{{ (catalogInfo.statistics?.total_images || 0) + (catalogInfo.statistics?.total_videos || 0) }}</div>
+                    <div class="subvalue">Total files</div>
+                    <div class="value" style="font-size: 1.5rem; margin-top: 0.5rem;">{{ formatBytes(catalogInfo.statistics?.total_size_bytes || 0) }}</div>
+                    <div class="subvalue">Total size</div>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls">
+                <select v-model="filterType" @change="loadImages">
+                    <option value="">All Images</option>
+                    <option value="image">Images Only</option>
+                    <option value="video">Videos Only</option>
+                    <option value="no_date">No Date</option>
+                    <option value="suspicious">Suspicious Dates</option>
+                </select>
+
+                <select v-model="sortBy" @change="loadImages">
+                    <option value="date">Sort by Date</option>
+                    <option value="path">Sort by Path</option>
+                    <option value="size">Sort by Size</option>
+                </select>
+
+                <button @click="toggleScrollMode" :style="scrollMode ? '' : 'background: #8b5cf6;'">
+                    {{ scrollMode ? '📜 Scroll Mode' : '📄 Page Mode' }}
+                </button>
+
+                <button @click="refresh" title="Keyboard: R">🔄 Refresh</button>
+
+                <button @click="toggleAutoRefresh"
+                        :style="autoRefresh ? 'background: #10b981;' : ''"
+                        title="Keyboard: A">
+                    {{ autoRefresh ? '⏸ Auto-Refresh ON' : '▶ Auto-Refresh OFF' }}
+                </button>
+            </div>
+
+                <!-- Status Bar -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #334155;">
+                <h2>
+                    <span v-if="scrollMode">
+                        Loaded {{ loadedCount }} images
+                        <span v-if="isLoadingMore" style="color: #60a5fa; font-size: 0.875rem;">
+                            (loading more...)
+                        </span>
+                        <span v-else-if="!hasMore" style="color: #94a3b8; font-size: 0.875rem;">
+                            (all loaded)
+                        </span>
+                    </span>
+                    <span v-else>
+                        Page {{ currentPage + 1 }} ({{ images.length }} images)
+                    </span>
+                </h2>
+                <div style="font-size: 0.875rem; color: #94a3b8;">
+                    Shortcuts: <kbd>R</kbd> Refresh • <kbd>S</kbd> Toggle Mode • <kbd>A</kbd> Auto-refresh
+                    <span v-if="!scrollMode"> • <kbd>←/→</kbd> or <kbd>H/L</kbd> Navigate</span>
+                </div>
+            </div>
+            </div>
+            <!-- End Sticky Header -->
+
+            <!-- Scrollable Content Area -->
+            <div class="content-area">
+                <div class="image-grid">
+                <div v-for="image in images" :key="image.id" class="image-card" @click="showDetail(image)">
+                    <div class="image-thumbnail">
+                        <img :src="`/api/images/${image.id}/file`"
+                             :alt="image.source_path"
+                             loading="lazy">
+                    </div>
+                    <div class="image-info">
+                        <div class="image-path" :title="image.source_path">
+                            {{ getFileName(image.source_path) }}
+                        </div>
+                        <div class="image-meta">
+                            <span>{{ image.format }}</span>
+                            <span v-if="image.resolution">{{ image.resolution[0] }}x{{ image.resolution[1] }}</span>
+                            <span>{{ formatBytes(image.size_bytes) }}</span>
+                        </div>
+                        <div>
+                            <span class="badge badge-info" v-if="image.selected_date">
+                                {{ formatDate(image.selected_date) }}
+                            </span>
+                            <span class="badge badge-error" v-if="!image.selected_date">
+                                No Date
+                            </span>
+                            <span class="badge badge-warning" v-if="image.suspicious">
+                                Suspicious Date
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Load More (Scroll Mode) -->
+            <div v-if="scrollMode && hasMore" style="text-align: center; padding: 2rem;">
+                <button @click="loadMoreImages" :disabled="isLoadingMore" style="padding: 1rem 2rem; font-size: 1rem;">
+                    {{ isLoadingMore ? 'Loading...' : 'Load More Images' }}
+                </button>
+            </div>
+            <div v-if="scrollMode && !hasMore && loadedCount > 0" style="text-align: center; padding: 2rem; color: #64748b;">
+                All images loaded ({{ loadedCount }} total)
+            </div>
+
+            <!-- Pagination (Page Mode) -->
+            <div v-if="!scrollMode" class="pagination">
+                <button @click="prevPage" :disabled="currentPage === 0">
+                    ← Previous
+                </button>
+                <span style="padding: 0 1rem;">
+                    Page {{ currentPage + 1 }}
+                    <span v-if="totalCount > 0" style="color: #64748b;">
+                        of ~{{ Math.ceil(totalCount / pageSize) }}
+                    </span>
+                </span>
+                <button @click="nextPage" :disabled="images.length < pageSize">
+                    Next →
+                </button>
+            </div>
+            </div>
+            <!-- End Content Area -->
+        </div>
+
+        <!-- Detail Modal -->
+        <div v-if="selectedImage" class="modal" @click="selectedImage = null">
+            <div class="modal-content" @click.stop>
+                <span class="close-button" @click="selectedImage = null">&times;</span>
+                <h2>{{ getFileName(selectedImage.source_path) }}</h2>
+
+                <img :src="`/api/images/${selectedImage.id}/file`"
+                     class="modal-image"
+                     :alt="selectedImage.source_path">
+
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <strong>Path:</strong><br>
+                        {{ selectedImage.source_path }}
+                    </div>
+                    <div class="detail-item">
+                        <strong>Format:</strong><br>
+                        {{ selectedImage.format }}
+                    </div>
+                    <div class="detail-item">
+                        <strong>Resolution:</strong><br>
+                        <span v-if="selectedImage.resolution">
+                            {{ selectedImage.resolution[0] }} x {{ selectedImage.resolution[1] }}
+                        </span>
+                    </div>
+                    <div class="detail-item">
+                        <strong>Size:</strong><br>
+                        {{ formatBytes(selectedImage.size_bytes) }}
+                    </div>
+                    <div class="detail-item">
+                        <strong>Selected Date:</strong><br>
+                        {{ selectedImage.selected_date ? formatDate(selectedImage.selected_date) : 'None' }}
+                    </div>
+                    <div class="detail-item">
+                        <strong>Date Source:</strong><br>
+                        {{ selectedImage.date_source || 'N/A' }}
+                    </div>
+                    <div class="detail-item">
+                        <strong>Confidence:</strong><br>
+                        {{ selectedImage.confidence }}%
+                    </div>
+                    <div class="detail-item">
+                        <strong>Status:</strong><br>
+                        <span class="badge badge-warning" v-if="selectedImage.suspicious">Suspicious</span>
+                        <span class="badge badge-info" v-else>OK</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    loading: true,
+                    catalogInfo: {},
+                    statistics: {},
+                    images: [],
+                    selectedImage: null,
+                    filterType: '',
+                    sortBy: 'date',
+                    currentPage: 0,
+                    pageSize: 50,
+                    autoRefresh: false,
+                    refreshInterval: 10, // seconds
+                    refreshCountdown: 10,
+                    refreshTimer: null,
+                    countdownTimer: null,
+                    // Scroll mode
+                    scrollMode: true, // true = infinite scroll, false = pagination
+                    loadedCount: 0,
+                    totalCount: 0,
+                    isLoadingMore: false,
+                    hasMore: true,
+                    // Chart view settings (charts themselves stored as non-reactive instance properties)
+                    fileTypeView: 'category', // 'category' or 'extension'
+                };
+            },
+            created() {
+                // Initialize chart instances as non-reactive properties
+                this._fileTypeChart = null;
+                this._sizeChart = null;
+                this._issuesChart = null;
+            },
+            methods: {
+                async loadCatalogInfo() {
+                    try {
+                        const response = await axios.get('/api/catalog/info');
+                        this.catalogInfo = response.data;
+                    } catch (error) {
+                        console.error('Error loading catalog info:', error);
+                    }
+                },
+                async loadStatistics() {
+                    try {
+                        const response = await axios.get('/api/statistics/summary');
+                        this.statistics = response.data;
+                        console.log('Loaded statistics:', this.statistics);
+                        console.log('by_category:', this.statistics.by_category);
+                        console.log('by_extension:', this.statistics.by_extension);
+                        console.log('by_size_bucket:', this.statistics.by_size_bucket);
+                        console.log('by_issue_type:', this.statistics.by_issue_type);
+                        this.updateCharts();
+                    } catch (error) {
+                        console.error('Error loading statistics:', error);
+                    }
+                },
+                createCharts() {
+                    // Check if Chart.js is loaded
+                    if (typeof Chart === 'undefined') {
+                        console.error('Chart.js not loaded yet, retrying in 500ms');
+                        setTimeout(() => this.createCharts(), 500);
+                        return;
+                    }
+
+                    // Check if canvas elements are ready
+                    if (!this.$refs.fileTypeChart || !this.$refs.sizeChart || !this.$refs.issuesChart) {
+                        console.error('Canvas elements not ready yet, retrying in 200ms');
+                        setTimeout(() => this.createCharts(), 200);
+                        return;
+                    }
+
+                    try {
+                        // File Type Chart
+                        const fileTypeCtx = this.$refs.fileTypeChart.getContext('2d');
+                        if (!fileTypeCtx) {
+                            console.error('File type chart canvas context failed');
+                            return;
+                        }
+                        this._fileTypeChart = new Chart(fileTypeCtx, {
+                            type: 'bar',
+                            data: { labels: [], datasets: [{data: [], backgroundColor: '#60a5fa'}] },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: function(context) {
+                                                return context.parsed.y + '%';
+                                            }
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        max: 100,
+                                        ticks: {
+                                            color: '#94a3b8',
+                                            callback: function(value) {
+                                                return value + '%';
+                                            }
+                                        },
+                                        grid: { color: '#334155' }
+                                    },
+                                    x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
+                                },
+                            },
+                        });
+
+                        // Size Chart
+                        const sizeCtx = this.$refs.sizeChart.getContext('2d');
+                        if (!sizeCtx) {
+                            console.error('Size chart canvas context failed');
+                            return;
+                        }
+                        this._sizeChart = new Chart(sizeCtx, {
+                            type: 'bar',
+                            data: { labels: [], datasets: [{data: [], backgroundColor: '#10b981'}] },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: function(context) {
+                                                return context.parsed.y + '%';
+                                            }
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        max: 100,
+                                        ticks: {
+                                            color: '#94a3b8',
+                                            callback: function(value) {
+                                                return value + '%';
+                                            }
+                                        },
+                                        grid: { color: '#334155' }
+                                    },
+                                    x: { ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 45 }, grid: { display: false } },
+                                },
+                            },
+                        });
+
+                        // Issues Chart
+                        const issuesCtx = this.$refs.issuesChart.getContext('2d');
+                        if (!issuesCtx) {
+                            console.error('Issues chart canvas context failed');
+                            return;
+                        }
+                        this._issuesChart = new Chart(issuesCtx, {
+                            type: 'doughnut',
+                            data: { labels: [], datasets: [{data: [], backgroundColor: ['#ef4444', '#f59e0b', '#eab308']}] },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { position: 'right', labels: { color: '#e2e8f0', padding: 10, font: { size: 11 } } },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: function(context) {
+                                                const label = context.label || '';
+                                                const value = context.parsed;
+                                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                                const percentage = ((value / total) * 100).toFixed(1);
+                                                return label + ': ' + value + ' (' + percentage + '%)';
+                                            }
+                                        }
+                                    }
+                                },
+                            },
+                        });
+
+                        console.log('Charts created successfully');
+                    } catch (error) {
+                        console.error('Error creating charts:', error);
+                    }
+                },
+                updateCharts() {
+                    if (!this.statistics) {
+                        console.log('No statistics data yet');
+                        return;
+                    }
+                    if (!this._fileTypeChart || !this._sizeChart || !this._issuesChart) {
+                        console.log('Charts not created yet');
+                        return;
+                    }
+
+                    console.log('Updating charts...');
+
+                    try {
+                        // Update File Type Chart
+                        const fileTypeData = this.fileTypeView === 'category' ?
+                            this.statistics.by_category : this.statistics.by_extension;
+
+                        console.log('fileTypeData:', fileTypeData);
+                        console.log('fileTypeData keys:', fileTypeData ? Object.keys(fileTypeData) : 'null');
+
+                        if (fileTypeData && Object.keys(fileTypeData).length > 0) {
+                            const fileTypeValues = Object.values(fileTypeData);
+                            const fileTypeTotal = fileTypeValues.reduce((a, b) => a + b, 0);
+                            const fileTypePercentages = fileTypeValues.map(v => (v / fileTypeTotal * 100).toFixed(1));
+
+                            console.log('File type values:', fileTypeValues);
+                            console.log('File type percentages:', fileTypePercentages);
+
+                            this._fileTypeChart.data.labels = Object.keys(fileTypeData);
+                            this._fileTypeChart.data.datasets[0].data = fileTypePercentages;
+                            this._fileTypeChart.update('none'); // 'none' prevents animation and recursion
+                            console.log('File type chart updated');
+                        } else {
+                            console.log('No file type data to display');
+                        }
+
+                        // Update Size Chart
+                        if (this.statistics.by_size_bucket && Object.keys(this.statistics.by_size_bucket).length > 0) {
+                            const sizeValues = Object.values(this.statistics.by_size_bucket);
+                            const sizeTotal = sizeValues.reduce((a, b) => a + b, 0);
+                            const sizePercentages = sizeValues.map(v => (v / sizeTotal * 100).toFixed(1));
+
+                            this._sizeChart.data.labels = Object.keys(this.statistics.by_size_bucket);
+                            this._sizeChart.data.datasets[0].data = sizePercentages;
+                            this._sizeChart.update('none');
+                            console.log('Size chart updated');
+                        }
+
+                        // Update Issues Chart (keep as counts for doughnut, percentages shown in legend)
+                        if (this.statistics.by_issue_type && Object.keys(this.statistics.by_issue_type).length > 0) {
+                            const issueLabels = {
+                                'no_date': 'No Date',
+                                'suspicious_date': 'Suspicious Date',
+                                'low_confidence_date': 'Low Confidence',
+                            };
+                            this._issuesChart.data.labels = Object.keys(this.statistics.by_issue_type).map(
+                                key => issueLabels[key] || key
+                            );
+                            this._issuesChart.data.datasets[0].data = Object.values(this.statistics.by_issue_type);
+                            this._issuesChart.update('none');
+                            console.log('Issues chart updated');
+                        }
+                    } catch (error) {
+                        console.error('Error updating charts:', error);
+                    }
+                },
+                toggleFileTypeView() {
+                    this.fileTypeView = this.fileTypeView === 'category' ? 'extension' : 'category';
+                    this.updateCharts();
+                },
+                async loadImages() {
+                    try {
+                        const params = {
+                            skip: this.scrollMode ? 0 : this.currentPage * this.pageSize,
+                            limit: this.scrollMode ? this.pageSize : this.pageSize,
+                            sort_by: this.sortBy,
+                        };
+                        if (this.filterType) {
+                            params.filter_type = this.filterType;
+                        }
+                        const response = await axios.get('/api/images', { params });
+
+                        if (this.scrollMode) {
+                            // In scroll mode, replace images
+                            this.images = response.data;
+                            this.loadedCount = response.data.length;
+                            this.hasMore = response.data.length >= this.pageSize;
+                            this.currentPage = 0;
+                        } else {
+                            // In pagination mode, replace images
+                            this.images = response.data;
+                            this.loadedCount = (this.currentPage * this.pageSize) + response.data.length;
+                        }
+
+                        this.updateTotalCount();
+                    } catch (error) {
+                        console.error('Error loading images:', error);
+                    }
+                },
+                async loadMoreImages() {
+                    if (!this.scrollMode || this.isLoadingMore || !this.hasMore) {
+                        return;
+                    }
+
+                    this.isLoadingMore = true;
+                    try {
+                        const nextPage = Math.floor(this.loadedCount / this.pageSize);
+                        const params = {
+                            skip: nextPage * this.pageSize,
+                            limit: this.pageSize,
+                            sort_by: this.sortBy,
+                        };
+                        if (this.filterType) {
+                            params.filter_type = this.filterType;
+                        }
+                        const response = await axios.get('/api/images', { params });
+
+                        if (response.data.length > 0) {
+                            this.images.push(...response.data);
+                            this.loadedCount += response.data.length;
+                            this.hasMore = response.data.length >= this.pageSize;
+                        } else {
+                            this.hasMore = false;
+                        }
+                    } catch (error) {
+                        console.error('Error loading more images:', error);
+                    } finally {
+                        this.isLoadingMore = false;
+                    }
+                },
+                updateTotalCount() {
+                    // Estimate total based on catalog stats
+                    if (this.catalogInfo.statistics) {
+                        if (this.filterType === 'image') {
+                            this.totalCount = this.catalogInfo.statistics.total_images;
+                        } else if (this.filterType === 'video') {
+                            this.totalCount = this.catalogInfo.statistics.total_videos;
+                        } else if (this.filterType === 'no_date') {
+                            this.totalCount = this.catalogInfo.statistics.no_date || 0;
+                        } else if (this.filterType === 'suspicious') {
+                            this.totalCount = this.catalogInfo.statistics.suspicious_dates || 0;
+                        } else {
+                            this.totalCount = (this.catalogInfo.statistics.total_images || 0) +
+                                            (this.catalogInfo.statistics.total_videos || 0);
+                        }
+                    }
+                },
+                handleScroll() {
+                    if (!this.scrollMode) return;
+
+                    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+                    const scrollHeight = document.documentElement.scrollHeight;
+                    const clientHeight = document.documentElement.clientHeight;
+
+                    // Load more when within 500px of bottom
+                    if (scrollHeight - scrollTop - clientHeight < 500) {
+                        this.loadMoreImages();
+                    }
+                },
+                toggleScrollMode() {
+                    this.scrollMode = !this.scrollMode;
+                    this.currentPage = 0;
+                    this.loadImages();
+                },
+                async showDetail(image) {
+                    this.selectedImage = image;
+                },
+                async refresh() {
+                    await this.loadCatalogInfo();
+                    await this.loadStatistics();
+                    await this.loadImages();
+                },
+                toggleAutoRefresh() {
+                    this.autoRefresh = !this.autoRefresh;
+
+                    if (this.autoRefresh) {
+                        this.startAutoRefresh();
+                    } else {
+                        this.stopAutoRefresh();
+                    }
+                },
+                startAutoRefresh() {
+                    this.refreshCountdown = this.refreshInterval;
+
+                    // Start countdown timer (updates every second)
+                    this.countdownTimer = setInterval(() => {
+                        this.refreshCountdown--;
+                        if (this.refreshCountdown <= 0) {
+                            this.refreshCountdown = this.refreshInterval;
+                        }
+                    }, 1000);
+
+                    // Start refresh timer
+                    this.refreshTimer = setInterval(async () => {
+                        await this.refresh();
+                    }, this.refreshInterval * 1000);
+                },
+                stopAutoRefresh() {
+                    if (this.refreshTimer) {
+                        clearInterval(this.refreshTimer);
+                        this.refreshTimer = null;
+                    }
+                    if (this.countdownTimer) {
+                        clearInterval(this.countdownTimer);
+                        this.countdownTimer = null;
+                    }
+                },
+                formatBytes(bytes) {
+                    if (!bytes) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+                },
+                formatDate(dateStr) {
+                    if (!dateStr) return 'No date';
+                    const date = new Date(dateStr);
+                    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                },
+                getFileName(path) {
+                    return path.split('/').pop();
+                },
+                async nextPage() {
+                    this.currentPage++;
+                    await this.loadImages();
+                },
+                async prevPage() {
+                    if (this.currentPage > 0) {
+                        this.currentPage--;
+                        await this.loadImages();
+                    }
+                },
+                handleKeyboard(event) {
+                    // Keyboard shortcuts
+                    if (this.selectedImage) {
+                        // When modal is open, Escape closes it
+                        if (event.key === 'Escape') {
+                            this.selectedImage = null;
+                        }
+                        return; // Don't handle other shortcuts when modal is open
+                    }
+
+                    // Pagination shortcuts (only in pagination mode)
+                    if (!this.scrollMode) {
+                        if (event.key === 'ArrowLeft' || event.key === 'h') {
+                            event.preventDefault();
+                            this.prevPage();
+                        } else if (event.key === 'ArrowRight' || event.key === 'l') {
+                            event.preventDefault();
+                            this.nextPage();
+                        }
+                    }
+
+                    // General shortcuts
+                    if (event.key === 'r') {
+                        event.preventDefault();
+                        this.refresh();
+                    } else if (event.key === 's') {
+                        event.preventDefault();
+                        this.toggleScrollMode();
+                    } else if (event.key === 'a') {
+                        event.preventDefault();
+                        this.toggleAutoRefresh();
+                    }
+                },
+            },
+            beforeUnmount() {
+                // Clean up timers and event listeners
+                this.stopAutoRefresh();
+                window.removeEventListener('scroll', this.handleScroll);
+                window.removeEventListener('keydown', this.handleKeyboard);
+
+                // Destroy charts
+                if (this._fileTypeChart) this._fileTypeChart.destroy();
+                if (this._sizeChart) this._sizeChart.destroy();
+                if (this._issuesChart) this._issuesChart.destroy();
+            },
+            async mounted() {
+                await this.loadCatalogInfo();
+                await this.loadImages();
+
+                // Create charts after DOM is ready - use timeout to ensure canvas elements are rendered
+                this.$nextTick(() => {
+                    setTimeout(() => {
+                        this.createCharts();
+                        this.loadStatistics();
+                    }, 100);
+                });
+
+                this.loading = false;
+
+                // Add scroll listener for infinite scroll
+                window.addEventListener('scroll', this.handleScroll);
+
+                // Add keyboard listener
+                window.addEventListener('keydown', this.handleKeyboard);
+            },
+        }).mount('#app');
+    </script>
+</body>
+</html>
