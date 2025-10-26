@@ -119,9 +119,7 @@ def cli(
             console=console,
             disable=quiet,
         ) as progress:
-            task = progress.add_task(
-                "Analyzing images...", total=len(image_files)
-            )
+            task = progress.add_task("Analyzing images...", total=len(image_files))
 
             for image_path in image_files:
                 date_info = extractor.extract_earliest_date(image_path)
@@ -139,9 +137,7 @@ def cli(
     elif sort_by == "path":
         results.sort(key=lambda x: str(x[0]))
     elif sort_by == "source":
-        results.sort(
-            key=lambda x: (x[1].source if x[1] else "none", str(x[0]))
-        )
+        results.sort(key=lambda x: (x[1].source if x[1] else "none", str(x[0])))
 
     # Write results to file
     with open(output_path, "w", encoding="utf-8") as f:

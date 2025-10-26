@@ -25,10 +25,13 @@ logger = logging.getLogger(__name__)
 # Register HEIC support for Pillow
 try:
     from pillow_heif import register_heif_opener
+
     register_heif_opener()
     logger.debug("HEIC support registered for web viewer")
 except ImportError:
-    logger.warning("pillow-heif not installed, HEIC files cannot be displayed in web viewer")
+    logger.warning(
+        "pillow-heif not installed, HEIC files cannot be displayed in web viewer"
+    )
 
 app = FastAPI(title="VAM Tools Catalog Viewer", version="2.0.0")
 
@@ -50,6 +53,7 @@ _catalog_mtime: Optional[float] = None  # Track last modification time
 # Pydantic models for API responses
 class ImageSummary(BaseModel):
     """Summary of an image for list views."""
+
     id: str
     source_path: str
     file_type: str
@@ -64,6 +68,7 @@ class ImageSummary(BaseModel):
 
 class ImageDetail(BaseModel):
     """Full image details."""
+
     id: str
     source_path: str
     file_type: str
@@ -75,6 +80,7 @@ class ImageDetail(BaseModel):
 
 class CatalogStats(BaseModel):
     """Catalog statistics."""
+
     total_images: int
     total_videos: int
     total_size_bytes: int
@@ -84,6 +90,7 @@ class CatalogStats(BaseModel):
 
 class CatalogInfo(BaseModel):
     """Overall catalog information."""
+
     version: str
     catalog_id: str
     created: str
@@ -178,7 +185,9 @@ async def get_catalog_info():
 async def list_images(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    filter_type: Optional[str] = Query(None, regex="^(no_date|suspicious|image|video)$"),
+    filter_type: Optional[str] = Query(
+        None, regex="^(no_date|suspicious|image|video)$"
+    ),
     sort_by: str = Query("date", regex="^(date|path|size)$"),
 ):
     """
@@ -205,14 +214,20 @@ async def list_images(
     # Sort
     if sort_by == "date":
         images.sort(
-            key=lambda x: x.dates.selected_date if (x.dates and x.dates.selected_date) else datetime.min,
+            key=lambda x: (
+                x.dates.selected_date
+                if (x.dates and x.dates.selected_date)
+                else datetime.min
+            ),
             reverse=True,
         )
     elif sort_by == "path":
         images.sort(key=lambda x: str(x.source_path))
     elif sort_by == "size":
         images.sort(
-            key=lambda x: x.metadata.size_bytes if (x.metadata and x.metadata.size_bytes) else 0,
+            key=lambda x: (
+                x.metadata.size_bytes if (x.metadata and x.metadata.size_bytes) else 0
+            ),
             reverse=True,
         )
 
@@ -227,9 +242,11 @@ async def list_images(
                 id=img.id,
                 source_path=str(img.source_path),
                 file_type=img.file_type.value,
-                selected_date=img.dates.selected_date.isoformat()
-                if (img.dates and img.dates.selected_date)
-                else None,
+                selected_date=(
+                    img.dates.selected_date.isoformat()
+                    if (img.dates and img.dates.selected_date)
+                    else None
+                ),
                 date_source=img.dates.selected_source if img.dates else None,
                 confidence=img.dates.confidence if img.dates else 0,
                 suspicious=img.dates.suspicious if img.dates else False,
@@ -259,19 +276,27 @@ async def get_image_detail(image_id: str):
                 k: v.isoformat() if v else None
                 for k, v in image.dates.exif_dates.items()
             },
-            "filename_date": image.dates.filename_date.isoformat()
-            if image.dates.filename_date
-            else None,
+            "filename_date": (
+                image.dates.filename_date.isoformat()
+                if image.dates.filename_date
+                else None
+            ),
             "directory_date": image.dates.directory_date,
-            "filesystem_created": image.dates.filesystem_created.isoformat()
-            if image.dates.filesystem_created
-            else None,
-            "filesystem_modified": image.dates.filesystem_modified.isoformat()
-            if image.dates.filesystem_modified
-            else None,
-            "selected_date": image.dates.selected_date.isoformat()
-            if image.dates.selected_date
-            else None,
+            "filesystem_created": (
+                image.dates.filesystem_created.isoformat()
+                if image.dates.filesystem_created
+                else None
+            ),
+            "filesystem_modified": (
+                image.dates.filesystem_modified.isoformat()
+                if image.dates.filesystem_modified
+                else None
+            ),
+            "selected_date": (
+                image.dates.selected_date.isoformat()
+                if image.dates.selected_date
+                else None
+            ),
             "selected_source": image.dates.selected_source,
             "confidence": image.dates.confidence,
             "suspicious": image.dates.suspicious,
@@ -334,10 +359,22 @@ async def get_image_file(image_id: str):
     file_ext = file_path.suffix.lower()
 
     # RAW formats need special handling (extract embedded preview)
-    raw_formats = ['.arw', '.cr2', '.cr3', '.nef', '.dng', '.orf', '.rw2', '.pef', '.sr2', '.raf', '.raw']
+    raw_formats = [
+        ".arw",
+        ".cr2",
+        ".cr3",
+        ".nef",
+        ".dng",
+        ".orf",
+        ".rw2",
+        ".pef",
+        ".sr2",
+        ".raf",
+        ".raw",
+    ]
 
     # HEIC/TIFF can be converted with Pillow
-    pillow_convertible = ['.heic', '.heif', '.tif', '.tiff']
+    pillow_convertible = [".heic", ".heif", ".tif", ".tiff"]
 
     # Handle RAW files - extract embedded JPEG preview using ExifTool
     if file_ext in raw_formats:
@@ -345,9 +382,9 @@ async def get_image_file(image_id: str):
             # Use ExifTool to extract preview image
             # Most RAW files have embedded JPEG previews
             result = subprocess.run(
-                ['exiftool', '-b', '-PreviewImage', str(file_path)],
+                ["exiftool", "-b", "-PreviewImage", str(file_path)],
                 capture_output=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode == 0 and len(result.stdout) > 0:
@@ -356,14 +393,16 @@ async def get_image_file(image_id: str):
                 return StreamingResponse(
                     buffer,
                     media_type="image/jpeg",
-                    headers={"Content-Disposition": f"inline; filename={file_path.stem}_preview.jpg"}
+                    headers={
+                        "Content-Disposition": f"inline; filename={file_path.stem}_preview.jpg"
+                    },
                 )
             else:
                 # No preview found, try different preview tags
                 result = subprocess.run(
-                    ['exiftool', '-b', '-JpgFromRaw', str(file_path)],
+                    ["exiftool", "-b", "-JpgFromRaw", str(file_path)],
                     capture_output=True,
-                    timeout=10
+                    timeout=10,
                 )
 
                 if result.returncode == 0 and len(result.stdout) > 0:
@@ -371,22 +410,33 @@ async def get_image_file(image_id: str):
                     return StreamingResponse(
                         buffer,
                         media_type="image/jpeg",
-                        headers={"Content-Disposition": f"inline; filename={file_path.stem}_preview.jpg"}
+                        headers={
+                            "Content-Disposition": f"inline; filename={file_path.stem}_preview.jpg"
+                        },
                     )
                 else:
                     raise HTTPException(
                         status_code=500,
-                        detail=f"No embedded preview found in {file_ext.upper()} file"
+                        detail=f"No embedded preview found in {file_ext.upper()} file",
                     )
         except subprocess.TimeoutExpired:
             logger.error(f"Timeout extracting preview from {file_path}")
-            raise HTTPException(status_code=500, detail=f"Timeout extracting preview from {file_ext.upper()} file")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Timeout extracting preview from {file_ext.upper()} file",
+            )
         except FileNotFoundError:
             logger.error("ExifTool not found - required for RAW file previews")
-            raise HTTPException(status_code=500, detail="ExifTool not installed (required for RAW previews)")
+            raise HTTPException(
+                status_code=500,
+                detail="ExifTool not installed (required for RAW previews)",
+            )
         except Exception as e:
             logger.error(f"Error extracting preview from {file_path} ({file_ext}): {e}")
-            raise HTTPException(status_code=500, detail=f"Error extracting preview from {file_ext.upper()}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error extracting preview from {file_ext.upper()}: {e}",
+            )
 
     # Handle HEIC/TIFF with Pillow conversion
     elif file_ext in pillow_convertible:
@@ -394,22 +444,27 @@ async def get_image_file(image_id: str):
             # Convert to JPEG on-the-fly for browser display
             with Image.open(file_path) as img:
                 # Convert to RGB if needed (HEIC can have different color modes)
-                if img.mode not in ('RGB', 'L'):
-                    img = img.convert('RGB')
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
 
                 # Save to bytes buffer as JPEG
                 buffer = io.BytesIO()
-                img.save(buffer, format='JPEG', quality=85)
+                img.save(buffer, format="JPEG", quality=85)
                 buffer.seek(0)
 
                 return StreamingResponse(
                     buffer,
                     media_type="image/jpeg",
-                    headers={"Content-Disposition": f"inline; filename={file_path.stem}.jpg"}
+                    headers={
+                        "Content-Disposition": f"inline; filename={file_path.stem}.jpg"
+                    },
                 )
         except Exception as e:
             logger.error(f"Error converting image {file_path} ({file_ext}): {e}")
-            raise HTTPException(status_code=500, detail=f"Error converting {file_ext.upper()} image: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error converting {file_ext.upper()} image: {e}",
+            )
 
     # For browser-native formats (JPEG, PNG, GIF, WebP), serve directly
     return FileResponse(file_path)
@@ -440,7 +495,7 @@ async def get_statistics_summary():
         (1_000_000, 5_000_000, "1 MB - 5 MB"),
         (5_000_000, 10_000_000, "5 MB - 10 MB"),
         (10_000_000, 50_000_000, "10 MB - 50 MB"),
-        (50_000_000, float('inf'), "> 50 MB"),
+        (50_000_000, float("inf"), "> 50 MB"),
     ]
 
     for bucket_min, bucket_max, bucket_label in size_buckets:
@@ -473,12 +528,16 @@ async def get_statistics_summary():
         # Issues distribution
         if image.dates and image.dates.suspicious:
             suspicious += 1
-            by_issue_type["suspicious_date"] = by_issue_type.get("suspicious_date", 0) + 1
+            by_issue_type["suspicious_date"] = (
+                by_issue_type.get("suspicious_date", 0) + 1
+            )
         if not (image.dates and image.dates.selected_date):
             no_date += 1
             by_issue_type["no_date"] = by_issue_type.get("no_date", 0) + 1
         if image.dates and image.dates.confidence < 70:
-            by_issue_type["low_confidence_date"] = by_issue_type.get("low_confidence_date", 0) + 1
+            by_issue_type["low_confidence_date"] = (
+                by_issue_type.get("low_confidence_date", 0) + 1
+            )
 
         # Year distribution
         if image.dates and image.dates.selected_date:

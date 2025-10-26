@@ -108,8 +108,7 @@ class CatalogReorganizer:
             dir_path = self.output_directory / str(date.year)
         else:  # FLAT_DATE
             dir_path = (
-                self.output_directory
-                / f"{date.year}-{date.month:02d}-{date.day:02d}"
+                self.output_directory / f"{date.year}-{date.month:02d}-{date.day:02d}"
             )
 
         # Generate filename based on date and original filename
@@ -173,16 +172,11 @@ class CatalogReorganizer:
                     date_info = extractor.extract_earliest_date(image_path)
 
                     # Generate destination path
-                    destination = self.generate_destination_path(
-                        image_path, date_info
-                    )
+                    destination = self.generate_destination_path(image_path, date_info)
 
                     # Check for conflicts
                     if destination.exists():
-                        if (
-                            self.conflict_resolution
-                            == ConflictResolution.SKIP
-                        ):
+                        if self.conflict_resolution == ConflictResolution.SKIP:
                             plans.append(
                                 ReorganizationPlan(
                                     source=image_path,

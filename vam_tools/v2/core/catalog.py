@@ -55,7 +55,9 @@ class CatalogDatabase:
         self._lock_fd: Optional[int] = None
         self._data: Optional[Dict] = None
         self._last_checkpoint: Optional[datetime] = None
-        self._path_index: Optional[Dict[str, str]] = None  # Maps source_path -> image_id for fast lookup
+        self._path_index: Optional[Dict[str, str]] = (
+            None  # Maps source_path -> image_id for fast lookup
+        )
 
         # Ensure directories exist
         self.catalog_path.mkdir(parents=True, exist_ok=True)
@@ -283,8 +285,17 @@ class CatalogDatabase:
 
         # Validate and fix data structure
         logger.info("Validating data structure...")
-        required_keys = ["version", "catalog_path", "catalog_id", "created", "last_updated",
-                        "configuration", "state", "statistics", "images"]
+        required_keys = [
+            "version",
+            "catalog_path",
+            "catalog_id",
+            "created",
+            "last_updated",
+            "configuration",
+            "state",
+            "statistics",
+            "images",
+        ]
 
         for key in required_keys:
             if key not in self._data:
@@ -327,7 +338,13 @@ class CatalogDatabase:
                 if not isinstance(image_data, dict):
                     raise ValueError("Image data is not a dictionary")
 
-                required_image_keys = ["id", "source_path", "file_type", "checksum", "status"]
+                required_image_keys = [
+                    "id",
+                    "source_path",
+                    "file_type",
+                    "checksum",
+                    "status",
+                ]
                 for key in required_image_keys:
                     if key not in image_data:
                         raise ValueError(f"Missing required field: {key}")
@@ -345,7 +362,9 @@ class CatalogDatabase:
                 logger.warning(f"Invalid image record {image_id}: {e}")
                 invalid_count += 1
 
-        logger.info(f"Found {len(valid_images)} valid images, removed {invalid_count} invalid records")
+        logger.info(
+            f"Found {len(valid_images)} valid images, removed {invalid_count} invalid records"
+        )
         self._data["images"] = valid_images
 
         # Rebuild path index
@@ -390,15 +409,25 @@ class CatalogDatabase:
 
         config_data = self._data.get("configuration", {})
         return CatalogConfiguration(
-            source_directories=[Path(p) for p in config_data.get("source_directories", [])],
-            import_directory=Path(config_data["import_directory"]) if config_data.get("import_directory") else None,
+            source_directories=[
+                Path(p) for p in config_data.get("source_directories", [])
+            ],
+            import_directory=(
+                Path(config_data["import_directory"])
+                if config_data.get("import_directory")
+                else None
+            ),
             date_format=config_data.get("date_format", "YYYY-MM"),
-            file_naming=config_data.get("file_naming", "{date}_{time}_{checksum}.{ext}"),
+            file_naming=config_data.get(
+                "file_naming", "{date}_{time}_{checksum}.{ext}"
+            ),
             burst_threshold_seconds=config_data.get("burst_threshold_seconds", 10.0),
             burst_min_images=config_data.get("burst_min_images", 3),
             ai_model=config_data.get("ai_model", "hybrid"),
             video_support=config_data.get("video_support", True),
-            checkpoint_interval_seconds=config_data.get("checkpoint_interval_seconds", 300),
+            checkpoint_interval_seconds=config_data.get(
+                "checkpoint_interval_seconds", 300
+            ),
         )
 
     def update_configuration(self, config: CatalogConfiguration) -> None:
@@ -414,8 +443,14 @@ class CatalogDatabase:
         state_data = self._data.get("state", {})
         state = CatalogState(
             phase=CatalogPhase(state_data.get("phase", "analyzing")),
-            last_checkpoint=datetime.fromisoformat(state_data["last_checkpoint"]) if state_data.get("last_checkpoint") else None,
-            checkpoint_interval_seconds=state_data.get("checkpoint_interval_seconds", 300),
+            last_checkpoint=(
+                datetime.fromisoformat(state_data["last_checkpoint"])
+                if state_data.get("last_checkpoint")
+                else None
+            ),
+            checkpoint_interval_seconds=state_data.get(
+                "checkpoint_interval_seconds", 300
+            ),
             images_processed=state_data.get("images_processed", 0),
             images_total=state_data.get("images_total", 0),
             progress_percentage=state_data.get("progress_percentage", 0.0),
@@ -424,8 +459,16 @@ class CatalogDatabase:
         # Add catalog-level properties to state for convenience
         state.version = self._data.get("version", "2.0.0")
         state.catalog_id = self._data.get("catalog_id", "")
-        state.created = datetime.fromisoformat(self._data["created"]) if self._data.get("created") else None
-        state.last_updated = datetime.fromisoformat(self._data["last_updated"]) if self._data.get("last_updated") else None
+        state.created = (
+            datetime.fromisoformat(self._data["created"])
+            if self._data.get("created")
+            else None
+        )
+        state.last_updated = (
+            datetime.fromisoformat(self._data["last_updated"])
+            if self._data.get("last_updated")
+            else None
+        )
 
         return state
 
@@ -491,7 +534,9 @@ class CatalogDatabase:
     def add_duplicate_group(self, group: DuplicateGroup) -> None:
         """Add a duplicate group."""
         if self._data:
-            self._data["duplicate_groups"][group.id] = self._serialize_duplicate_group(group)
+            self._data["duplicate_groups"][group.id] = self._serialize_duplicate_group(
+                group
+            )
 
     def add_burst_group(self, group: BurstGroup) -> None:
         """Add a burst group."""
@@ -520,7 +565,9 @@ class CatalogDatabase:
         """Serialize configuration to dict."""
         return {
             "source_directories": [str(p) for p in config.source_directories],
-            "import_directory": str(config.import_directory) if config.import_directory else None,
+            "import_directory": (
+                str(config.import_directory) if config.import_directory else None
+            ),
             "date_format": config.date_format,
             "file_naming": config.file_naming,
             "burst_threshold_seconds": config.burst_threshold_seconds,
@@ -534,7 +581,9 @@ class CatalogDatabase:
         """Serialize state to dict."""
         return {
             "phase": state.phase.value,
-            "last_checkpoint": state.last_checkpoint.isoformat() if state.last_checkpoint else None,
+            "last_checkpoint": (
+                state.last_checkpoint.isoformat() if state.last_checkpoint else None
+            ),
             "checkpoint_interval_seconds": state.checkpoint_interval_seconds,
             "images_processed": state.images_processed,
             "images_total": state.images_total,
@@ -570,12 +619,31 @@ class CatalogDatabase:
         # Add dates if present
         if image.dates:
             data["dates"] = {
-                "exif_dates": {k: v.isoformat() if v else None for k, v in image.dates.exif_dates.items()},
-                "filename_date": image.dates.filename_date.isoformat() if image.dates.filename_date else None,
+                "exif_dates": {
+                    k: v.isoformat() if v else None
+                    for k, v in image.dates.exif_dates.items()
+                },
+                "filename_date": (
+                    image.dates.filename_date.isoformat()
+                    if image.dates.filename_date
+                    else None
+                ),
                 "directory_date": image.dates.directory_date,
-                "filesystem_created": image.dates.filesystem_created.isoformat() if image.dates.filesystem_created else None,
-                "filesystem_modified": image.dates.filesystem_modified.isoformat() if image.dates.filesystem_modified else None,
-                "selected_date": image.dates.selected_date.isoformat() if image.dates.selected_date else None,
+                "filesystem_created": (
+                    image.dates.filesystem_created.isoformat()
+                    if image.dates.filesystem_created
+                    else None
+                ),
+                "filesystem_modified": (
+                    image.dates.filesystem_modified.isoformat()
+                    if image.dates.filesystem_modified
+                    else None
+                ),
+                "selected_date": (
+                    image.dates.selected_date.isoformat()
+                    if image.dates.selected_date
+                    else None
+                ),
                 "selected_source": image.dates.selected_source,
                 "confidence": image.dates.confidence,
                 "suspicious": image.dates.suspicious,
@@ -606,11 +674,27 @@ class CatalogDatabase:
                     k: datetime.fromisoformat(v) if v else None
                     for k, v in date_data.get("exif_dates", {}).items()
                 },
-                filename_date=datetime.fromisoformat(date_data["filename_date"]) if date_data.get("filename_date") else None,
+                filename_date=(
+                    datetime.fromisoformat(date_data["filename_date"])
+                    if date_data.get("filename_date")
+                    else None
+                ),
                 directory_date=date_data.get("directory_date"),
-                filesystem_created=datetime.fromisoformat(date_data["filesystem_created"]) if date_data.get("filesystem_created") else None,
-                filesystem_modified=datetime.fromisoformat(date_data["filesystem_modified"]) if date_data.get("filesystem_modified") else None,
-                selected_date=datetime.fromisoformat(date_data["selected_date"]) if date_data.get("selected_date") else None,
+                filesystem_created=(
+                    datetime.fromisoformat(date_data["filesystem_created"])
+                    if date_data.get("filesystem_created")
+                    else None
+                ),
+                filesystem_modified=(
+                    datetime.fromisoformat(date_data["filesystem_modified"])
+                    if date_data.get("filesystem_modified")
+                    else None
+                ),
+                selected_date=(
+                    datetime.fromisoformat(date_data["selected_date"])
+                    if date_data.get("selected_date")
+                    else None
+                ),
                 selected_source=date_data.get("selected_source"),
                 confidence=date_data.get("confidence", 0),
                 suspicious=date_data.get("suspicious", False),
@@ -623,7 +707,11 @@ class CatalogDatabase:
             meta_data = data["metadata"]
             metadata = ImageMetadata(
                 format=meta_data.get("format"),
-                resolution=tuple(meta_data["resolution"]) if meta_data.get("resolution") else None,
+                resolution=(
+                    tuple(meta_data["resolution"])
+                    if meta_data.get("resolution")
+                    else None
+                ),
                 size_bytes=meta_data.get("size_bytes"),
                 exif=meta_data.get("exif"),
             )

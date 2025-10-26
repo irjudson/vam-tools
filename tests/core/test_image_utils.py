@@ -32,7 +32,9 @@ class TestIsImageFile:
         ]
 
         for file_path in valid_files:
-            assert is_image_file(file_path), f"{file_path} should be recognized as image"
+            assert is_image_file(
+                file_path
+            ), f"{file_path} should be recognized as image"
 
     def test_invalid_extensions(self) -> None:
         """Test that non-image files are not recognized."""
@@ -45,7 +47,9 @@ class TestIsImageFile:
         ]
 
         for file_path in invalid_files:
-            assert not is_image_file(file_path), f"{file_path} should not be recognized as image"
+            assert not is_image_file(
+                file_path
+            ), f"{file_path} should not be recognized as image"
 
     def test_case_insensitive(self) -> None:
         """Test that extension matching is case-insensitive."""
@@ -119,7 +123,9 @@ class TestFormatFileSize:
 class TestCollectImageFiles:
     """Tests for collect_image_files function."""
 
-    def test_collect_from_flat_directory(self, sample_images: list[Path], temp_dir: Path) -> None:
+    def test_collect_from_flat_directory(
+        self, sample_images: list[Path], temp_dir: Path
+    ) -> None:
         """Test collecting images from a flat directory."""
         images = collect_image_files(temp_dir, recursive=False)
 

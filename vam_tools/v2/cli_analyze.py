@@ -57,7 +57,9 @@ def setup_logging(verbose: bool = False) -> None:
     is_flag=True,
     help="Repair corrupted catalog database",
 )
-def analyze(catalog_path: str, source: tuple, verbose: bool, clear: bool, repair: bool) -> None:
+def analyze(
+    catalog_path: str, source: tuple, verbose: bool, clear: bool, repair: bool
+) -> None:
     """
     Analyze images and build catalog database.
 
@@ -73,7 +75,9 @@ def analyze(catalog_path: str, source: tuple, verbose: bool, clear: bool, repair
     # Validate source directories are provided when not in repair mode
     if not repair and not source:
         console.print("[red]Error: --source/-s is required unless using --repair[/red]")
-        console.print("Example: vam-analyze /path/to/catalog -s /path/to/photos -s /path/to/more/photos")
+        console.print(
+            "Example: vam-analyze /path/to/catalog -s /path/to/photos -s /path/to/more/photos"
+        )
         sys.exit(1)
 
     source_dirs = [Path(s) for s in source] if source else []
@@ -102,7 +106,9 @@ def analyze(catalog_path: str, source: tuple, verbose: bool, clear: bool, repair
                 # Show repaired catalog info
                 state = db.get_state()
                 stats = db.get_statistics()
-                console.print(f"Catalog contains: {stats.total_images:,} images, {stats.total_videos:,} videos")
+                console.print(
+                    f"Catalog contains: {stats.total_images:,} images, {stats.total_videos:,} videos"
+                )
         except Exception as e:
             console.print(f"[red]Error during repair: {e}[/red]")
             if verbose:
@@ -119,6 +125,7 @@ def analyze(catalog_path: str, source: tuple, verbose: bool, clear: bool, repair
         # Create backup before clearing
         try:
             import shutil
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_name = catalog_path / f".catalog.backup.{timestamp}.json"
             shutil.copy2(catalog_file, backup_name)
@@ -148,8 +155,12 @@ def analyze(catalog_path: str, source: tuple, verbose: bool, clear: bool, repair
                 stats = db.get_statistics()
 
                 console.print(f"[dim]Catalog ID: {state.catalog_id}[/dim]")
-                console.print(f"[dim]Created: {state.created.strftime('%Y-%m-%d %H:%M:%S') if state.created else 'Unknown'}[/dim]")
-                console.print(f"[dim]Last updated: {state.last_updated.strftime('%Y-%m-%d %H:%M:%S') if state.last_updated else 'Unknown'}[/dim]")
+                console.print(
+                    f"[dim]Created: {state.created.strftime('%Y-%m-%d %H:%M:%S') if state.created else 'Unknown'}[/dim]"
+                )
+                console.print(
+                    f"[dim]Last updated: {state.last_updated.strftime('%Y-%m-%d %H:%M:%S') if state.last_updated else 'Unknown'}[/dim]"
+                )
                 console.print(f"[dim]Current phase: {state.phase.value}[/dim]")
 
                 total_existing = stats.total_images + stats.total_videos
@@ -157,8 +168,12 @@ def analyze(catalog_path: str, source: tuple, verbose: bool, clear: bool, repair
                     console.print(f"\n[cyan]Existing catalog contains:[/cyan]")
                     console.print(f"  • {stats.total_images:,} images")
                     console.print(f"  • {stats.total_videos:,} videos")
-                    console.print(f"  • {format_bytes(stats.total_size_bytes)} total size")
-                    console.print(f"\n[yellow]Scanning for new/changed files...[/yellow]")
+                    console.print(
+                        f"  • {format_bytes(stats.total_size_bytes)} total size"
+                    )
+                    console.print(
+                        f"\n[yellow]Scanning for new/changed files...[/yellow]"
+                    )
 
             # Run scanner
             console.print("\n[cyan]Starting scan...[/cyan]\n")
@@ -171,20 +186,34 @@ def analyze(catalog_path: str, source: tuple, verbose: bool, clear: bool, repair
             # Show what happened during this scan
             if catalog_exists:
                 console.print(f"[dim]Files added: {scanner.files_added:,}[/dim]")
-                console.print(f"[dim]Files skipped: {scanner.files_skipped:,} (already in catalog)[/dim]\n")
+                console.print(
+                    f"[dim]Files skipped: {scanner.files_skipped:,} (already in catalog)[/dim]\n"
+                )
 
             stats = db.get_statistics()
             display_statistics(stats)
     except Exception as e:
         console.print(f"\n[red]✗ Error loading/processing catalog: {e}[/red]")
-        console.print("\n[yellow]The catalog may be corrupted. Try running with --repair to fix it:[/yellow]")
+        console.print(
+            "\n[yellow]The catalog may be corrupted. Try running with --repair to fix it:[/yellow]"
+        )
         console.print(f"  [cyan]vam-analyze {catalog_path} --repair[/cyan]")
-        console.print("\n[yellow]Or use --clear to start fresh (existing data will be backed up):[/yellow]")
-        source_args = ' -s '.join(str(s) for s in source_dirs) if source_dirs else '[your source directories]'
+        console.print(
+            "\n[yellow]Or use --clear to start fresh (existing data will be backed up):[/yellow]"
+        )
+        source_args = (
+            " -s ".join(str(s) for s in source_dirs)
+            if source_dirs
+            else "[your source directories]"
+        )
         if source_dirs:
-            console.print(f"  [cyan]vam-analyze {catalog_path} -s {source_args} --clear[/cyan]")
+            console.print(
+                f"  [cyan]vam-analyze {catalog_path} -s {source_args} --clear[/cyan]"
+            )
         else:
-            console.print(f"  [cyan]vam-analyze {catalog_path} -s [your source directories] --clear[/cyan]")
+            console.print(
+                f"  [cyan]vam-analyze {catalog_path} -s [your source directories] --clear[/cyan]"
+            )
         if verbose:
             console.print("\n[dim]Full error details:[/dim]")
             console.print_exception()

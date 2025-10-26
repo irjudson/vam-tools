@@ -218,9 +218,7 @@ class DuplicateDetector:
 
         return duplicate_groups
 
-    def find_perceptual_duplicates(
-        self, threshold: int = 5
-    ) -> List[DuplicateGroup]:
+    def find_perceptual_duplicates(self, threshold: int = 5) -> List[DuplicateGroup]:
         """
         Find perceptually similar images using perceptual hashing.
 
@@ -238,8 +236,7 @@ class DuplicateDetector:
 
         # Get images not in exact duplicate groups
         remaining_images = [
-            img for img in self.image_hashes.keys()
-            if img not in exact_duplicate_images
+            img for img in self.image_hashes.keys() if img not in exact_duplicate_images
         ]
 
         duplicate_groups = []
@@ -283,9 +280,7 @@ class DuplicateDetector:
                         )
                         distances.append(d)
 
-                avg_distance = (
-                    int(sum(distances) / len(distances)) if distances else 0
-                )
+                avg_distance = int(sum(distances) / len(distances)) if distances else 0
 
                 duplicate_groups.append(
                     DuplicateGroup(

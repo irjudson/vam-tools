@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw
 # Try to import exiftool for setting EXIF data
 try:
     import exiftool
+
     EXIFTOOL_AVAILABLE = True
 except ImportError:
     EXIFTOOL_AVAILABLE = False
@@ -165,7 +166,9 @@ def non_image_files(temp_dir: Path) -> list[Path]:
 
 
 @pytest.fixture
-def mixed_directory(temp_dir: Path, sample_images: list[Path], non_image_files: list[Path]) -> Path:
+def mixed_directory(
+    temp_dir: Path, sample_images: list[Path], non_image_files: list[Path]
+) -> Path:
     """Create a directory with mixed file types."""
     # sample_images and non_image_files already created files in temp_dir
     return temp_dir

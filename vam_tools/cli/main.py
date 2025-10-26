@@ -106,7 +106,16 @@ def analyze_dates() -> None:
 
     # Call the date CLI
     ctx = click.Context(date_cli.cli)
-    ctx.invoke(date_cli.cli, directory=str(directory), output=output, recursive=recursive, no_recursive=not recursive, verbose=False, quiet=False, sort_by="date")
+    ctx.invoke(
+        date_cli.cli,
+        directory=str(directory),
+        output=output,
+        recursive=recursive,
+        no_recursive=not recursive,
+        verbose=False,
+        quiet=False,
+        sort_by="date",
+    )
 
 
 def find_duplicates() -> None:
@@ -134,7 +143,9 @@ def find_duplicates() -> None:
     )
 
     if not 0 <= threshold <= 64:
-        console.print("[red]Threshold must be between 0 and 64. Using default of 5.[/red]")
+        console.print(
+            "[red]Threshold must be between 0 and 64. Using default of 5.[/red]"
+        )
         threshold = 5
 
     output = Prompt.ask("Output file", default="duplicate_images.txt")
@@ -158,7 +169,9 @@ def reorganize_catalog() -> None:
     console.print("\n[bold cyan]Catalog Reorganizer[/bold cyan]\n")
     console.print("[yellow]⚠️  This tool will reorganize your photo files![/yellow]\n")
     console.print("It reorganizes photos into a date-based directory structure.")
-    console.print("You can choose to copy or move files, and test with --dry-run first.\n")
+    console.print(
+        "You can choose to copy or move files, and test with --dry-run first.\n"
+    )
 
     if not Confirm.ask("Do you want to continue?", default=False):
         return
@@ -219,33 +232,51 @@ def show_help() -> None:
         (
             "Tool Descriptions",
             [
-                ("Image Date Analyzer", [
-                    "Extracts the earliest date from multiple sources",
-                    "Checks EXIF metadata for camera timestamps",
-                    "Parses common date patterns in filenames",
-                    "Analyzes directory structure for date information",
-                    "Falls back to file creation dates",
-                    "Output: Text file with directory, filename, and earliest date",
-                ]),
-                ("Duplicate Image Finder", [
-                    "Uses perceptual hashing to find visually similar images",
-                    "Detects duplicates across different file formats",
-                    "Finds images with different sizes or resolutions",
-                    "Groups exact duplicates and similar images separately",
-                    "Output: Text file with grouped duplicate information",
-                ]),
-                ("Catalog Reorganizer", [
-                    "Reorganizes photos into date-based directory structure",
-                    "Supports multiple organization strategies",
-                    "Can copy or move files",
-                    "Dry-run mode for safe testing",
-                    "Handles filename conflicts intelligently",
-                ]),
+                (
+                    "Image Date Analyzer",
+                    [
+                        "Extracts the earliest date from multiple sources",
+                        "Checks EXIF metadata for camera timestamps",
+                        "Parses common date patterns in filenames",
+                        "Analyzes directory structure for date information",
+                        "Falls back to file creation dates",
+                        "Output: Text file with directory, filename, and earliest date",
+                    ],
+                ),
+                (
+                    "Duplicate Image Finder",
+                    [
+                        "Uses perceptual hashing to find visually similar images",
+                        "Detects duplicates across different file formats",
+                        "Finds images with different sizes or resolutions",
+                        "Groups exact duplicates and similar images separately",
+                        "Output: Text file with grouped duplicate information",
+                    ],
+                ),
+                (
+                    "Catalog Reorganizer",
+                    [
+                        "Reorganizes photos into date-based directory structure",
+                        "Supports multiple organization strategies",
+                        "Can copy or move files",
+                        "Dry-run mode for safe testing",
+                        "Handles filename conflicts intelligently",
+                    ],
+                ),
             ],
         ),
         (
             "Supported Image Formats",
-            ["JPEG/JPG", "PNG", "TIFF/TIF", "BMP", "GIF", "WEBP", "HEIC", "RAW formats (CR2, NEF, ARW, DNG)"],
+            [
+                "JPEG/JPG",
+                "PNG",
+                "TIFF/TIF",
+                "BMP",
+                "GIF",
+                "WEBP",
+                "HEIC",
+                "RAW formats (CR2, NEF, ARW, DNG)",
+            ],
         ),
         (
             "Tips",
