@@ -4,9 +4,37 @@ A professional collection of Python tools for managing and organizing photo/vide
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-213%20passing-success.svg)](https://github.com/irjudson/vam-tools)
-[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](https://github.com/irjudson/vam-tools)
+[![Tests](https://img.shields.io/badge/tests-241%20passing-success.svg)](https://github.com/irjudson/vam-tools)
+[![Coverage](https://img.shields.io/badge/coverage-86%25-brightgreen.svg)](https://github.com/irjudson/vam-tools)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+## Table of Contents
+
+- [Documentation](#documentation)
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Common Workflows](#common-workflows)
+- [How It Works](#how-it-works)
+- [Date Extraction](#date-extraction)
+- [Supported Formats](#supported-formats)
+- [Development](#development)
+- [Best Practices](#best-practices)
+- [Troubleshooting](#troubleshooting)
+- [Performance Tips](#performance-tips)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+
+## Documentation
+
+Comprehensive documentation is available in the [docs](./docs) directory:
+
+- **[User Guide](./docs/USER_GUIDE.md)** - Complete user documentation, tutorials, and common tasks
+- **[Architecture](./docs/ARCHITECTURE.md)** - Technical design, system components, and implementation details
+- **[Requirements](./docs/REQUIREMENTS.md)** - Product requirements, features, and roadmap
+- **[Contributing Guide](./docs/CONTRIBUTING.md)** - Development setup, testing, and contribution guidelines
+- **[Project Notes](./docs/NOTES.md)** - Historical notes and implementation summaries
 
 ## Features
 
@@ -17,7 +45,7 @@ A professional collection of Python tools for managing and organizing photo/vide
 - **Date-Based Reorganization** - Reorganize photo/video catalogs into date-based directory structures
 - **Web Interface** - Modern web UI for reviewing and managing your catalog with duplicate comparison
 - **Beautiful CLI** - Rich terminal interface with progress bars and formatted output
-- **Fully Tested** - Comprehensive test suite with 213 passing tests and 84% coverage
+- **Fully Tested** - Comprehensive test suite with 241 passing tests and 86% coverage
 - **Type Safe** - Full type hints throughout the codebase with Pydantic v2
 
 ## Installation
@@ -229,21 +257,21 @@ vam-tools/
 ├── vam_tools/
 │   ├── analysis/             # Scanner, metadata, duplicate detection
 │   │   ├── scanner.py            # Multi-core file scanner (77% coverage)
-│   │   ├── metadata.py           # ExifTool metadata extraction (81% coverage)
+│   │   ├── metadata.py           # ExifTool metadata extraction (91% coverage)
 │   │   ├── duplicate_detector.py # Perceptual hash duplicate detection (89% coverage)
 │   │   ├── perceptual_hash.py    # dHash and aHash algorithms (91% coverage)
 │   │   └── quality_scorer.py     # Quality scoring for duplicates (89% coverage)
 │   ├── core/                 # Catalog database and types
-│   │   ├── catalog.py            # Catalog database with locking (73% coverage)
+│   │   ├── catalog.py            # Catalog database with locking (74% coverage)
 │   │   └── types.py              # Pydantic models (100% coverage)
 │   ├── cli/                  # Command-line interfaces
-│   │   ├── analyze.py            # Analysis CLI (79% coverage)
+│   │   ├── analyze.py            # Analysis CLI (85% coverage)
 │   │   └── web.py                # Web server CLI (96% coverage)
 │   ├── web/                  # Web interface (FastAPI)
 │   │   └── api.py                # REST API endpoints (79% coverage)
 │   └── shared/               # Shared utilities
 │       └── media_utils.py        # Image/video utilities (95% coverage)
-├── tests/                    # Test suite (213 tests, 84% coverage)
+├── tests/                    # Test suite (241 tests, 86% coverage)
 │   ├── analysis/             # Analysis module tests
 │   ├── core/                 # Core module tests
 │   ├── cli/                  # CLI tests
@@ -349,7 +377,7 @@ Each feature followed this iterative cycle:
 1. **Prototype** - Initial implementation with core functionality
 2. **Validate** - Human review of architecture and approach
 3. **Develop** - Complete implementation with error handling
-4. **Test** - Comprehensive test coverage (213 tests, 84% coverage)
+4. **Test** - Comprehensive test coverage (241 tests, 86% coverage)
 5. **Refactor** - Clean up, optimize, ensure DRY principles
 
 ### How Code Quality Was Ensured
