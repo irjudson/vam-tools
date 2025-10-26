@@ -128,9 +128,9 @@ class CatalogDatabase:
             "catalog_id": str(uuid.uuid4()),
             "created": datetime.now().isoformat(),
             "last_updated": datetime.now().isoformat(),
-            "configuration": self._serialize_config(config),
-            "state": self._serialize_state(CatalogState()),
-            "statistics": self._serialize_stats(Statistics()),
+            "configuration": config.model_dump(mode='json'),
+            "state": CatalogState().model_dump(mode='json'),
+            "statistics": Statistics().model_dump(mode='json'),
             "images": {},
             "duplicate_groups": {},
             "burst_groups": {},
@@ -302,11 +302,11 @@ class CatalogDatabase:
                 if key == "images":
                     self._data[key] = {}
                 elif key == "statistics":
-                    self._data[key] = self._serialize_stats(Statistics())
+                    self._data[key] = Statistics().model_dump(mode='json')
                 elif key == "state":
-                    self._data[key] = self._serialize_state(CatalogState())
+                    self._data[key] = CatalogState().model_dump(mode='json')
                 elif key == "configuration":
-                    self._data[key] = self._serialize_config(CatalogConfiguration())
+                    self._data[key] = CatalogConfiguration().model_dump(mode='json')
                 elif key == "version":
                     self._data[key] = "2.0.0"
                 elif key == "catalog_id":
@@ -388,7 +388,7 @@ class CatalogDatabase:
                 if not image_data["dates"].get("selected_date"):
                     stats.no_date += 1
 
-        self._data["statistics"] = self._serialize_stats(stats)
+        self._data["statistics"] = stats.model_dump(mode='json')
 
         # Update last_updated timestamp
         self._data["last_updated"] = datetime.now().isoformat()
@@ -432,7 +432,7 @@ class CatalogDatabase:
     def update_configuration(self, config: CatalogConfiguration) -> None:
         """Update catalog configuration."""
         if self._data:
-            self._data["configuration"] = self._serialize_config(config)
+            self._data["configuration"] = config.model_dump(mode='json')
 
     def get_state(self) -> CatalogState:
         """Get current catalog state."""
@@ -474,7 +474,7 @@ class CatalogDatabase:
     def update_state(self, state: CatalogState) -> None:
         """Update catalog state."""
         if self._data:
-            self._data["state"] = self._serialize_state(state)
+            self._data["state"] = state.model_dump(mode='json')
 
     def get_statistics(self) -> Statistics:
         """Get catalog statistics."""
@@ -487,7 +487,7 @@ class CatalogDatabase:
     def update_statistics(self, stats: Statistics) -> None:
         """Update catalog statistics."""
         if self._data:
-            self._data["statistics"] = self._serialize_stats(stats)
+            self._data["statistics"] = stats.model_dump(mode='json')
 
     def add_image(self, image: ImageRecord) -> None:
         """Add an image record to the catalog."""

@@ -2,11 +2,12 @@
 Type definitions for the catalog system.
 """
 
-from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class FileType(Enum):
@@ -97,11 +98,12 @@ class ReviewStatus(Enum):
     RESOLVED = "resolved"
 
 
-@dataclass
-class DateInfo:
+class DateInfo(BaseModel):
     """Date information extracted from various sources."""
 
-    exif_dates: Dict[str, Optional[datetime]] = field(default_factory=dict)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    exif_dates: Dict[str, Optional[datetime]] = Field(default_factory=dict)
     filename_date: Optional[datetime] = None
     directory_date: Optional[str] = None
     filesystem_created: Optional[datetime] = None
@@ -113,20 +115,22 @@ class DateInfo:
     user_verified: bool = False
 
 
-@dataclass
-class ImageMetadata:
+class ImageMetadata(BaseModel):
     """Complete metadata for an image."""
 
-    exif: Dict[str, any] = field(default_factory=dict)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    exif: Dict[str, any] = Field(default_factory=dict)
     format: Optional[str] = None
     resolution: Optional[tuple[int, int]] = None
     size_bytes: Optional[int] = None
-    merged_from: List[str] = field(default_factory=list)
+    merged_from: List[str] = Field(default_factory=list)
 
 
-@dataclass
-class ExecutionPlan:
+class ExecutionPlan(BaseModel):
     """Plan for executing operations on an image."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     action: OperationType
     target_path: Optional[Path] = None
@@ -136,18 +140,18 @@ class ExecutionPlan:
     reason: Optional[str] = None
 
 
-@dataclass
-class ExecutionInfo:
+class ExecutionInfo(BaseModel):
     """Information about execution status."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     executed: bool = False
     executed_at: Optional[datetime] = None
     verified: bool = False
-    rollback_info: Dict[str, any] = field(default_factory=dict)
+    rollback_info: Dict[str, any] = Field(default_factory=dict)
 
 
-@dataclass
-class QualityScore:
+class QualityScore(BaseModel):
     """Quality scoring for an image."""
 
     format_score: float = 0.0
@@ -158,72 +162,73 @@ class QualityScore:
     total_score: float = 0.0
 
 
-@dataclass
-class ImageRecord:
+class ImageRecord(BaseModel):
     """Complete record for a single image."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: str  # SHA256 checksum
     source_path: Path
     file_type: FileType
     checksum: str
-    dates: DateInfo = field(default_factory=DateInfo)
-    metadata: ImageMetadata = field(default_factory=ImageMetadata)
+    dates: DateInfo = Field(default_factory=DateInfo)
+    metadata: ImageMetadata = Field(default_factory=ImageMetadata)
     duplicate_group_id: Optional[str] = None
     duplicate_role: Optional[DuplicateRole] = None
     burst_group_id: Optional[str] = None
     burst_role: Optional[BurstRole] = None
     status: ImageStatus = ImageStatus.PENDING
-    issues: List[str] = field(default_factory=list)
+    issues: List[str] = Field(default_factory=list)
     plan: Optional[ExecutionPlan] = None
-    execution: ExecutionInfo = field(default_factory=ExecutionInfo)
+    execution: ExecutionInfo = Field(default_factory=ExecutionInfo)
 
 
-@dataclass
-class DuplicateGroup:
+class DuplicateGroup(BaseModel):
     """Group of duplicate images."""
 
     id: str
     images: List[str]  # Image IDs (checksums)
     primary: Optional[str] = None  # Primary image ID
     perceptual_hash: Optional[str] = None
-    quality_scores: Dict[str, QualityScore] = field(default_factory=dict)
+    quality_scores: Dict[str, QualityScore] = Field(default_factory=dict)
     date_conflict: bool = False
     needs_review: bool = False
     user_override: Optional[str] = None
 
 
-@dataclass
-class BurstGroup:
+class BurstGroup(BaseModel):
     """Group of burst images."""
 
     id: str
     images: List[str]  # Image IDs (checksums)
     primary: Optional[str] = None  # Primary image ID
     time_span_seconds: float = 0.0
-    ai_scores: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    ai_scores: Dict[str, Dict[str, float]] = Field(default_factory=dict)
     needs_review: bool = False
     user_override: Optional[str] = None
 
 
-@dataclass
-class ReviewItem:
+class ReviewItem(BaseModel):
     """Item in the review queue."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: str
     type: ReviewType
     priority: ReviewPriority
     images: List[str]  # Image IDs
     description: str
-    details: Dict[str, any] = field(default_factory=dict)
+    details: Dict[str, any] = Field(default_factory=dict)
     status: ReviewStatus = ReviewStatus.PENDING
     resolution: Optional[Dict[str, any]] = None
     resolved_at: Optional[datetime] = None
     resolved_by: Optional[str] = None
 
 
-@dataclass
-class Operation:
+class Operation(BaseModel):
     """A single file operation."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     seq: int
     type: OperationType
@@ -236,21 +241,21 @@ class Operation:
     error: Optional[str] = None
 
 
-@dataclass
-class Transaction:
+class Transaction(BaseModel):
     """Transaction log for file operations."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: str
     started: datetime
     completed: Optional[datetime] = None
     phase: str = ""
-    operations: List[Operation] = field(default_factory=list)
+    operations: List[Operation] = Field(default_factory=list)
     rollback_available: bool = True
     status: str = "in_progress"
 
 
-@dataclass
-class Statistics:
+class Statistics(BaseModel):
     """Catalog statistics."""
 
     total_images: int = 0
@@ -266,9 +271,10 @@ class Statistics:
     unique_images: int = 0
 
 
-@dataclass
-class CatalogState:
+class CatalogState(BaseModel):
     """Current state of catalog processing."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     phase: CatalogPhase = CatalogPhase.ANALYZING
     last_checkpoint: Optional[datetime] = None
@@ -284,11 +290,12 @@ class CatalogState:
     last_updated: Optional[datetime] = None
 
 
-@dataclass
-class CatalogConfiguration:
+class CatalogConfiguration(BaseModel):
     """Configuration for catalog processing."""
 
-    source_directories: List[Path] = field(default_factory=list)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    source_directories: List[Path] = Field(default_factory=list)
     import_directory: Optional[Path] = None
     date_format: str = "YYYY-MM"
     file_naming: str = "{date}_{time}_{checksum}.{ext}"
