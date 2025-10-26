@@ -4,7 +4,7 @@ A professional collection of Python tools for managing and organizing photo/vide
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-194%20passing-success.svg)](https://github.com/irjudson/vam-tools)
+[![Tests](https://img.shields.io/badge/tests-213%20passing-success.svg)](https://github.com/irjudson/vam-tools)
 [![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](https://github.com/irjudson/vam-tools)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
@@ -15,9 +15,9 @@ A professional collection of Python tools for managing and organizing photo/vide
 - **Duplicate Detection** - Find exact and similar duplicates using checksums and perceptual hashing (dHash/aHash)
 - **Quality Scoring** - Automatically select the best copy among duplicates based on format, resolution, and metadata
 - **Date-Based Reorganization** - Reorganize photo/video catalogs into date-based directory structures
-- **Web Interface** - Modern web UI for reviewing and managing your catalog
+- **Web Interface** - Modern web UI for reviewing and managing your catalog with duplicate comparison
 - **Beautiful CLI** - Rich terminal interface with progress bars and formatted output
-- **Fully Tested** - Comprehensive test suite with 194 passing tests and 84% coverage
+- **Fully Tested** - Comprehensive test suite with 213 passing tests and 84% coverage
 - **Type Safe** - Full type hints throughout the codebase with Pydantic v2
 
 ## Installation
@@ -60,79 +60,95 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
-## Usage
+## Quick Start
 
-VAM Tools provides two main interfaces:
+### Basic Workflow
 
-### 1. V2 Catalog Analysis (Recommended)
+1. **Analyze your photo library** to build a catalog
+2. **Launch the web interface** to browse and review
+3. **Find duplicates** and identify the best copies
+4. **Reorganize** your library with date-based structure (optional)
 
-The V2 system provides high-performance catalog scanning with multiprocessing support.
+### Analyze and Build Catalog
 
-#### Analyze and Build Catalog
+Start by scanning your photo directories to build a catalog:
 
 ```bash
 # Analyze photos from one or more source directories
-vam-analyze /path/to/catalog -s /path/to/photos -s /path/to/more/photos
+vam-analyze /path/to/catalog -s /path/to/photos
 
-# Use all CPU cores with duplicate detection (recommended)
+# Recommended: Use all CPU cores with duplicate detection
 vam-analyze /path/to/catalog -s /path/to/photos --detect-duplicates -v
 
-# Specify number of workers (great for multi-core systems)
+# For large libraries: specify worker count for multi-core systems
 vam-analyze /path/to/catalog -s /path/to/photos --workers 32 --detect-duplicates
+```
 
-# Customize similarity threshold (default: 5, lower = more strict)
+**Performance:** On a 32-core system, expect 20-30x speedup compared to single-threaded processing.
+
+### Browse Your Catalog
+
+Launch the web interface to explore your catalog:
+
+```bash
+# Start web server (opens at http://localhost:5000)
+vam-web /path/to/catalog
+
+# Custom port or allow external access
+vam-web /path/to/catalog --port 8080 --host 0.0.0.0
+```
+
+The web interface provides:
+- Browse all images and videos with metadata
+- View duplicate groups with side-by-side comparison
+- See date extraction results and confidence levels
+- Review statistics and storage analysis
+
+## Common Workflows
+
+### Find and Review Duplicates
+
+```bash
+# Analyze with duplicate detection
+vam-analyze /path/to/catalog -s /path/to/photos --detect-duplicates
+
+# Adjust similarity threshold (default: 5, lower = more strict)
 vam-analyze /path/to/catalog -s /path/to/photos \
   --detect-duplicates \
   --similarity-threshold 3
 
-# Start fresh (clears existing catalog, creates backup)
+# Launch web UI to review duplicates
+vam-web /path/to/catalog
+# Navigate to "View Duplicates" to see groups and recommended deletions
+```
+
+**Duplicate Detection:** Uses perceptual hashing (dHash and aHash) with quality scoring to identify duplicates and automatically select the best copy based on format (RAW > JPEG), resolution, file size, and metadata completeness.
+
+### Incremental Updates
+
+Add new photos to an existing catalog without reprocessing:
+
+```bash
+# Scan will skip files already in catalog
+vam-analyze /path/to/catalog -s /path/to/photos
+```
+
+### Manage Your Catalog
+
+```bash
+# Start fresh (clears existing catalog, creates backup first)
 vam-analyze /path/to/catalog -s /path/to/photos --clear
 
 # Repair corrupted catalog
 vam-analyze /path/to/catalog --repair
 
-# Verbose logging
+# Verbose logging for troubleshooting
 vam-analyze /path/to/catalog -s /path/to/photos -v
 ```
 
-**Performance:** On a 32-core system, expect 20-30x speedup compared to single-threaded processing.
+## How It Works
 
-**Duplicate Detection:** Uses both perceptual hashing (dHash and aHash) and quality scoring to identify duplicates and automatically select the best copy based on format (RAW > JPEG), resolution, file size, and metadata completeness.
-
-#### Web Interface
-
-Launch the web UI to browse and manage your catalog:
-
-```bash
-# Start web server
-vam-web /path/to/catalog
-
-# Custom port
-vam-web /path/to/catalog --port 8080
-
-# Allow external access
-vam-web /path/to/catalog --host 0.0.0.0
-```
-
-Then open your browser to http://localhost:5000 to view your catalog.
-
-### 2. V1 Legacy Tools
-
-The V1 tools provide the original date analysis, duplicate detection, and reorganization features via an interactive menu:
-
-```bash
-# Launch interactive menu
-vam-v1
-```
-
-The menu provides access to:
-- **Image Date Analyzer** - Extract and analyze dates from images
-- **Duplicate Image Finder** - Find duplicate and similar images
-- **Catalog Reorganizer** - Reorganize photos into date-based structure
-
-## Catalog Analysis Process
-
-The V2 system performs the following steps:
+The analysis process performs the following steps:
 
 1. **File Discovery** - Scans directories for image and video files
 2. **Parallel Processing** - Uses worker pool to process files in parallel:
@@ -212,22 +228,22 @@ mypy vam_tools/
 vam-tools/
 ├── vam_tools/
 │   ├── analysis/             # Scanner, metadata, duplicate detection
-│   │   ├── scanner.py            # Multi-core file scanner (69% coverage)
-│   │   ├── metadata.py           # ExifTool metadata extraction (80% coverage)
+│   │   ├── scanner.py            # Multi-core file scanner (77% coverage)
+│   │   ├── metadata.py           # ExifTool metadata extraction (81% coverage)
 │   │   ├── duplicate_detector.py # Perceptual hash duplicate detection (89% coverage)
 │   │   ├── perceptual_hash.py    # dHash and aHash algorithms (91% coverage)
 │   │   └── quality_scorer.py     # Quality scoring for duplicates (89% coverage)
 │   ├── core/                 # Catalog database and types
-│   │   ├── catalog.py            # Catalog database with locking (75% coverage)
+│   │   ├── catalog.py            # Catalog database with locking (73% coverage)
 │   │   └── types.py              # Pydantic models (100% coverage)
 │   ├── cli/                  # Command-line interfaces
 │   │   ├── analyze.py            # Analysis CLI (79% coverage)
 │   │   └── web.py                # Web server CLI (96% coverage)
 │   ├── web/                  # Web interface (FastAPI)
-│   │   └── api.py                # REST API endpoints (80% coverage)
+│   │   └── api.py                # REST API endpoints (79% coverage)
 │   └── shared/               # Shared utilities
 │       └── media_utils.py        # Image/video utilities (95% coverage)
-├── tests/                    # Test suite (194 tests, 84% coverage)
+├── tests/                    # Test suite (213 tests, 84% coverage)
 │   ├── analysis/             # Analysis module tests
 │   ├── core/                 # Core module tests
 │   ├── cli/                  # CLI tests
