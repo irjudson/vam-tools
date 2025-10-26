@@ -16,6 +16,7 @@ from rich.table import Table
 
 from vam_tools.analysis.scanner import ImageScanner
 from vam_tools.core.catalog import CatalogDatabase
+from vam_tools.core.types import Statistics
 from vam_tools.shared import format_bytes
 
 console = Console()
@@ -294,7 +295,7 @@ def analyze(
         sys.exit(1)
 
 
-def display_statistics(stats) -> None:
+def display_statistics(stats: "Statistics") -> None:
     """Display statistics in a nice table."""
     table = Table(title="Catalog Statistics")
     table.add_column("Metric", style="cyan")

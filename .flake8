@@ -1,6 +1,6 @@
 [flake8]
 max-line-length = 88
-extend-ignore = E203, E266, E501, W503
+extend-ignore = E203, E266, E501, W503, C901
 exclude =
     .git,
     __pycache__,
@@ -9,8 +9,9 @@ exclude =
     build,
     dist,
     *.egg-info,
-    .old_code,
     .mypy_cache,
-    .pytest_cache
+    .pytest_cache,
+    htmlcov
+max-complexity = 10
 per-file-ignores =
     __init__.py:F401
