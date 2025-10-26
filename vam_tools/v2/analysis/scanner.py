@@ -5,8 +5,9 @@ Scans directories, extracts metadata, computes checksums, and builds catalog.
 """
 
 import logging
+import multiprocessing as mp
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 from rich.progress import (
     BarColumn,
@@ -25,21 +26,72 @@ from .metadata import MetadataExtractor
 logger = logging.getLogger(__name__)
 
 
+def _process_file_worker(file_path: Path) -> Optional[Tuple[ImageRecord, int]]:
+    """
+    Worker function for parallel file processing.
+
+    Args:
+        file_path: Path to the file to process
+
+    Returns:
+        Tuple of (ImageRecord, file_size) if successful, None if skipped/failed
+    """
+    try:
+        # Determine file type
+        file_type_str = get_file_type(file_path)
+        if file_type_str == "image":
+            file_type = FileType.IMAGE
+        elif file_type_str == "video":
+            file_type = FileType.VIDEO
+        else:
+            return None  # Skip unknown files
+
+        # Compute checksum
+        checksum = compute_checksum(file_path)
+        if not checksum:
+            logger.warning(f"Failed to compute checksum for {file_path}")
+            return None
+
+        # Extract metadata (each worker needs its own extractor)
+        with MetadataExtractor() as extractor:
+            metadata = extractor.extract_metadata(file_path, file_type)
+            dates = extractor.extract_dates(file_path, metadata)
+
+        # Create image record
+        image = ImageRecord(
+            id=checksum,
+            source_path=file_path,
+            file_type=file_type,
+            checksum=checksum,
+            dates=dates,
+            metadata=metadata,
+            status=ImageStatus.ANALYZING,
+        )
+
+        return (image, metadata.size_bytes or 0)
+
+    except Exception as e:
+        logger.error(f"Error processing {file_path}: {e}")
+        return None
+
+
 class ImageScanner:
     """Scan directories and analyze images."""
 
-    def __init__(self, catalog: CatalogDatabase):
+    def __init__(self, catalog: CatalogDatabase, workers: Optional[int] = None):
         """
         Initialize the scanner.
 
         Args:
             catalog: Catalog database to update
+            workers: Number of worker processes (default: CPU count)
         """
         self.catalog = catalog
         # Load existing statistics if catalog exists, otherwise start fresh
         self.stats = catalog.get_statistics()
         self.files_added = 0
         self.files_skipped = 0
+        self.workers = workers or mp.cpu_count()
 
     def scan_directories(self, directories: List[Path]) -> None:
         """
@@ -107,7 +159,19 @@ class ImageScanner:
         return files
 
     def _process_files(self, files: List[Path]) -> None:
-        """Process all files and add to catalog."""
+        """Process all files in parallel and add to catalog."""
+        # Filter out files already in catalog
+        files_to_process = [f for f in files if not self.catalog.has_image_by_path(f)]
+        self.files_skipped = len(files) - len(files_to_process)
+
+        if not files_to_process:
+            logger.info("All files already in catalog")
+            return
+
+        logger.info(
+            f"Processing {len(files_to_process)} files with {self.workers} workers"
+        )
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -115,95 +179,57 @@ class ImageScanner:
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeRemainingColumn(),
         ) as progress:
-            task = progress.add_task("Processing files...", total=len(files))
+            task = progress.add_task("Processing files...", total=len(files_to_process))
 
-            with MetadataExtractor() as extractor:
-                for i, file_path in enumerate(files):
-                    try:
-                        self._process_file(file_path, extractor)
+            # Use multiprocessing pool to process files in parallel
+            with mp.Pool(processes=self.workers) as pool:
+                # Process files in chunks for better progress updates
+                chunk_size = max(1, len(files_to_process) // (self.workers * 4))
 
-                        # Checkpoint every 100 files
-                        if (i + 1) % 100 == 0:
-                            # Update statistics before checkpoint
-                            self.catalog.update_statistics(self.stats)
+                for i, result in enumerate(
+                    pool.imap_unordered(
+                        _process_file_worker, files_to_process, chunk_size
+                    )
+                ):
+                    if result is not None:
+                        image, file_size = result
 
-                            # Update state
-                            state = self.catalog.get_state()
-                            state.images_processed = i + 1
-                            state.progress_percentage = ((i + 1) / len(files)) * 100
-                            self.catalog.update_state(state)
+                        # Check if already in catalog (by checksum - for duplicates)
+                        if not self.catalog.get_image(image.checksum):
+                            # Add to catalog
+                            self.catalog.add_image(image)
+                            self.files_added += 1
 
-                            # Save checkpoint
-                            self.catalog.checkpoint()
+                            # Update statistics
+                            if image.file_type == FileType.IMAGE:
+                                self.stats.total_images += 1
+                            elif image.file_type == FileType.VIDEO:
+                                self.stats.total_videos += 1
 
-                    except Exception as e:
-                        logger.error(f"Error processing {file_path}: {e}")
+                            self.stats.total_size_bytes += file_size
+
+                            if not image.dates.selected_date:
+                                self.stats.no_date += 1
+                        else:
+                            self.files_skipped += 1
+
+                    # Checkpoint every 100 files
+                    if (i + 1) % 100 == 0:
+                        # Update statistics before checkpoint
+                        self.catalog.update_statistics(self.stats)
+
+                        # Update state
+                        state = self.catalog.get_state()
+                        state.images_processed = i + 1
+                        state.progress_percentage = (
+                            (i + 1) / len(files_to_process)
+                        ) * 100
+                        self.catalog.update_state(state)
+
+                        # Save checkpoint
+                        self.catalog.checkpoint()
 
                     progress.advance(task)
 
         # Final checkpoint
         self.catalog.checkpoint(force=True)
-
-    def _process_file(self, file_path: Path, extractor: MetadataExtractor) -> None:
-        """Process a single file."""
-        # Quick check: if file path is already in catalog, skip it entirely
-        # This avoids expensive checksum computation for already-processed files
-        if self.catalog.has_image_by_path(file_path):
-            logger.debug(f"File already in catalog (by path): {file_path}")
-            self.files_skipped += 1
-            return
-
-        # Determine file type
-        file_type_str = get_file_type(file_path)
-        if file_type_str == "image":
-            file_type = FileType.IMAGE
-        elif file_type_str == "video":
-            file_type = FileType.VIDEO
-        else:
-            return  # Skip unknown files
-
-        # Compute checksum
-        checksum = compute_checksum(file_path)
-        if not checksum:
-            logger.warning(f"Failed to compute checksum for {file_path}")
-            return
-
-        # Check if already in catalog (by checksum - for duplicates)
-        existing = self.catalog.get_image(checksum)
-        if existing:
-            logger.debug(f"Image already in catalog (by checksum): {file_path}")
-            self.files_skipped += 1
-            return
-
-        # This is a new file - update counts
-        if file_type == FileType.IMAGE:
-            self.stats.total_images += 1
-        elif file_type == FileType.VIDEO:
-            self.stats.total_videos += 1
-
-        # Extract metadata
-        metadata = extractor.extract_metadata(file_path, file_type)
-        dates = extractor.extract_dates(file_path, metadata)
-
-        # Update statistics
-        self.stats.total_size_bytes += metadata.size_bytes or 0
-
-        if not dates.selected_date:
-            self.stats.no_date += 1
-
-        # Create image record
-        image = ImageRecord(
-            id=checksum,
-            source_path=file_path,
-            file_type=file_type,
-            checksum=checksum,
-            dates=dates,
-            metadata=metadata,
-            status=ImageStatus.ANALYZING,
-        )
-
-        # Add to catalog
-        self.catalog.add_image(image)
-        self.files_added += 1
-
-        logger.debug(f"Processed: {file_path} -> {checksum[:8]}")
