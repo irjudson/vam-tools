@@ -54,7 +54,7 @@ jobs:
     - name: Type check with mypy
       run: |
         source venv/bin/activate
-        mypy vam_tools/ || true  # Don't fail on mypy for now
+        mypy vam_tools/ || true  # TODO: Remove || true after fixing remaining 31 type errors
 
   # Run tests on multiple platforms and Python versions
   test:
