@@ -96,7 +96,7 @@ class DuplicateDetector:
         Args:
             force: Force recomputation even if hash exists
         """
-        images = self.catalog.get_all_images()
+        images = self.catalog.list_images()
         images_to_process = []
 
         for image in images:
@@ -151,7 +151,7 @@ class DuplicateDetector:
         # Group images by checksum
         checksum_groups: Dict[str, List[str]] = defaultdict(list)
 
-        for image in self.catalog.get_all_images():
+        for image in self.catalog.list_images():
             checksum_groups[image.checksum].append(image.id)
 
         # Create duplicate groups for checksums with multiple images
@@ -174,7 +174,7 @@ class DuplicateDetector:
         Returns:
             List of similar image groups
         """
-        images = self.catalog.get_all_images()
+        images = self.catalog.list_images()
 
         # Filter to images with valid perceptual hashes
         hashed_images = [
