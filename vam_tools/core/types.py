@@ -5,7 +5,7 @@ Type definitions for the catalog system.
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -120,7 +120,7 @@ class ImageMetadata(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    exif: Dict[str, any] = Field(default_factory=dict)
+    exif: Dict[str, Any] = Field(default_factory=dict)
     format: Optional[str] = None
     resolution: Optional[tuple[int, int]] = None
     width: Optional[int] = None
@@ -170,7 +170,7 @@ class ExecutionInfo(BaseModel):
     executed: bool = False
     executed_at: Optional[datetime] = None
     verified: bool = False
-    rollback_info: Dict[str, any] = Field(default_factory=dict)
+    rollback_info: Dict[str, Any] = Field(default_factory=dict)
 
 
 class QualityScore(BaseModel):
@@ -240,9 +240,9 @@ class ReviewItem(BaseModel):
     priority: ReviewPriority
     images: List[str]  # Image IDs
     description: str
-    details: Dict[str, any] = Field(default_factory=dict)
+    details: Dict[str, Any] = Field(default_factory=dict)
     status: ReviewStatus = ReviewStatus.PENDING
-    resolution: Optional[Dict[str, any]] = None
+    resolution: Optional[Dict[str, Any]] = None
     resolved_at: Optional[datetime] = None
     resolved_by: Optional[str] = None
 
