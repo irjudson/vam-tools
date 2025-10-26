@@ -8,7 +8,7 @@ import click
 import uvicorn
 from rich.console import Console
 
-from .web.api import init_catalog
+from vam_tools.web.api import init_catalog
 
 console = Console()
 
@@ -57,7 +57,7 @@ def web(catalog_path: str, host: str, port: int, reload: bool) -> None:
 
     # Start server
     uvicorn.run(
-        "vam_tools.v2.web.api:app",
+        "vam_tools.web.api:app",
         host=host,
         port=port,
         reload=reload,

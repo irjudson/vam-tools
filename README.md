@@ -4,8 +4,8 @@ A professional collection of Python tools for managing and organizing photo/vide
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-226%20passing-success.svg)](https://github.com/irjudson/vam-tools)
-[![Coverage](https://img.shields.io/badge/coverage-65%25-yellow.svg)](https://github.com/irjudson/vam-tools)
+[![Tests](https://img.shields.io/badge/tests-194%20passing-success.svg)](https://github.com/irjudson/vam-tools)
+[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](https://github.com/irjudson/vam-tools)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ## Features
@@ -17,7 +17,7 @@ A professional collection of Python tools for managing and organizing photo/vide
 - **Date-Based Reorganization** - Reorganize photo/video catalogs into date-based directory structures
 - **Web Interface** - Modern web UI for reviewing and managing your catalog
 - **Beautiful CLI** - Rich terminal interface with progress bars and formatted output
-- **Fully Tested** - Comprehensive test suite with 226 passing tests and 65% coverage
+- **Fully Tested** - Comprehensive test suite with 194 passing tests and 84% coverage
 - **Type Safe** - Full type hints throughout the codebase with Pydantic v2
 
 ## Installation
@@ -211,36 +211,27 @@ mypy vam_tools/
 ```
 vam-tools/
 ├── vam_tools/
-│   ├── v2/                   # V2 system (current)
-│   │   ├── analysis/         # Scanner, metadata, duplicate detection
-│   │   │   ├── scanner.py            # Multi-core file scanner
-│   │   │   ├── metadata.py           # ExifTool metadata extraction
-│   │   │   ├── duplicate_detector.py # Perceptual hash duplicate detection
-│   │   │   ├── perceptual_hash.py    # dHash and aHash algorithms
-│   │   │   └── quality_scorer.py     # Quality scoring for duplicates
-│   │   ├── core/             # Catalog database and types
-│   │   │   ├── catalog.py            # Catalog database with locking
-│   │   │   └── types.py              # Pydantic models
-│   │   ├── web/              # Web interface (FastAPI)
-│   │   ├── cli_analyze.py    # Analysis CLI
-│   │   └── cli_web.py        # Web server CLI
-│   ├── cli/                  # V1 legacy CLI
-│   │   ├── base.py           # Shared CLI components
-│   │   ├── date_cli.py       # Date analyzer
-│   │   ├── duplicate_cli.py  # Duplicate finder
-│   │   ├── catalog_cli.py    # Catalog reorganizer
-│   │   └── main.py           # Interactive menu
-│   ├── core/                 # V1 legacy core logic
-│   │   ├── date_extraction.py
-│   │   ├── duplicate_detection.py
-│   │   └── catalog_reorganization.py
+│   ├── analysis/             # Scanner, metadata, duplicate detection
+│   │   ├── scanner.py            # Multi-core file scanner (69% coverage)
+│   │   ├── metadata.py           # ExifTool metadata extraction (80% coverage)
+│   │   ├── duplicate_detector.py # Perceptual hash duplicate detection (89% coverage)
+│   │   ├── perceptual_hash.py    # dHash and aHash algorithms (91% coverage)
+│   │   └── quality_scorer.py     # Quality scoring for duplicates (89% coverage)
+│   ├── core/                 # Catalog database and types
+│   │   ├── catalog.py            # Catalog database with locking (75% coverage)
+│   │   └── types.py              # Pydantic models (100% coverage)
+│   ├── cli/                  # Command-line interfaces
+│   │   ├── analyze.py            # Analysis CLI (79% coverage)
+│   │   └── web.py                # Web server CLI (96% coverage)
+│   ├── web/                  # Web interface (FastAPI)
+│   │   └── api.py                # REST API endpoints (80% coverage)
 │   └── shared/               # Shared utilities
-│       └── media_utils.py    # Image/video utilities
-├── tests/                    # Test suite (226 tests, 65% coverage)
-│   ├── v2/analysis/          # V2 analysis tests (80-91% coverage)
-│   ├── v2/core/              # V2 core tests (58% coverage)
-│   ├── cli/                  # CLI integration tests
-│   ├── core/                 # Core logic tests
+│       └── media_utils.py        # Image/video utilities (95% coverage)
+├── tests/                    # Test suite (194 tests, 84% coverage)
+│   ├── analysis/             # Analysis module tests
+│   ├── core/                 # Core module tests
+│   ├── cli/                  # CLI tests
+│   ├── web/                  # Web API tests
 │   └── shared/               # Shared utilities tests
 ├── docs/                     # Documentation
 ├── pyproject.toml

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from vam_tools.v2.analysis.perceptual_hash import (
+from vam_tools.analysis.perceptual_hash import (
     ahash,
     are_similar,
     combined_hash,

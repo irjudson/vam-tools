@@ -1,1 +1,1 @@
-"""Core business logic for Lightroom tools."""
+"""Core modules for catalog management."""

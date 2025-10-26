@@ -4,7 +4,7 @@ Tests for quality scoring module.
 
 import pytest
 
-from vam_tools.v2.analysis.quality_scorer import (
+from vam_tools.analysis.quality_scorer import (
     _score_file_size,
     _score_format,
     _score_metadata_completeness,
@@ -13,7 +13,7 @@ from vam_tools.v2.analysis.quality_scorer import (
     compare_quality,
     select_best,
 )
-from vam_tools.v2.core.types import FileType, ImageMetadata
+from vam_tools.core.types import FileType, ImageMetadata
 
 
 class TestScoreFormat:

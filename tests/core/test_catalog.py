@@ -5,8 +5,8 @@ Tests for catalog database.
 import json
 from pathlib import Path
 
-from vam_tools.v2.core.catalog import CatalogDatabase
-from vam_tools.v2.core.types import (
+from vam_tools.core.catalog import CatalogDatabase
+from vam_tools.core.types import (
     CatalogConfiguration,
     CatalogPhase,
     DuplicateGroup,

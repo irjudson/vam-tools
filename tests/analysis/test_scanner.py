@@ -7,8 +7,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from vam_tools.v2.analysis.scanner import ImageScanner
-from vam_tools.v2.core.catalog import CatalogDatabase
+from vam_tools.analysis.scanner import ImageScanner
+from vam_tools.core.catalog import CatalogDatabase
 
 
 class TestImageScanner:

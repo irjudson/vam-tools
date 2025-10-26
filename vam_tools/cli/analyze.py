@@ -14,10 +14,9 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
+from vam_tools.analysis.scanner import ImageScanner
+from vam_tools.core.catalog import CatalogDatabase
 from vam_tools.shared import format_bytes
-
-from .analysis.scanner import ImageScanner
-from .core.catalog import CatalogDatabase
 
 console = Console()
 
@@ -231,7 +230,7 @@ def analyze(
             if detect_duplicates:
                 console.print("\n[cyan]Starting duplicate detection...[/cyan]\n")
 
-                from .analysis.duplicate_detector import DuplicateDetector
+                from vam_tools.analysis.duplicate_detector import DuplicateDetector
 
                 detector = DuplicateDetector(
                     db, similarity_threshold=similarity_threshold
