@@ -5,7 +5,6 @@ FastAPI backend for catalog review UI.
 import io
 import logging
 import subprocess
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -13,12 +12,10 @@ from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
 from ..core.catalog import CatalogDatabase
-from ..core.types import ImageRecord, Statistics
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +113,7 @@ def init_catalog(catalog_path: Path) -> None:
 
 def get_catalog() -> CatalogDatabase:
     """Get the current catalog instance, reloading if file has changed."""
-    global _catalog, _catalog_path, _catalog_mtime
+    global _catalog_mtime
 
     if _catalog is None or _catalog_path is None:
         raise HTTPException(status_code=500, detail="Catalog not initialized")

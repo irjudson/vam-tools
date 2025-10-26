@@ -20,7 +20,11 @@ from rich.table import Table
 
 from vam_tools.shared import (
     collect_image_files,
+)
+from vam_tools.shared import (
     format_bytes as format_file_size,  # Alias for backward compatibility
+)
+from vam_tools.shared import (
     get_image_info,
     setup_logging,
 )
@@ -103,7 +107,7 @@ def cli(
     output_path = Path(output).resolve()
 
     if not quiet:
-        console.print(f"\n[bold cyan]Duplicate Image Finder[/bold cyan]\n")
+        console.print("\n[bold cyan]Duplicate Image Finder[/bold cyan]\n")
         console.print(f"Directory: {directory_path}")
         console.print(f"Recursive: {recursive}")
         console.print(f"Threshold: {threshold} (0=exact, 64=very loose)")
@@ -222,7 +226,7 @@ def cli(
 
         if total_groups > 0:
             console.print(
-                f"\n[yellow]Review the results carefully before deleting any files![/yellow]"
+                "\n[yellow]Review the results carefully before deleting any files![/yellow]"
             )
 
         console.print(f"\n[green]Results written to:[/green] {output_path}")

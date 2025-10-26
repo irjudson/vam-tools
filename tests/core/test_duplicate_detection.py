@@ -4,10 +4,9 @@ Tests for duplicate_detection module.
 
 from pathlib import Path
 
-import pytest
 from PIL import Image
 
-from vam_tools.core.duplicate_detection import DuplicateDetector, ImageHash
+from vam_tools.core.duplicate_detection import DuplicateDetector
 
 
 class TestHashCalculation:

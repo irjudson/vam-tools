@@ -83,7 +83,7 @@ def analyze(
 
     source_dirs = [Path(s) for s in source] if source else []
 
-    console.print(f"\n[bold cyan]VAM Tools V2 - Analysis[/bold cyan]\n")
+    console.print("\n[bold cyan]VAM Tools V2 - Analysis[/bold cyan]\n")
     console.print(f"Catalog: {catalog_path}")
     if source_dirs:
         console.print(f"Sources: {', '.join(str(s) for s in source_dirs)}")
@@ -166,14 +166,14 @@ def analyze(
 
                 total_existing = stats.total_images + stats.total_videos
                 if total_existing > 0:
-                    console.print(f"\n[cyan]Existing catalog contains:[/cyan]")
+                    console.print("\n[cyan]Existing catalog contains:[/cyan]")
                     console.print(f"  • {stats.total_images:,} images")
                     console.print(f"  • {stats.total_videos:,} videos")
                     console.print(
                         f"  • {format_bytes(stats.total_size_bytes)} total size"
                     )
                     console.print(
-                        f"\n[yellow]Scanning for new/changed files...[/yellow]"
+                        "\n[yellow]Scanning for new/changed files...[/yellow]"
                     )
 
             # Run scanner

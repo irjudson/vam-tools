@@ -9,7 +9,9 @@ compatibility. New code should import directly from vam_tools.shared instead.
 from vam_tools.shared import (
     IMAGE_EXTENSIONS,
     collect_image_files,
-    format_bytes as format_file_size,  # V1 used this name
+)
+from vam_tools.shared import format_bytes as format_file_size  # V1 used this name
+from vam_tools.shared import (
     get_image_info,
     is_image_file,
     setup_logging,

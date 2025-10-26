@@ -201,7 +201,7 @@ class TestDryRun:
         image_path = list(dated_images.values())[0]
         exists_before = image_path.exists()
 
-        results = reorganizer.reorganize([image_path], dry_run=True)
+        _ = reorganizer.reorganize([image_path], dry_run=True)
 
         # File should still exist in original location
         assert exists_before == image_path.exists()

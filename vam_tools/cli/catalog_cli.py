@@ -13,12 +13,13 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
+from vam_tools.shared import collect_image_files, setup_logging
+
 from ..core.catalog_reorganization import (
     CatalogReorganizer,
     ConflictResolution,
     OrganizationStrategy,
 )
-from vam_tools.shared import collect_image_files, setup_logging
 
 console = Console()
 
@@ -137,7 +138,7 @@ def cli(
 
     # Display configuration
     if not quiet:
-        console.print(f"\n[bold cyan]Catalog Reorganizer[/bold cyan]\n")
+        console.print("\n[bold cyan]Catalog Reorganizer[/bold cyan]\n")
 
         config_table = Table(show_header=False, box=None)
         config_table.add_column("Setting", style="cyan")
@@ -240,7 +241,7 @@ def cli(
                 "[yellow]Run without --dry-run to perform the reorganization.[/yellow]"
             )
         else:
-            console.print(f"\n[green]Reorganization complete![/green]")
+            console.print("\n[green]Reorganization complete![/green]")
             console.print(f"[green]Files are in:[/green] {output_path}")
 
             if stats.get("errors", 0) > 0:

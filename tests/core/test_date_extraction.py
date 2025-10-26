@@ -121,7 +121,7 @@ class TestDirectoryExtraction:
         Image.new("RGB", (10, 10)).save(image_path)
 
         with DateExtractor() as extractor:
-            date_info = extractor.extract_directory_date(image_path)
+            _ = extractor.extract_directory_date(image_path)
 
         # May return None or a date depending on implementation
         # Just verify it doesn't crash
@@ -239,9 +239,9 @@ class TestContextManager:
     def test_multiple_operations_in_context(self, sample_image: Path) -> None:
         """Test multiple operations within same context."""
         with DateExtractor() as extractor:
-            info1 = extractor.extract_filename_date(sample_image)
+            _ = extractor.extract_filename_date(sample_image)
             info2 = extractor.extract_filesystem_date(sample_image)
-            info3 = extractor.extract_directory_date(sample_image)
+            _ = extractor.extract_directory_date(sample_image)
 
             # At least filesystem should work
             assert info2 is not None

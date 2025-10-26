@@ -4,10 +4,7 @@ Tests for image_utils module.
 
 from pathlib import Path
 
-import pytest
-
 from vam_tools.core.image_utils import (
-    IMAGE_EXTENSIONS,
     collect_image_files,
     format_file_size,
     get_image_info,
