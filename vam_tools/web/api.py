@@ -4,10 +4,11 @@ FastAPI backend for catalog review UI.
 
 import io
 import logging
+import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,12 +33,18 @@ except ImportError:
 
 app = FastAPI(title="VAM Tools Catalog Viewer", version="2.0.0")
 
-# Enable CORS for Vue.js frontend
+# Configure CORS - restricted to localhost by default for security
+# Set VAM_CORS_ORIGINS environment variable to customize (comma-separated)
+cors_origins_str = os.getenv(
+    "VAM_CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+)
+cors_origins = [origin.strip() for origin in cors_origins_str.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend URL
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],  # Restrict to needed methods
     allow_headers=["*"],
 )
 
@@ -130,8 +137,8 @@ def get_catalog() -> CatalogDatabase:
     return _catalog
 
 
-@app.get("/")
-async def root():
+@app.get("/", response_model=None)
+async def root() -> Union[HTMLResponse, Dict[str, Any]]:
     """Serve the frontend UI."""
     static_dir = Path(__file__).parent / "static"
     index_file = static_dir / "index.html"
@@ -144,13 +151,13 @@ async def root():
 
 
 @app.get("/api")
-async def api_root():
+async def api_root() -> Dict[str, Any]:
     """API root endpoint."""
     return {"message": "VAM Tools Catalog API", "version": "2.0.0"}
 
 
 @app.get("/api/catalog/info", response_model=CatalogInfo)
-async def get_catalog_info():
+async def get_catalog_info() -> CatalogInfo:
     """Get overall catalog information."""
     catalog = get_catalog()
     state = catalog.get_state()
@@ -186,7 +193,7 @@ async def list_images(
         None, pattern="^(no_date|suspicious|image|video)$"
     ),
     sort_by: str = Query("date", pattern="^(date|path|size)$"),
-):
+) -> List[ImageSummary]:
     """
     List images with pagination and filtering.
 
@@ -257,7 +264,7 @@ async def list_images(
 
 
 @app.get("/api/images/{image_id}", response_model=ImageDetail)
-async def get_image_detail(image_id: str):
+async def get_image_detail(image_id: str) -> ImageDetail:
     """Get detailed information about a specific image."""
     catalog = get_catalog()
     image = catalog.get_image(image_id)
@@ -339,8 +346,8 @@ async def get_image_detail(image_id: str):
     )
 
 
-@app.get("/api/images/{image_id}/file")
-async def get_image_file(image_id: str):
+@app.get("/api/images/{image_id}/file", response_model=None)
+async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse]:
     """Serve the actual image file for preview."""
     catalog = get_catalog()
     image = catalog.get_image(image_id)
@@ -468,7 +475,7 @@ async def get_image_file(image_id: str):
 
 
 @app.get("/api/statistics/summary")
-async def get_statistics_summary():
+async def get_statistics_summary() -> Dict[str, Any]:
     """Get various statistics about the catalog."""
     catalog = get_catalog()
     stats = catalog.get_statistics()
@@ -589,7 +596,7 @@ async def list_duplicate_groups(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     needs_review_only: bool = Query(False),
-):
+) -> List[DuplicateGroupSummary]:
     """
     List duplicate groups with pagination.
 
@@ -646,7 +653,7 @@ async def list_duplicate_groups(
 
 
 @app.get("/api/duplicates/groups/{group_id}", response_model=DuplicateGroupDetail)
-async def get_duplicate_group(group_id: str):
+async def get_duplicate_group(group_id: str) -> DuplicateGroupDetail:
     """Get detailed information about a specific duplicate group."""
     catalog = get_catalog()
     groups = catalog.get_duplicate_groups()
@@ -667,7 +674,7 @@ async def get_duplicate_group(group_id: str):
 
 
 @app.get("/api/duplicates/stats")
-async def get_duplicate_stats():
+async def get_duplicate_stats() -> Dict[str, Any]:
     """Get statistics about duplicate groups."""
     catalog = get_catalog()
     groups = catalog.get_duplicate_groups()
@@ -701,3 +708,177 @@ async def get_duplicate_stats():
         "total_unique": total_unique,
         "potential_space_savings_bytes": total_duplicate_size,
     }
+
+
+# ============================================================================
+# Review Queue Endpoints
+# ============================================================================
+
+
+@app.get("/api/review/queue")
+async def get_review_queue(
+    filter_type: Optional[str] = Query(
+        None,
+        description="Filter by type: date_conflict, no_date, suspicious_date",
+    )
+) -> Dict[str, Any]:
+    """
+    Get review queue items.
+
+    Returns items that need manual review, optionally filtered by type.
+    """
+    catalog = get_catalog()
+    images = catalog.list_images()
+
+    review_items = []
+
+    for image in images:
+        # Check for date conflicts (in duplicate groups)
+        if filter_type in [None, "date_conflict"]:
+            # Find if image is in a duplicate group with date conflicts
+            groups = catalog.get_duplicate_groups()
+            for group in groups:
+                if image.id in group.images and group.date_conflict:
+                    review_items.append(
+                        {
+                            "id": image.id,
+                            "type": "date_conflict",
+                            "source_path": str(image.source_path),
+                            "current_date": (
+                                image.dates.selected_date.isoformat()
+                                if image.dates and image.dates.selected_date
+                                else None
+                            ),
+                            "confidence": (
+                                image.dates.confidence if image.dates else 0
+                            ),
+                            "group_id": group.id,
+                        }
+                    )
+                    break  # Only add once per image
+
+        # Check for no date
+        if filter_type in [None, "no_date"]:
+            if not image.dates or not image.dates.selected_date:
+                review_items.append(
+                    {
+                        "id": image.id,
+                        "type": "no_date",
+                        "source_path": str(image.source_path),
+                        "current_date": None,
+                        "confidence": 0,
+                        "filesystem_created": (
+                            image.dates.filesystem_created.isoformat()
+                            if image.dates and image.dates.filesystem_created
+                            else None
+                        ),
+                    }
+                )
+
+        # Check for suspicious dates
+        if filter_type in [None, "suspicious_date"]:
+            if image.dates and image.dates.suspicious:
+                review_items.append(
+                    {
+                        "id": image.id,
+                        "type": "suspicious_date",
+                        "source_path": str(image.source_path),
+                        "current_date": (
+                            image.dates.selected_date.isoformat()
+                            if image.dates.selected_date
+                            else None
+                        ),
+                        "confidence": image.dates.confidence,
+                        "selected_source": image.dates.selected_source,
+                    }
+                )
+
+    return {"items": review_items, "total": len(review_items)}
+
+
+@app.patch("/api/images/{image_id}/date")
+async def update_image_date(
+    image_id: str, date_str: str = Query(...)
+) -> Dict[str, Any]:
+    """
+    Update the date for an image.
+
+    Args:
+        image_id: Image ID
+        date_str: New date in ISO format (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+    """
+    catalog = get_catalog()
+    image = catalog.get_image(image_id)
+
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Parse date
+    try:
+        from datetime import datetime
+
+        if len(date_str) == 10:  # YYYY-MM-DD
+            new_date = datetime.strptime(date_str, "%Y-%m-%d")
+        else:  # YYYY-MM-DD HH:MM:SS
+            new_date = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS",
+        )
+
+    # Update image date
+    if not image.dates:
+        from ..core.types import DateInfo
+
+        image.dates = DateInfo()
+
+    image.dates.selected_date = new_date
+    image.dates.selected_source = "manual"
+    image.dates.confidence = 100  # Manual dates have 100% confidence
+
+    # Save to catalog
+    catalog.update_image(image)
+    catalog.save()
+
+    return {"success": True, "image_id": image_id, "new_date": date_str}
+
+
+@app.get("/api/review/stats")
+async def get_review_stats() -> Dict[str, Any]:
+    """Get statistics about items needing review."""
+    catalog = get_catalog()
+    images = catalog.list_images()
+
+    stats = {
+        "date_conflicts": 0,
+        "no_date": 0,
+        "suspicious_dates": 0,
+        "low_confidence": 0,
+        "ready_to_organize": 0,
+    }
+
+    # Count images in duplicate groups with date conflicts
+    groups = catalog.get_duplicate_groups()
+    images_in_conflict_groups = set()
+    for group in groups:
+        if group.date_conflict:
+            images_in_conflict_groups.update(group.images)
+    stats["date_conflicts"] = len(images_in_conflict_groups)
+
+    # Count other issues
+    for image in images:
+        if not image.dates or not image.dates.selected_date:
+            stats["no_date"] += 1
+        elif image.dates.suspicious:
+            stats["suspicious_dates"] += 1
+        elif image.dates.confidence < 70:
+            stats["low_confidence"] += 1
+        else:
+            stats["ready_to_organize"] += 1
+
+    stats["total_needing_review"] = (
+        stats["date_conflicts"] + stats["no_date"] + stats["suspicious_dates"]
+    )
+
+    return stats

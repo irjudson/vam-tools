@@ -9,7 +9,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
 
 import arrow
 import exiftool
@@ -153,7 +153,7 @@ class MetadataExtractor:
         try:
             metadata_list = self.exif_tool.get_metadata([str(file_path)])
             if metadata_list:
-                return metadata_list[0]
+                return cast(Dict[str, Any], metadata_list[0])
         except Exception as e:
             logger.debug(f"Error extracting EXIF from {file_path}: {e}")
 
