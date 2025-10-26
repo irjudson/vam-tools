@@ -8,6 +8,7 @@ import fcntl
 import json
 import logging
 import shutil
+import signal
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -82,14 +83,25 @@ class CatalogDatabase:
         Raises:
             TimeoutError: If lock cannot be acquired within timeout
         """
+
+        def timeout_handler(signum: int, frame: any) -> None:
+            raise TimeoutError(f"Could not acquire catalog lock within {timeout}s")
+
         try:
             self._lock_fd = open(self.lock_file, "w")
             fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             logger.debug("Acquired catalog lock")
         except BlockingIOError:
             logger.warning(f"Waiting for catalog lock (timeout: {timeout}s)")
-            # TODO: Implement timeout
-            fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_EX)
+            # Set up timeout using signal alarm
+            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout)
+            try:
+                fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_EX)
+                logger.debug("Acquired catalog lock after waiting")
+            finally:
+                signal.alarm(0)  # Cancel alarm
+                signal.signal(signal.SIGALRM, old_handler)  # Restore handler
         except Exception as e:
             logger.error(f"Error acquiring lock: {e}")
             raise

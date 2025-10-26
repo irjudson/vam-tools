@@ -183,9 +183,9 @@ async def list_images(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     filter_type: Optional[str] = Query(
-        None, regex="^(no_date|suspicious|image|video)$"
+        None, pattern="^(no_date|suspicious|image|video)$"
     ),
-    sort_by: str = Query("date", regex="^(date|path|size)$"),
+    sort_by: str = Query("date", pattern="^(date|path|size)$"),
 ):
     """
     List images with pagination and filtering.
