@@ -30,7 +30,7 @@ brew install exiftool
 
 **Ubuntu/Debian:**
 ```bash
-sudo apt-get install libimage-exiftool-perl
+sudo apt-get install exiftool
 ```
 
 **Windows:**
