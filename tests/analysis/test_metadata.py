@@ -8,8 +8,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from vam_tools.v2.analysis.metadata import MetadataExtractor
-from vam_tools.v2.core.types import FileType
+from vam_tools.analysis.metadata import MetadataExtractor
+from vam_tools.core.types import FileType
 
 
 class TestMetadataExtractor:
