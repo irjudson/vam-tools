@@ -58,8 +58,20 @@ def setup_logging(verbose: bool = False) -> None:
     is_flag=True,
     help="Repair corrupted catalog database",
 )
+@click.option(
+    "--workers",
+    "-w",
+    type=int,
+    default=None,
+    help="Number of parallel workers (default: CPU count)",
+)
 def analyze(
-    catalog_path: str, source: tuple, verbose: bool, clear: bool, repair: bool
+    catalog_path: str,
+    source: tuple,
+    verbose: bool,
+    clear: bool,
+    repair: bool,
+    workers: int,
 ) -> None:
     """
     Analyze images and build catalog database.
@@ -177,8 +189,19 @@ def analyze(
                     )
 
             # Run scanner
-            console.print("\n[cyan]Starting scan...[/cyan]\n")
-            scanner = ImageScanner(db)
+            if workers:
+                console.print(
+                    f"\n[cyan]Starting scan with {workers} worker processes...[/cyan]\n"
+                )
+            else:
+                import multiprocessing
+
+                workers_count = multiprocessing.cpu_count()
+                console.print(
+                    f"\n[cyan]Starting scan with {workers_count} worker processes (auto-detected)...[/cyan]\n"
+                )
+
+            scanner = ImageScanner(db, workers=workers)
             scanner.scan_directories(source_dirs)
 
             # Display results
