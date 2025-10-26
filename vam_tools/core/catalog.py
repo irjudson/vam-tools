@@ -12,7 +12,7 @@ import signal
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, TextIO
 
 from .types import (
     BurstGroup,
@@ -52,7 +52,7 @@ class CatalogDatabase:
         self.lock_file = self.catalog_path / ".catalog.lock"
         self.transactions_dir = self.catalog_path / ".transactions"
 
-        self._lock_fd: Optional[int] = None
+        self._lock_fd: Optional[TextIO] = None
         self._data: Optional[Dict] = None
         self._last_checkpoint: Optional[datetime] = None
         self._path_index: Optional[Dict[str, str]] = (
@@ -69,7 +69,7 @@ class CatalogDatabase:
         self.load()
         return self
 
-    def __exit__(self, *args: any) -> None:
+    def __exit__(self, *args: Any) -> None:
         """Context manager exit - release lock."""
         self.release_lock()
 
@@ -84,7 +84,7 @@ class CatalogDatabase:
             TimeoutError: If lock cannot be acquired within timeout
         """
 
-        def timeout_handler(signum: int, frame: any) -> None:
+        def timeout_handler(signum: int, frame: Any) -> None:
             raise TimeoutError(f"Could not acquire catalog lock within {timeout}s")
 
         try:

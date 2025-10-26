@@ -9,7 +9,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import arrow
 import exiftool
@@ -44,7 +44,7 @@ class MetadataExtractor:
         self.exif_tool.__enter__()
         return self
 
-    def __exit__(self, *args: any) -> None:
+    def __exit__(self, *args: Any) -> None:
         """Context manager exit."""
         if self.exif_tool:
             self.exif_tool.__exit__(*args)
@@ -145,7 +145,7 @@ class MetadataExtractor:
 
         return date_info
 
-    def _extract_exif(self, file_path: Path) -> Dict[str, any]:
+    def _extract_exif(self, file_path: Path) -> Dict[str, Any]:
         """Extract EXIF data using ExifTool."""
         if not self.exif_tool:
             return {}
@@ -160,7 +160,7 @@ class MetadataExtractor:
         return {}
 
     def _extract_exif_dates(
-        self, exif: Dict[str, any]
+        self, exif: Dict[str, Any]
     ) -> Dict[str, Optional[datetime]]:
         """Extract date fields from EXIF data."""
         dates = {}
@@ -363,7 +363,7 @@ class MetadataExtractor:
             return None, None
 
     def _get_video_resolution(
-        self, exif_data: Dict[str, any]
+        self, exif_data: Dict[str, Any]
     ) -> Optional[Tuple[int, int]]:
         """
         Extract video resolution from EXIF metadata.
@@ -413,7 +413,7 @@ class MetadataExtractor:
         return None
 
     def _get_video_format(
-        self, file_path: Path, exif_data: Dict[str, any]
+        self, file_path: Path, exif_data: Dict[str, Any]
     ) -> Optional[str]:
         """
         Get video format from EXIF metadata.
@@ -448,7 +448,7 @@ class MetadataExtractor:
         # Fall back to file extension
         return file_path.suffix.lower().lstrip(".")
 
-    def _parse_float(self, value: any) -> Optional[float]:
+    def _parse_float(self, value: Any) -> Optional[float]:
         """
         Parse a value to float.
 
@@ -475,7 +475,7 @@ class MetadataExtractor:
         except (ValueError, TypeError):
             return None
 
-    def _parse_int(self, value: any) -> Optional[int]:
+    def _parse_int(self, value: Any) -> Optional[int]:
         """
         Parse a value to int.
 
