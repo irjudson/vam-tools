@@ -3,7 +3,6 @@ Pytest configuration and fixtures for vam_tools tests.
 """
 
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from typing import Generator
 
@@ -12,7 +11,7 @@ from PIL import Image, ImageDraw
 
 # Try to import exiftool for setting EXIF data
 try:
-    import exiftool
+    import exiftool  # noqa: F401
 
     EXIFTOOL_AVAILABLE = True
 except ImportError:

@@ -45,9 +45,35 @@ else
     exit 1
 fi
 
-# 2. Run tests
+# 2. Check import sorting with isort
 echo ""
-echo -e "${YELLOW}2. Running tests...${NC}"
+echo -e "${YELLOW}2. Checking import sorting with isort...${NC}"
+if isort --check-only vam_tools/ tests/ >/dev/null 2>&1; then
+    echo -e "${GREEN}  ✓ Import sorting OK${NC}"
+else
+    echo -e "${RED}  ✗ Import sorting issues found${NC}"
+    echo ""
+    echo "  Run: isort vam_tools/ tests/"
+    echo "  Then: git add -u && git commit --amend --no-edit"
+    exit 1
+fi
+
+# 3. Lint with flake8
+echo ""
+echo -e "${YELLOW}3. Linting with flake8...${NC}"
+if flake8 vam_tools/ tests/ 2>/dev/null; then
+    echo -e "${GREEN}  ✓ Linting passed${NC}"
+else
+    echo -e "${RED}  ✗ Linting issues found${NC}"
+    echo ""
+    echo "  Run: flake8 vam_tools/ tests/"
+    echo "  Fix the issues before pushing"
+    exit 1
+fi
+
+# 4. Run tests
+echo ""
+echo -e "${YELLOW}4. Running tests...${NC}"
 if pytest tests/ -x --tb=short -q; then
     echo -e "${GREEN}  ✓ All tests passed${NC}"
 else
@@ -57,9 +83,9 @@ else
     exit 1
 fi
 
-# 3. Optional: Check for common issues
+# 5. Optional: Check for common issues
 echo ""
-echo -e "${YELLOW}3. Checking for common issues...${NC}"
+echo -e "${YELLOW}5. Checking for common issues...${NC}"
 
 # Check for debugger statements
 if git diff --cached --name-only | xargs grep -n "import pdb\|breakpoint()" 2>/dev/null; then

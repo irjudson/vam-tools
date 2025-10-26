@@ -5,7 +5,6 @@ Scans directories, extracts metadata, computes checksums, and builds catalog.
 """
 
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -20,13 +19,7 @@ from rich.progress import (
 from vam_tools.shared import compute_checksum, get_file_type
 
 from ..core.catalog import CatalogDatabase
-from ..core.types import (
-    CatalogPhase,
-    FileType,
-    ImageRecord,
-    ImageStatus,
-    Statistics,
-)
+from ..core.types import CatalogPhase, FileType, ImageRecord, ImageStatus
 from .metadata import MetadataExtractor
 
 logger = logging.getLogger(__name__)

@@ -2,7 +2,6 @@
 CLI for launching the web-based catalog viewer.
 """
 
-import logging
 from pathlib import Path
 
 import click
@@ -46,7 +45,7 @@ def web(catalog_path: str, host: str, port: int, reload: bool) -> None:
         console.print("\nRun [cyan]vam-analyze[/cyan] first to create a catalog.")
         return
 
-    console.print(f"\n[bold cyan]VAM Tools - Catalog Viewer[/bold cyan]\n")
+    console.print("\n[bold cyan]VAM Tools - Catalog Viewer[/bold cyan]\n")
     console.print(f"Catalog: {catalog_path}")
     console.print(f"Server: http://{host}:{port}\n")
 

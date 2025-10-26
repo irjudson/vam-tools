@@ -13,8 +13,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import arrow
-
 from .date_extraction import DateExtractor, DateInfo
 
 logger = logging.getLogger(__name__)
@@ -183,7 +181,7 @@ class CatalogReorganizer:
                                     destination=destination,
                                     date_info=date_info,
                                     action="skip",
-                                    reason=f"File already exists at destination",
+                                    reason="File already exists at destination",
                                 )
                             )
                             continue

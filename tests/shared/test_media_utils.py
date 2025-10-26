@@ -4,10 +4,8 @@ Tests for shared media utilities.
 Consolidates tests from V1 and V2 to ensure shared module works correctly.
 """
 
-import tempfile
 from pathlib import Path
 
-import pytest
 from PIL import Image
 
 from vam_tools.shared import (

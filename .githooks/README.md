@@ -15,14 +15,37 @@ git config core.hooksPath .githooks
 The `pre-push` hook runs before every `git push` and performs:
 
 1. **Black formatting check** - Ensures code is formatted
-2. **Pytest** - Runs all tests
-3. **Common issues check** - Checks for debugger statements, print statements in core code
+2. **isort import sorting** - Ensures imports are properly organized
+3. **flake8 linting** - Checks for code quality issues
+4. **Pytest** - Runs all tests (122 tests)
+5. **Common issues check** - Checks for debugger statements, print statements in core code
+
+These checks **exactly match** what GitHub Actions CI runs, ensuring local validation before pushing.
 
 ### If Pre-Push Hook Fails
 
-**Formatting issues:**
+**Black formatting issues:**
 ```bash
 black vam_tools/ tests/
+git add -u
+git commit --amend --no-edit
+git push
+```
+
+**isort import sorting issues:**
+```bash
+isort vam_tools/ tests/
+git add -u
+git commit --amend --no-edit
+git push
+```
+
+**flake8 linting issues:**
+```bash
+# View the issues
+flake8 vam_tools/ tests/
+
+# Fix them manually, then:
 git add -u
 git commit --amend --no-edit
 git push

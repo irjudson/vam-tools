@@ -22,7 +22,6 @@ from .types import (
     ImageRecord,
     ReviewItem,
     Statistics,
-    Transaction,
 )
 
 logger = logging.getLogger(__name__)
@@ -350,7 +349,7 @@ class CatalogDatabase:
                         raise ValueError(f"Missing required field: {key}")
 
                 # Validate source path exists (if possible)
-                source_path = Path(image_data["source_path"])
+                _ = Path(image_data["source_path"])
 
                 # Try to deserialize to validate format
                 self._deserialize_image(image_data)

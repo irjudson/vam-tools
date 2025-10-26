@@ -6,15 +6,15 @@ Extracts and reports the earliest dates found in images from multiple sources.
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 import click
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from ..core.date_extraction import DateExtractor
 from vam_tools.shared import collect_image_files, setup_logging
+
+from ..core.date_extraction import DateExtractor
 
 console = Console()
 
@@ -86,7 +86,7 @@ def cli(
     output_path = Path(output).resolve()
 
     if not quiet:
-        console.print(f"\n[bold cyan]Image Date Analyzer[/bold cyan]\n")
+        console.print("\n[bold cyan]Image Date Analyzer[/bold cyan]\n")
         console.print(f"Directory: {directory_path}")
         console.print(f"Recursive: {recursive}")
         console.print(f"Output: {output_path}\n")
