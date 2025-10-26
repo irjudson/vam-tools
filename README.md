@@ -305,6 +305,60 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 
 Ivan R. Judson - [irjudson@gmail.com](mailto:irjudson@gmail.com)
 
+## Development Approach
+
+This project was developed over a weekend using human-AI pair programming with Claude. The collaboration followed established engineering principles to ensure code quality without requiring exhaustive human review of every line.
+
+### Core Principles
+
+1. **Non-Destructive by Default**
+   - All operations provide dry-run modes for safe testing
+   - Destructive operations require explicit flags (off by default)
+   - Automatic backups before any catalog modifications
+
+2. **Minimal Functioning Code**
+   - DRY (Don't Repeat Yourself) - shared utilities, no duplication
+   - Clean architecture with clear separation of concerns
+   - Type-safe with Pydantic models throughout
+
+3. **Quality Gates from Day One**
+   - Tests and CI implemented at project start, not added later
+   - Pre-push hooks prevent broken code from reaching repository
+   - GitHub Actions run full test suite on every commit
+
+### Development Cycle
+
+Each feature followed this iterative cycle:
+
+1. **Prototype** - Initial implementation with core functionality
+2. **Validate** - Human review of architecture and approach
+3. **Develop** - Complete implementation with error handling
+4. **Test** - Comprehensive test coverage (213 tests, 84% coverage)
+5. **Refactor** - Clean up, optimize, ensure DRY principles
+
+### How Code Quality Was Ensured
+
+Rather than reviewing every line of AI-generated code, quality assurance came from:
+
+- **Continuous Integration**: Every commit runs Black, isort, flake8, pytest, and coverage checks
+- **Test Coverage Requirements**: 80%+ coverage enforced, comprehensive test suite validates correctness
+- **Pre-Push Hooks**: Local quality gates catch issues before they reach GitHub
+- **Type Safety**: Full type hints with Pydantic v2 catch type errors at development time
+- **Incremental Development**: Small commits with focused changes, easy to validate
+
+### Efficiency Gains
+
+This approach enabled building a production-ready tool in a single weekend—a timeline that would typically require weeks:
+
+- **Automated Boilerplate**: AI handled repetitive code patterns
+- **Parallel Development**: Tests written simultaneously with implementation
+- **Instant Documentation**: README and docstrings generated from implementation
+- **Rapid Iteration**: Quick prototype-validate-refactor cycles
+
+### Key Takeaway
+
+**The AI accelerated development; the test suite ensured quality.** Instead of manually reviewing every line, automated testing and CI gates provided confidence in code correctness.
+
 ## Project Links
 
 - **Repository**: https://github.com/irjudson/vam-tools
