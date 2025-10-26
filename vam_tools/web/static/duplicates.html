@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAM Tools - Duplicate Review</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            line-height: 1.6;
+        }
+
+        #app {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #60a5fa;
+            margin-bottom: 0.5rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #93c5fd;
+            margin: 2rem 0 1rem 0;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .nav-links a {
+            color: #60a5fa;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border: 1px solid #334155;
+            border-radius: 0.375rem;
+            background: #1e293b;
+        }
+
+        .nav-links a:hover {
+            border-color: #60a5fa;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+        }
+
+        .stat-card h3 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #60a5fa;
+        }
+
+        .stat-card .subvalue {
+            font-size: 0.875rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+
+        .duplicate-group {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .duplicate-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #334155;
+        }
+
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .image-comparison {
+            background: #0f172a;
+            border: 2px solid #334155;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+
+        .image-comparison.primary {
+            border-color: #10b981;
+        }
+
+        .image-comparison-header {
+            background: #1e293b;
+            padding: 0.75rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .primary-badge {
+            background: #10b981;
+            color: #fff;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .duplicate-badge {
+            background: #ef4444;
+            color: #fff;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .image-preview {
+            width: 100%;
+            height: 300px;
+            background: #0f172a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .image-preview img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .image-details {
+            padding: 1rem;
+            font-size: 0.875rem;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            color: #94a3b8;
+        }
+
+        .detail-row strong {
+            color: #e2e8f0;
+        }
+
+        button {
+            background: #3b82f6;
+            border: 1px solid #3b82f6;
+            color: #e2e8f0;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #2563eb;
+        }
+
+        button.danger {
+            background: #ef4444;
+            border-color: #ef4444;
+        }
+
+        button.danger:hover {
+            background: #dc2626;
+        }
+
+        button.success {
+            background: #10b981;
+            border-color: #10b981;
+        }
+
+        button.success:hover {
+            background: #059669;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #94a3b8;
+        }
+
+        .spinner {
+            border: 3px solid #334155;
+            border-top: 3px solid #60a5fa;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        select {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+
+        select:hover {
+            border-color: #60a5fa;
+        }
+
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 2rem;
+        }
+
+        .modal-content {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            max-width: 95vw;
+            max-height: 95vh;
+            overflow: auto;
+            padding: 2rem;
+        }
+
+        .comparison-modal {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        .comparison-image {
+            text-align: center;
+        }
+
+        .comparison-image img {
+            max-width: 100%;
+            max-height: 70vh;
+            object-fit: contain;
+            margin-bottom: 1rem;
+        }
+
+        .close-button {
+            float: right;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #94a3b8;
+        }
+
+        .close-button:hover {
+            color: #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>🔍 Duplicate Review</h1>
+            <p style="color: #94a3b8;">Review and manage duplicate images</p>
+        </header>
+
+        <div class="nav-links">
+            <a href="/">← Back to Catalog</a>
+        </div>
+
+        <div v-if="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading duplicate groups...</p>
+        </div>
+
+        <div v-else>
+            <!-- Statistics -->
+            <div class="stats-row">
+                <div class="stat-card">
+                    <h3>Duplicate Groups</h3>
+                    <div class="value">{{ stats.total_groups || 0 }}</div>
+                    <div class="subvalue">{{ stats.total_duplicates || 0 }} total images</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Needs Review</h3>
+                    <div class="value">{{ stats.needs_review || 0 }}</div>
+                    <div class="subvalue">Groups requiring attention</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Space Savings</h3>
+                    <div class="value">{{ formatBytes(stats.potential_space_savings_bytes || 0) }}</div>
+                    <div class="subvalue">If duplicates removed</div>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls">
+                <select v-model="filterReview" @change="loadGroups">
+                    <option value="all">All Groups</option>
+                    <option value="review">Needs Review Only</option>
+                </select>
+                <button @click="loadGroups">🔄 Refresh</button>
+            </div>
+
+            <!-- Duplicate Groups -->
+            <div v-if="groups.length === 0" style="text-align: center; padding: 3rem; color: #94a3b8;">
+                <p style="font-size: 1.5rem; margin-bottom: 0.5rem;">✨ No duplicates found</p>
+                <p>Run duplicate detection analysis to find similar images</p>
+            </div>
+
+            <div v-for="group in groups" :key="group.id" class="duplicate-group">
+                <div class="duplicate-header">
+                    <div>
+                        <h3 style="color: #e2e8f0; margin-bottom: 0.25rem;">
+                            Group {{ group.id.substring(0, 8) }}
+                        </h3>
+                        <span style="font-size: 0.875rem; color: #94a3b8;">
+                            {{ group.duplicate_count }} images • 
+                            {{ formatBytes(group.total_size_bytes) }} total •
+                            Formats: {{ group.format_types.join(', ') || 'Unknown' }}
+                        </span>
+                    </div>
+                    <div>
+                        <span v-if="group.needs_review" class="duplicate-badge">NEEDS REVIEW</span>
+                        <button @click="compareGroup(group)" style="margin-left: 0.5rem;">
+                            👁️ Compare
+                        </button>
+                    </div>
+                </div>
+
+                <div class="comparison-grid" v-if="groupImages[group.id]">
+                    <div v-for="imageId in groupImages[group.id]" :key="imageId"
+                         :class="['image-comparison', imageId === group.primary_image_id ? 'primary' : '']">
+                        <div class="image-comparison-header">
+                            <span style="font-size: 0.75rem; color: #94a3b8;">
+                                {{ getImageFileName(imageId) }}
+                            </span>
+                            <span v-if="imageId === group.primary_image_id" class="primary-badge">
+                                ⭐ PRIMARY
+                            </span>
+                        </div>
+                        <div class="image-preview" @click="viewFullImage(imageId, group.id)">
+                            <img :src="`/api/images/${imageId}/file`" :alt="imageId" loading="lazy">
+                        </div>
+                        <div class="image-details" v-if="imageDetails[imageId]">
+                            <div class="detail-row">
+                                <span>Format:</span>
+                                <strong>{{ imageDetails[imageId].format || 'N/A' }}</strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Resolution:</span>
+                                <strong v-if="imageDetails[imageId].resolution">
+                                    {{ imageDetails[imageId].resolution[0] }}x{{ imageDetails[imageId].resolution[1] }}
+                                </strong>
+                                <strong v-else>N/A</strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Size:</span>
+                                <strong>{{ formatBytes(imageDetails[imageId].size_bytes || 0) }}</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Comparison Modal -->
+        <div v-if="comparisonModal" class="modal" @click="comparisonModal = null">
+            <div class="modal-content" @click.stop style="max-width: 90vw;">
+                <span class="close-button" @click="comparisonModal = null">&times;</span>
+                <h2>Side-by-Side Comparison</h2>
+                <p style="color: #94a3b8; margin-bottom: 1rem;">
+                    Group {{ comparisonModal.group.id.substring(0, 8) }}
+                </p>
+
+                <div class="comparison-modal">
+                    <div v-for="imageId in comparisonModal.images" :key="imageId" class="comparison-image">
+                        <div style="margin-bottom: 0.5rem;">
+                            <span v-if="imageId === comparisonModal.group.primary_image_id" 
+                                  class="primary-badge">⭐ PRIMARY</span>
+                            <span v-else class="duplicate-badge">DUPLICATE</span>
+                        </div>
+                        <img :src="`/api/images/${imageId}/file`" :alt="imageId">
+                        <div v-if="imageDetails[imageId]" style="text-align: left; margin-top: 1rem;">
+                            <div class="detail-row">
+                                <span>Path:</span>
+                                <strong style="font-size: 0.75rem;">{{ imageDetails[imageId].source_path }}</strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Format:</span>
+                                <strong>{{ imageDetails[imageId].format }}</strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Resolution:</span>
+                                <strong v-if="imageDetails[imageId].resolution">
+                                    {{ imageDetails[imageId].resolution[0] }}x{{ imageDetails[imageId].resolution[1] }}
+                                </strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Size:</span>
+                                <strong>{{ formatBytes(imageDetails[imageId].size_bytes || 0) }}</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    loading: true,
+                    stats: {},
+                    groups: [],
+                    groupImages: {},
+                    imageDetails: {},
+                    filterReview: 'all',
+                    comparisonModal: null,
+                };
+            },
+            methods: {
+                async loadStats() {
+                    try {
+                        const response = await axios.get('/api/duplicates/stats');
+                        this.stats = response.data;
+                    } catch (error) {
+                        console.error('Error loading duplicate stats:', error);
+                    }
+                },
+                async loadGroups() {
+                    try {
+                        const params = {
+                            needs_review_only: this.filterReview === 'review',
+                        };
+                        const response = await axios.get('/api/duplicates/groups', { params });
+                        this.groups = response.data;
+
+                        // Load images for each group
+                        for (const group of this.groups) {
+                            await this.loadGroupDetail(group.id);
+                        }
+                    } catch (error) {
+                        console.error('Error loading duplicate groups:', error);
+                    }
+                },
+                async loadGroupDetail(groupId) {
+                    try {
+                        const response = await axios.get(`/api/duplicates/groups/${groupId}`);
+                        this.groupImages[groupId] = response.data.duplicate_image_ids;
+
+                        // Load details for each image
+                        for (const imageId of response.data.duplicate_image_ids) {
+                            if (!this.imageDetails[imageId]) {
+                                await this.loadImageDetail(imageId);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error loading group detail:', error);
+                    }
+                },
+                async loadImageDetail(imageId) {
+                    try {
+                        const response = await axios.get(`/api/images/${imageId}`);
+                        this.imageDetails[imageId] = response.data;
+                    } catch (error) {
+                        console.error('Error loading image detail:', error);
+                    }
+                },
+                compareGroup(group) {
+                    this.comparisonModal = {
+                        group: group,
+                        images: this.groupImages[group.id] || [],
+                    };
+                },
+                viewFullImage(imageId, groupId) {
+                    this.comparisonModal = {
+                        group: this.groups.find(g => g.id === groupId),
+                        images: this.groupImages[groupId] || [],
+                    };
+                },
+                getImageFileName(imageId) {
+                    const detail = this.imageDetails[imageId];
+                    if (detail && detail.source_path) {
+                        return detail.source_path.split('/').pop();
+                    }
+                    return imageId.substring(0, 8);
+                },
+                formatBytes(bytes) {
+                    if (!bytes) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+                },
+            },
+            async mounted() {
+                await this.loadStats();
+                await this.loadGroups();
+                this.loading = false;
+            },
+        }).mount('#app');
+    </script>
+</body>
+</html>

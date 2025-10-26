@@ -440,3 +440,51 @@ class TestAPIModels:
         )
         assert stats.total_images == 100
         assert stats.suspicious_dates == 3
+
+
+class TestDuplicateAPI:
+    """Tests for duplicate review API endpoints."""
+
+    def test_get_duplicate_stats_empty(self, tmp_path: Path) -> None:
+        """Test duplicate stats with no duplicates."""
+        catalog_dir = tmp_path / "catalog"
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[])
+
+        init_catalog(catalog_dir)
+        client = TestClient(app)
+        response = client.get("/api/duplicates/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_groups"] == 0
+        assert data["needs_review"] == 0
+        assert data["total_duplicates"] == 0
+
+    def test_list_duplicate_groups_empty(self, tmp_path: Path) -> None:
+        """Test listing duplicate groups when none exist."""
+        catalog_dir = tmp_path / "catalog"
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[])
+
+        init_catalog(catalog_dir)
+        client = TestClient(app)
+        response = client.get("/api/duplicates/groups")
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_get_duplicate_group_not_found(self, tmp_path: Path) -> None:
+        """Test getting non-existent duplicate group."""
+        catalog_dir = tmp_path / "catalog"
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[])
+
+        init_catalog(catalog_dir)
+        client = TestClient(app)
+        response = client.get("/api/duplicates/groups/nonexistent")
+
+        assert response.status_code == 404
