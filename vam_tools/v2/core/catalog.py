@@ -497,6 +497,14 @@ class CatalogDatabase:
             if self._path_index is not None:
                 self._path_index[str(image.source_path)] = image.id
 
+    def update_image(self, image: ImageRecord) -> None:
+        """Update an existing image record in the catalog."""
+        if self._data:
+            self._data["images"][image.id] = image.model_dump(mode="json")
+            # Update path index
+            if self._path_index is not None:
+                self._path_index[str(image.source_path)] = image.id
+
     def get_image(self, image_id: str) -> Optional[ImageRecord]:
         """Get an image record by ID."""
         if not self._data:
