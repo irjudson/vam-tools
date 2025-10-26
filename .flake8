@@ -1,6 +1,16 @@
 [flake8]
 max-line-length = 88
-extend-ignore = E203, E266, E501, W503, C901
+# Ignore:
+# E203: whitespace before ':' (conflicts with black)
+# E266: too many leading '#' for block comment
+# E501: line too long (handled by black)
+# W503: line break before binary operator (conflicts with black)
+# C901: function is too complex (complexity warnings are acceptable)
+# D200, D400, D401, D402, D301: docstring style (enforce later)
+# B007: loop variable not used (acceptable pattern)
+# B008: function call in argument default (FastAPI Query pattern)
+# B011: assert False (acceptable in tests)
+extend-ignore = E203, E266, E501, W503, C901, D200, D400, D401, D402, D301, B007, B008, B011
 exclude =
     .git,
     __pycache__,
