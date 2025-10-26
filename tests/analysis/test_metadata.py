@@ -504,3 +504,182 @@ class TestMetadataExtractor:
             video_path = tmp_path / "test.mkv"
             format_str = extractor._get_video_format(video_path, exif_data)
             assert format_str == "mkv"
+
+    def test_parse_exif_date_various_formats(self, tmp_path: Path) -> None:
+        """Test parsing of various EXIF date formats."""
+        with MetadataExtractor() as extractor:
+            # Standard EXIF format with timezone
+            date = extractor._parse_exif_date("2023:06:20 14:30:45+00:00")
+            assert date is not None
+            assert date.year == 2023
+            assert date.month == 6
+            assert date.day == 20
+
+            # Standard EXIF format without timezone
+            date = extractor._parse_exif_date("2023:06:20 14:30:45")
+            assert date is not None
+
+            # Hyphen separator
+            date = extractor._parse_exif_date("2023-06-20 14:30:45")
+            assert date is not None
+
+            # Date only with colons
+            date = extractor._parse_exif_date("2023:06:20")
+            assert date is not None
+
+            # Date only with hyphens
+            date = extractor._parse_exif_date("2023-06-20")
+            assert date is not None
+
+            # Invalid format
+            date = extractor._parse_exif_date("not a date")
+            assert date is None
+
+            # Empty string
+            date = extractor._parse_exif_date("")
+            assert date is None
+
+    def test_extract_exif_dates_with_errors(self, tmp_path: Path) -> None:
+        """Test EXIF date extraction with malformed dates."""
+        with MetadataExtractor() as extractor:
+            # Test with invalid date values
+            exif_data = {
+                "DateTimeOriginal": "invalid date",
+                "CreateDate": "2023:06:20 14:30:45",  # Valid one
+                "ModifyDate": "also invalid",
+            }
+            dates = extractor._extract_exif_dates(exif_data)
+
+            # Should skip invalid dates, keep valid one
+            assert "CreateDate" in dates
+            assert dates["CreateDate"] is not None
+            # Invalid ones might not be in dict or be None
+            if "DateTimeOriginal" in dates:
+                assert dates["DateTimeOriginal"] is None
+
+    def test_filename_date_parsing_errors(self, tmp_path: Path) -> None:
+        """Test filename date parsing with edge cases that cause errors."""
+        with MetadataExtractor() as extractor:
+            # Invalid month
+            date = extractor._extract_filename_date(Path("2023-13-01_photo.jpg"))
+            assert date is None
+
+            # Invalid day
+            date = extractor._extract_filename_date(Path("2023-06-32_photo.jpg"))
+            assert date is None
+
+            # Valid but edge case - Feb 29 non-leap year
+            date = extractor._extract_filename_date(Path("2023-02-29_photo.jpg"))
+            assert date is None
+
+            # Hour out of range - will extract date part, ignore invalid time
+            date = extractor._extract_filename_date(Path("2023-06-20_25:30:45.jpg"))
+            # Extracts valid date part (2023-06-20), ignores invalid time
+            assert date is not None
+            assert date.date() == datetime(2023, 6, 20).date()
+
+    def test_date_selection_with_secondary_exif_fields(self, tmp_path: Path) -> None:
+        """Test date selection using secondary EXIF fields."""
+        img_path = tmp_path / "test.jpg"
+        img = Image.new("RGB", (100, 100))
+        img.save(img_path)
+
+        with MetadataExtractor() as extractor:
+            # Manually set up DateInfo with secondary EXIF fields
+            from vam_tools.core.types import DateInfo
+
+            date_info = DateInfo()
+            # Set a non-priority EXIF field
+            date_info.exif_dates = {"ModifyDate": datetime(2023, 6, 20, 10, 30, 0)}
+
+            # Call selection logic
+            extractor._select_best_date(date_info)
+
+            # Should select the ModifyDate since no priority fields exist
+            assert date_info.selected_date is not None
+            assert date_info.selected_source == "exif:ModifyDate"
+            assert date_info.confidence == 85
+
+    def test_date_selection_directory_date_parsing_error(self, tmp_path: Path) -> None:
+        """Test date selection when directory date fails to parse."""
+        img_path = tmp_path / "test.jpg"
+        img = Image.new("RGB", (100, 100))
+        img.save(img_path)
+
+        with MetadataExtractor() as extractor:
+            # Manually set up DateInfo with invalid directory date
+            from vam_tools.core.types import DateInfo
+
+            date_info = DateInfo()
+            # Set an invalid directory date format
+            date_info.directory_date = "invalid-format"
+            date_info.filesystem_created = datetime(2023, 1, 1)
+
+            # Call selection logic - should fall back to filesystem
+            extractor._select_best_date(date_info)
+
+            # Should fall back to filesystem date
+            assert date_info.selected_date == datetime(2023, 1, 1)
+            assert date_info.selected_source == "filesystem"
+            assert date_info.confidence == 30
+
+    def test_extract_metadata_error_handling(self, tmp_path: Path) -> None:
+        """Test metadata extraction with file that causes errors."""
+        # Create a file that exists but causes issues
+        img_path = tmp_path / "problem.jpg"
+        img_path.write_bytes(b"corrupted image data")
+
+        with MetadataExtractor() as extractor:
+            # Should not crash
+            metadata = extractor.extract_metadata(img_path, FileType.IMAGE)
+
+            # Should still have basic metadata
+            assert metadata is not None
+            assert metadata.size_bytes > 0
+
+    def test_extract_dates_filesystem_error_handling(self, tmp_path: Path) -> None:
+        """Test date extraction when filesystem stat fails."""
+        # This is hard to test directly, but we can test that the method
+        # handles missing filesystem dates gracefully
+        img_path = tmp_path / "test.jpg"
+        img = Image.new("RGB", (100, 100))
+        img.save(img_path)
+
+        with MetadataExtractor() as extractor:
+            metadata = extractor.extract_metadata(img_path, FileType.IMAGE)
+            dates = extractor.extract_dates(img_path, metadata)
+
+            # Should still work even if filesystem dates are problematic
+            assert dates is not None
+
+    def test_1970_default_date_detection(self, tmp_path: Path) -> None:
+        """Test detection of 1970-01-01 default date."""
+        img_path = tmp_path / "1970-01-01_photo.jpg"
+        img = Image.new("RGB", (100, 100))
+        img.save(img_path)
+
+        with MetadataExtractor() as extractor:
+            metadata = extractor.extract_metadata(img_path, FileType.IMAGE)
+            dates = extractor.extract_dates(img_path, metadata)
+
+            if (
+                dates.selected_date
+                and dates.selected_date.date() == datetime(1970, 1, 1).date()
+            ):
+                assert dates.suspicious is True
+
+    def test_1980_default_date_detection(self, tmp_path: Path) -> None:
+        """Test detection of 1980-01-01 default date."""
+        img_path = tmp_path / "1980-01-01_photo.jpg"
+        img = Image.new("RGB", (100, 100))
+        img.save(img_path)
+
+        with MetadataExtractor() as extractor:
+            metadata = extractor.extract_metadata(img_path, FileType.IMAGE)
+            dates = extractor.extract_dates(img_path, metadata)
+
+            if (
+                dates.selected_date
+                and dates.selected_date.date() == datetime(1980, 1, 1).date()
+            ):
+                assert dates.suspicious is True

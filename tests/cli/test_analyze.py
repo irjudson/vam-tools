@@ -338,3 +338,103 @@ class TestSetupLogging:
         """Test verbose logging setup."""
         # Should not raise
         setup_logging(verbose=True)
+
+
+class TestAnalyzeErrorHandling:
+    """Tests for error handling in analyze CLI."""
+
+    def test_analyze_with_duplicates_needing_review(self, tmp_path: Path) -> None:
+        """Test analyze with duplicates that need review."""
+        runner = CliRunner()
+        catalog_path = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create duplicate images
+        for i in range(2):
+            img = Image.new("RGB", (100, 100), color="red")
+            img.save(photos_dir / f"dup{i}.jpg")
+
+        # Run with duplicate detection
+        result = runner.invoke(
+            analyze,
+            [
+                str(catalog_path),
+                "-s",
+                str(photos_dir),
+                "-w",
+                "1",
+                "--detect-duplicates",
+            ],
+        )
+
+        assert result.exit_code == 0
+        # Should show duplicate statistics
+        assert (
+            "Duplicate Detection" in result.output
+            or "duplicate" in result.output.lower()
+        )
+
+    def test_analyze_repair_with_error(self, tmp_path: Path, monkeypatch) -> None:
+        """Test repair mode with error during repair."""
+        runner = CliRunner()
+        catalog_path = tmp_path / "catalog"
+        catalog_path.mkdir()
+
+        # Create a catalog file that exists but will error on repair
+        catalog_file = catalog_path / ".catalog.json"
+        catalog_file.write_text("{}")
+
+        # Mock the repair method to raise an exception
+        from vam_tools.core.catalog import CatalogDatabase
+
+        original_repair = CatalogDatabase.repair
+
+        def failing_repair(self):
+            raise RuntimeError("Simulated repair failure")
+
+        monkeypatch.setattr(CatalogDatabase, "repair", failing_repair)
+
+        result = runner.invoke(analyze, [str(catalog_path), "--repair", "-v"])
+
+        # Should exit with error
+        assert result.exit_code == 1
+        assert "Error during repair" in result.output
+
+        # Restore original method
+        monkeypatch.setattr(CatalogDatabase, "repair", original_repair)
+
+    def test_analyze_clear_with_permission_error(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Test clear mode with permission error."""
+        runner = CliRunner()
+        catalog_path = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create initial catalog
+        img = Image.new("RGB", (100, 100), color="blue")
+        img.save(photos_dir / "test.jpg")
+
+        result = runner.invoke(
+            analyze, [str(catalog_path), "-s", str(photos_dir), "-w", "1"]
+        )
+        assert result.exit_code == 0
+
+        # Now mock shutil.copy2 to raise permission error
+        import shutil
+
+        def failing_copy(*args, **kwargs):
+            raise PermissionError("Simulated permission error")
+
+        monkeypatch.setattr(shutil, "copy2", failing_copy)
+
+        # Try to clear - should fail
+        result = runner.invoke(
+            analyze,
+            [str(catalog_path), "-s", str(photos_dir), "-w", "1", "--clear"],
+        )
+
+        assert result.exit_code == 1
+        assert "Error clearing catalog" in result.output

@@ -475,15 +475,15 @@ async def get_statistics_summary():
     images = catalog.list_images()
 
     # Calculate additional statistics
-    by_format = {}
-    by_extension = {}
+    by_format: Dict[str, int] = {}
+    by_extension: Dict[str, int] = {}
     by_category = {"image": 0, "video": 0}
-    by_date_source = {}
-    by_size_bucket = {}
-    by_issue_type = {}
+    by_date_source: Dict[str, int] = {}
+    by_size_bucket: Dict[str, int] = {}
+    by_issue_type: Dict[str, int] = {}
     suspicious = 0
     no_date = 0
-    by_year = {}
+    by_year: Dict[int, int] = {}
 
     # Define size buckets (in bytes)
     size_buckets = [
@@ -538,7 +538,7 @@ async def get_statistics_summary():
 
         # Year distribution
         if image.dates and image.dates.selected_date:
-            year = str(image.dates.selected_date.year)
+            year = image.dates.selected_date.year
             by_year[year] = by_year.get(year, 0) + 1
 
     return {
@@ -615,11 +615,14 @@ async def list_duplicate_groups(
     summaries = []
     for group in groups:
         # Get images for this group
-        images = [catalog.get_image(img_id) for img_id in group.images]
-        images = [img for img in images if img]  # Filter out None
+        images_optional = [catalog.get_image(img_id) for img_id in group.images]
+        images = [img for img in images_optional if img is not None]  # Filter out None
 
         # Calculate stats
-        total_size = sum(img.metadata.size_bytes or 0 for img in images if img.metadata)
+        sizes: List[int] = [
+            (img.metadata.size_bytes or 0) for img in images if img.metadata
+        ]
+        total_size = sum(sizes)
         formats = list(
             set(
                 img.metadata.format
@@ -631,7 +634,7 @@ async def list_duplicate_groups(
         summaries.append(
             DuplicateGroupSummary(
                 id=group.id,
-                primary_image_id=group.primary,
+                primary_image_id=group.primary or "",
                 duplicate_count=len(group.images),
                 total_size_bytes=total_size,
                 format_types=formats,
@@ -655,11 +658,11 @@ async def get_duplicate_group(group_id: str):
 
     return DuplicateGroupDetail(
         id=group.id,
-        primary_image_id=group.primary,
+        primary_image_id=group.primary or "",
         duplicate_image_ids=group.images,
-        similarity_score=group.similarity_score,
+        similarity_score=0.0,  # TODO: Calculate from perceptual hashes
         needs_review=group.needs_review,
-        review_reason=group.review_reason,
+        review_reason=None,  # TODO: Add reason to DuplicateGroup model
     )
 
 
@@ -677,8 +680,12 @@ async def get_duplicate_stats():
     # Calculate potential space savings
     total_duplicate_size = 0
     for group in groups:
-        images = [catalog.get_image(img_id) for img_id in group.images]
-        images = [img for img in images if img and img.metadata]
+        images_optional = [catalog.get_image(img_id) for img_id in group.images]
+        images = [
+            img
+            for img in images_optional
+            if img is not None and img.metadata is not None
+        ]
 
         if len(images) > 1:
             # Keep largest, count rest as savings

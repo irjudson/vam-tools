@@ -261,6 +261,10 @@ class DuplicateDetector:
             return False
 
         try:
+            # Type narrowing for mypy
+            assert dhash1 is not None and dhash2 is not None
+            assert ahash1 is not None and ahash2 is not None
+
             # Check dHash distance
             dhash_distance = hamming_distance(dhash1, dhash2)
             if dhash_distance > self.similarity_threshold:

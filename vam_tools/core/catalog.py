@@ -97,6 +97,7 @@ class CatalogDatabase:
             old_handler = signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(timeout)
             try:
+                assert self._lock_fd is not None, "Lock file should be open"
                 fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_EX)
                 logger.debug("Acquired catalog lock after waiting")
             finally:
