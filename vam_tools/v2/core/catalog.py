@@ -535,6 +535,33 @@ class CatalogDatabase:
         if self._data:
             self._data["duplicate_groups"][group.id] = group.model_dump(mode="json")
 
+    def save_duplicate_groups(self, groups: List[DuplicateGroup]) -> None:
+        """Save multiple duplicate groups at once."""
+        if self._data:
+            for group in groups:
+                self._data["duplicate_groups"][group.id] = group.model_dump(mode="json")
+
+    def get_duplicate_groups(self) -> List[DuplicateGroup]:
+        """Get all duplicate groups."""
+        if not self._data:
+            return []
+
+        groups = []
+        for group_data in self._data.get("duplicate_groups", {}).values():
+            groups.append(DuplicateGroup.model_validate(group_data))
+
+        return groups
+
+    def get_duplicate_group(self, group_id: str) -> Optional[DuplicateGroup]:
+        """Get a specific duplicate group by ID."""
+        if not self._data:
+            return None
+
+        group_data = self._data.get("duplicate_groups", {}).get(group_id)
+        if group_data:
+            return DuplicateGroup.model_validate(group_data)
+        return None
+
     def add_burst_group(self, group: BurstGroup) -> None:
         """Add a burst group."""
         if self._data:

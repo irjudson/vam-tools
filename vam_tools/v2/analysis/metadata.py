@@ -71,11 +71,32 @@ class MetadataExtractor:
                 exif_data = self._extract_exif(file_path)
                 metadata.exif = exif_data
 
+                # Extract camera information
+                metadata.camera_make = exif_data.get("Make")
+                metadata.camera_model = exif_data.get("Model")
+                metadata.lens_model = exif_data.get("LensModel")
+
+                # Extract camera settings
+                metadata.focal_length = self._parse_float(exif_data.get("FocalLength"))
+                metadata.aperture = self._parse_float(exif_data.get("FNumber"))
+                metadata.shutter_speed = exif_data.get("ShutterSpeed") or exif_data.get(
+                    "ExposureTime"
+                )
+                metadata.iso = self._parse_int(exif_data.get("ISO"))
+
+                # Extract GPS information
+                metadata.gps_latitude = self._parse_float(exif_data.get("GPSLatitude"))
+                metadata.gps_longitude = self._parse_float(
+                    exif_data.get("GPSLongitude")
+                )
+
             # Get format and resolution
             if file_type == FileType.IMAGE:
                 format_info = self._get_image_format(file_path)
                 metadata.format = format_info[0]
                 metadata.resolution = format_info[1]
+                if format_info[1]:
+                    metadata.width, metadata.height = format_info[1]
             elif file_type == FileType.VIDEO:
                 metadata.format = self._get_video_format(file_path)
                 # TODO: Extract video resolution from EXIF
@@ -342,3 +363,57 @@ class MetadataExtractor:
         # For now, just use extension
         # TODO: Use ffmpeg or similar for proper video format detection
         return file_path.suffix.lower().lstrip(".")
+
+    def _parse_float(self, value: any) -> Optional[float]:
+        """
+        Parse a value to float.
+
+        Args:
+            value: Value to parse (could be string, int, float, etc.)
+
+        Returns:
+            Float value or None if parsing fails
+        """
+        if value is None:
+            return None
+
+        try:
+            # Handle string values that might have units or extra text
+            if isinstance(value, str):
+                # Remove common units and extract first number
+                import re
+
+                match = re.search(r"[-+]?\d*\.?\d+", value)
+                if match:
+                    return float(match.group())
+                return None
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    def _parse_int(self, value: any) -> Optional[int]:
+        """
+        Parse a value to int.
+
+        Args:
+            value: Value to parse (could be string, int, float, etc.)
+
+        Returns:
+            Int value or None if parsing fails
+        """
+        if value is None:
+            return None
+
+        try:
+            # Handle string values
+            if isinstance(value, str):
+                # Remove common units and extract first number
+                import re
+
+                match = re.search(r"[-+]?\d+", value)
+                if match:
+                    return int(match.group())
+                return None
+            return int(float(value))  # Convert via float to handle "100.0" strings
+        except (ValueError, TypeError):
+            return None
