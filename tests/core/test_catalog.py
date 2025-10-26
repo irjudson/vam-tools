@@ -7,6 +7,7 @@ from pathlib import Path
 
 from vam_tools.core.catalog import CatalogDatabase
 from vam_tools.core.types import (
+    BurstGroup,
     CatalogConfiguration,
     CatalogPhase,
     DuplicateGroup,
