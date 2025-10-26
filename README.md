@@ -4,8 +4,8 @@ A professional collection of Python tools for managing and organizing photo/vide
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-178%20passing-success.svg)](https://github.com/irjudson/vam-tools)
-[![Coverage](https://img.shields.io/badge/coverage-59%25-yellow.svg)](https://github.com/irjudson/vam-tools)
+[![Tests](https://img.shields.io/badge/tests-226%20passing-success.svg)](https://github.com/irjudson/vam-tools)
+[![Coverage](https://img.shields.io/badge/coverage-65%25-yellow.svg)](https://github.com/irjudson/vam-tools)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ## Features
@@ -17,7 +17,7 @@ A professional collection of Python tools for managing and organizing photo/vide
 - **Date-Based Reorganization** - Reorganize photo/video catalogs into date-based directory structures
 - **Web Interface** - Modern web UI for reviewing and managing your catalog
 - **Beautiful CLI** - Rich terminal interface with progress bars and formatted output
-- **Fully Tested** - Comprehensive test suite with 178 passing tests and 59% coverage
+- **Fully Tested** - Comprehensive test suite with 226 passing tests and 65% coverage
 - **Type Safe** - Full type hints throughout the codebase with Pydantic v2
 
 ## Installation
@@ -236,8 +236,9 @@ vam-tools/
 │   │   └── catalog_reorganization.py
 │   └── shared/               # Shared utilities
 │       └── media_utils.py    # Image/video utilities
-├── tests/                    # Test suite (178 tests, 59% coverage)
-│   ├── v2/analysis/          # V2 analysis tests (91% coverage)
+├── tests/                    # Test suite (226 tests, 65% coverage)
+│   ├── v2/analysis/          # V2 analysis tests (80-91% coverage)
+│   ├── v2/core/              # V2 core tests (58% coverage)
 │   ├── cli/                  # CLI integration tests
 │   ├── core/                 # Core logic tests
 │   └── shared/               # Shared utilities tests
