@@ -128,9 +128,9 @@ class CatalogDatabase:
             "catalog_id": str(uuid.uuid4()),
             "created": datetime.now().isoformat(),
             "last_updated": datetime.now().isoformat(),
-            "configuration": config.model_dump(mode='json'),
-            "state": CatalogState().model_dump(mode='json'),
-            "statistics": Statistics().model_dump(mode='json'),
+            "configuration": config.model_dump(mode="json"),
+            "state": CatalogState().model_dump(mode="json"),
+            "statistics": Statistics().model_dump(mode="json"),
             "images": {},
             "duplicate_groups": {},
             "burst_groups": {},
@@ -302,11 +302,11 @@ class CatalogDatabase:
                 if key == "images":
                     self._data[key] = {}
                 elif key == "statistics":
-                    self._data[key] = Statistics().model_dump(mode='json')
+                    self._data[key] = Statistics().model_dump(mode="json")
                 elif key == "state":
-                    self._data[key] = CatalogState().model_dump(mode='json')
+                    self._data[key] = CatalogState().model_dump(mode="json")
                 elif key == "configuration":
-                    self._data[key] = CatalogConfiguration().model_dump(mode='json')
+                    self._data[key] = CatalogConfiguration().model_dump(mode="json")
                 elif key == "version":
                     self._data[key] = "2.0.0"
                 elif key == "catalog_id":
@@ -352,7 +352,7 @@ class CatalogDatabase:
                 _ = Path(image_data["source_path"])
 
                 # Try to deserialize to validate format
-                self._deserialize_image(image_data)
+                ImageRecord.model_validate(image_data)
 
                 # Image is valid
                 valid_images[image_id] = image_data
@@ -388,7 +388,7 @@ class CatalogDatabase:
                 if not image_data["dates"].get("selected_date"):
                     stats.no_date += 1
 
-        self._data["statistics"] = stats.model_dump(mode='json')
+        self._data["statistics"] = stats.model_dump(mode="json")
 
         # Update last_updated timestamp
         self._data["last_updated"] = datetime.now().isoformat()
@@ -432,7 +432,7 @@ class CatalogDatabase:
     def update_configuration(self, config: CatalogConfiguration) -> None:
         """Update catalog configuration."""
         if self._data:
-            self._data["configuration"] = config.model_dump(mode='json')
+            self._data["configuration"] = config.model_dump(mode="json")
 
     def get_state(self) -> CatalogState:
         """Get current catalog state."""
@@ -474,7 +474,7 @@ class CatalogDatabase:
     def update_state(self, state: CatalogState) -> None:
         """Update catalog state."""
         if self._data:
-            self._data["state"] = state.model_dump(mode='json')
+            self._data["state"] = state.model_dump(mode="json")
 
     def get_statistics(self) -> Statistics:
         """Get catalog statistics."""
@@ -487,12 +487,12 @@ class CatalogDatabase:
     def update_statistics(self, stats: Statistics) -> None:
         """Update catalog statistics."""
         if self._data:
-            self._data["statistics"] = stats.model_dump(mode='json')
+            self._data["statistics"] = stats.model_dump(mode="json")
 
     def add_image(self, image: ImageRecord) -> None:
         """Add an image record to the catalog."""
         if self._data:
-            self._data["images"][image.id] = self._serialize_image(image)
+            self._data["images"][image.id] = image.model_dump(mode="json")
             # Update path index
             if self._path_index is not None:
                 self._path_index[str(image.source_path)] = image.id
@@ -506,7 +506,7 @@ class CatalogDatabase:
         if not image_data:
             return None
 
-        return self._deserialize_image(image_data)
+        return ImageRecord.model_validate(image_data)
 
     def has_image_by_path(self, source_path: Path) -> bool:
         """Check if an image with the given source path exists in the catalog."""
@@ -522,7 +522,7 @@ class CatalogDatabase:
 
         images = {}
         for image_id, image_data in self._data.get("images", {}).items():
-            images[image_id] = self._deserialize_image(image_data)
+            images[image_id] = ImageRecord.model_validate(image_data)
 
         return images
 
@@ -533,19 +533,17 @@ class CatalogDatabase:
     def add_duplicate_group(self, group: DuplicateGroup) -> None:
         """Add a duplicate group."""
         if self._data:
-            self._data["duplicate_groups"][group.id] = self._serialize_duplicate_group(
-                group
-            )
+            self._data["duplicate_groups"][group.id] = group.model_dump(mode="json")
 
     def add_burst_group(self, group: BurstGroup) -> None:
         """Add a burst group."""
         if self._data:
-            self._data["burst_groups"][group.id] = self._serialize_burst_group(group)
+            self._data["burst_groups"][group.id] = group.model_dump(mode="json")
 
     def add_review_item(self, item: ReviewItem) -> None:
         """Add an item to the review queue."""
         if self._data:
-            self._data["review_queue"].append(self._serialize_review_item(item))
+            self._data["review_queue"].append(item.model_dump(mode="json"))
 
     def get_review_queue(self) -> List[ReviewItem]:
         """Get all review queue items."""
@@ -554,216 +552,6 @@ class CatalogDatabase:
 
         items = []
         for item_data in self._data.get("review_queue", []):
-            items.append(self._deserialize_review_item(item_data))
+            items.append(ReviewItem.model_validate(item_data))
 
         return items
-
-    # Serialization helpers
-
-    def _serialize_config(self, config: CatalogConfiguration) -> Dict:
-        """Serialize configuration to dict."""
-        return {
-            "source_directories": [str(p) for p in config.source_directories],
-            "import_directory": (
-                str(config.import_directory) if config.import_directory else None
-            ),
-            "date_format": config.date_format,
-            "file_naming": config.file_naming,
-            "burst_threshold_seconds": config.burst_threshold_seconds,
-            "burst_min_images": config.burst_min_images,
-            "ai_model": config.ai_model,
-            "video_support": config.video_support,
-            "checkpoint_interval_seconds": config.checkpoint_interval_seconds,
-        }
-
-    def _serialize_state(self, state: CatalogState) -> Dict:
-        """Serialize state to dict."""
-        return {
-            "phase": state.phase.value,
-            "last_checkpoint": (
-                state.last_checkpoint.isoformat() if state.last_checkpoint else None
-            ),
-            "checkpoint_interval_seconds": state.checkpoint_interval_seconds,
-            "images_processed": state.images_processed,
-            "images_total": state.images_total,
-            "progress_percentage": state.progress_percentage,
-        }
-
-    def _serialize_stats(self, stats: Statistics) -> Dict:
-        """Serialize statistics to dict."""
-        return {
-            "total_images": stats.total_images,
-            "total_videos": stats.total_videos,
-            "total_size_bytes": stats.total_size_bytes,
-            "organized": stats.organized,
-            "needs_review": stats.needs_review,
-            "no_date": stats.no_date,
-            "duplicate_groups": stats.duplicate_groups,
-            "duplicates_total": stats.duplicates_total,
-            "burst_groups": stats.burst_groups,
-            "burst_images": stats.burst_images,
-            "unique_images": stats.unique_images,
-        }
-
-    def _serialize_image(self, image: ImageRecord) -> Dict:
-        """Serialize image record to dict."""
-        data = {
-            "id": image.id,
-            "source_path": str(image.source_path),
-            "file_type": image.file_type.value,
-            "checksum": image.checksum,
-            "status": image.status.value,
-        }
-
-        # Add dates if present
-        if image.dates:
-            data["dates"] = {
-                "exif_dates": {
-                    k: v.isoformat() if v else None
-                    for k, v in image.dates.exif_dates.items()
-                },
-                "filename_date": (
-                    image.dates.filename_date.isoformat()
-                    if image.dates.filename_date
-                    else None
-                ),
-                "directory_date": image.dates.directory_date,
-                "filesystem_created": (
-                    image.dates.filesystem_created.isoformat()
-                    if image.dates.filesystem_created
-                    else None
-                ),
-                "filesystem_modified": (
-                    image.dates.filesystem_modified.isoformat()
-                    if image.dates.filesystem_modified
-                    else None
-                ),
-                "selected_date": (
-                    image.dates.selected_date.isoformat()
-                    if image.dates.selected_date
-                    else None
-                ),
-                "selected_source": image.dates.selected_source,
-                "confidence": image.dates.confidence,
-                "suspicious": image.dates.suspicious,
-                "user_verified": image.dates.user_verified,
-            }
-
-        # Add metadata if present
-        if image.metadata:
-            data["metadata"] = {
-                "format": image.metadata.format,
-                "resolution": image.metadata.resolution,
-                "size_bytes": image.metadata.size_bytes,
-                "exif": image.metadata.exif,
-            }
-
-        return data
-
-    def _deserialize_image(self, data: Dict) -> ImageRecord:
-        """Deserialize image record from dict."""
-        from .types import DateInfo, FileType, ImageMetadata, ImageStatus
-
-        # Deserialize dates
-        dates = None
-        if "dates" in data:
-            date_data = data["dates"]
-            dates = DateInfo(
-                exif_dates={
-                    k: datetime.fromisoformat(v) if v else None
-                    for k, v in date_data.get("exif_dates", {}).items()
-                },
-                filename_date=(
-                    datetime.fromisoformat(date_data["filename_date"])
-                    if date_data.get("filename_date")
-                    else None
-                ),
-                directory_date=date_data.get("directory_date"),
-                filesystem_created=(
-                    datetime.fromisoformat(date_data["filesystem_created"])
-                    if date_data.get("filesystem_created")
-                    else None
-                ),
-                filesystem_modified=(
-                    datetime.fromisoformat(date_data["filesystem_modified"])
-                    if date_data.get("filesystem_modified")
-                    else None
-                ),
-                selected_date=(
-                    datetime.fromisoformat(date_data["selected_date"])
-                    if date_data.get("selected_date")
-                    else None
-                ),
-                selected_source=date_data.get("selected_source"),
-                confidence=date_data.get("confidence", 0),
-                suspicious=date_data.get("suspicious", False),
-                user_verified=date_data.get("user_verified", False),
-            )
-
-        # Deserialize metadata
-        metadata = None
-        if "metadata" in data:
-            meta_data = data["metadata"]
-            metadata = ImageMetadata(
-                format=meta_data.get("format"),
-                resolution=(
-                    tuple(meta_data["resolution"])
-                    if meta_data.get("resolution")
-                    else None
-                ),
-                size_bytes=meta_data.get("size_bytes"),
-                exif=meta_data.get("exif"),
-            )
-
-        return ImageRecord(
-            id=data["id"],
-            source_path=Path(data["source_path"]),
-            file_type=FileType(data["file_type"]),
-            checksum=data["checksum"],
-            status=ImageStatus(data["status"]),
-            dates=dates,
-            metadata=metadata,
-        )
-
-    def _serialize_duplicate_group(self, group: DuplicateGroup) -> Dict:
-        """Serialize duplicate group to dict."""
-        return {
-            "id": group.id,
-            "images": group.images,
-            "primary": group.primary,
-            "needs_review": group.needs_review,
-        }
-
-    def _serialize_burst_group(self, group: BurstGroup) -> Dict:
-        """Serialize burst group to dict."""
-        return {
-            "id": group.id,
-            "images": group.images,
-            "primary": group.primary,
-            "time_span_seconds": group.time_span_seconds,
-            "needs_review": group.needs_review,
-        }
-
-    def _serialize_review_item(self, item: ReviewItem) -> Dict:
-        """Serialize review item to dict."""
-        return {
-            "id": item.id,
-            "type": item.type.value,
-            "priority": item.priority.value,
-            "images": item.images,
-            "description": item.description,
-            "status": item.status.value,
-        }
-
-    def _deserialize_review_item(self, data: Dict) -> ReviewItem:
-        """Deserialize review item from dict."""
-        from .types import ReviewPriority, ReviewStatus, ReviewType
-
-        return ReviewItem(
-            id=data["id"],
-            type=ReviewType(data["type"]),
-            priority=ReviewPriority(data["priority"]),
-            images=data["images"],
-            description=data["description"],
-            status=ReviewStatus(data["status"]),
-        )
