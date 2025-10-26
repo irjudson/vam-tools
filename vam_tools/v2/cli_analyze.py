@@ -65,6 +65,17 @@ def setup_logging(verbose: bool = False) -> None:
     default=None,
     help="Number of parallel workers (default: CPU count)",
 )
+@click.option(
+    "--detect-duplicates",
+    is_flag=True,
+    help="Detect duplicate and similar images after scanning",
+)
+@click.option(
+    "--similarity-threshold",
+    type=int,
+    default=5,
+    help="Hamming distance threshold for similar images (default: 5, lower is more strict)",
+)
 def analyze(
     catalog_path: str,
     source: tuple,
@@ -72,6 +83,8 @@ def analyze(
     clear: bool,
     repair: bool,
     workers: int,
+    detect_duplicates: bool,
+    similarity_threshold: int,
 ) -> None:
     """
     Analyze images and build catalog database.
@@ -213,6 +226,44 @@ def analyze(
                 console.print(
                     f"[dim]Files skipped: {scanner.files_skipped:,} (already in catalog)[/dim]\n"
                 )
+
+            # Run duplicate detection if requested
+            if detect_duplicates:
+                console.print("\n[cyan]Starting duplicate detection...[/cyan]\n")
+
+                from .analysis.duplicate_detector import DuplicateDetector
+
+                detector = DuplicateDetector(
+                    db, similarity_threshold=similarity_threshold
+                )
+
+                # Detect duplicates
+                detector.detect_duplicates()
+
+                # Save to catalog
+                detector.save_duplicate_groups()
+
+                # Display duplicate detection results
+                console.print("\n[green]✓ Duplicate detection complete![/green]\n")
+
+                dup_stats = detector.get_statistics()
+                console.print(
+                    f"[cyan]Found {dup_stats['total_groups']:,} duplicate groups[/cyan]"
+                )
+                console.print(
+                    f"  • {dup_stats['total_images_in_groups']:,} images in duplicate groups"
+                )
+                console.print(
+                    f"  • {dup_stats['total_unique']:,} unique images (keeping best quality)"
+                )
+                console.print(
+                    f"  • {dup_stats['total_redundant']:,} redundant copies (can be removed)"
+                )
+                if dup_stats["groups_needing_review"] > 0:
+                    console.print(
+                        f"  • [yellow]{dup_stats['groups_needing_review']:,} groups need manual review[/yellow]"
+                    )
+                console.print()
 
             stats = db.get_statistics()
             display_statistics(stats)

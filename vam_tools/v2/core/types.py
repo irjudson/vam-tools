@@ -123,7 +123,29 @@ class ImageMetadata(BaseModel):
     exif: Dict[str, any] = Field(default_factory=dict)
     format: Optional[str] = None
     resolution: Optional[tuple[int, int]] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
     size_bytes: Optional[int] = None
+
+    # Camera information
+    camera_make: Optional[str] = None
+    camera_model: Optional[str] = None
+    lens_model: Optional[str] = None
+
+    # Camera settings
+    focal_length: Optional[float] = None
+    aperture: Optional[float] = None
+    shutter_speed: Optional[str] = None
+    iso: Optional[int] = None
+
+    # GPS information
+    gps_latitude: Optional[float] = None
+    gps_longitude: Optional[float] = None
+
+    # Perceptual hashes for duplicate detection
+    perceptual_hash_dhash: Optional[str] = None
+    perceptual_hash_ahash: Optional[str] = None
+
     merged_from: List[str] = Field(default_factory=list)
 
 
@@ -154,12 +176,12 @@ class ExecutionInfo(BaseModel):
 class QualityScore(BaseModel):
     """Quality scoring for an image."""
 
+    overall: float = 0.0
     format_score: float = 0.0
     resolution_score: float = 0.0
     size_score: float = 0.0
-    exif_score: float = 0.0
+    metadata_score: float = 0.0
     ai_score: Optional[float] = None
-    total_score: float = 0.0
 
 
 class ImageRecord(BaseModel):
