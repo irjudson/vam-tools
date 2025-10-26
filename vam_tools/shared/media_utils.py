@@ -9,7 +9,7 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +199,7 @@ def safe_filename(name: str) -> str:
 
 
 # Image operations (from V1 - uses PIL)
-def get_image_info(image_path: Path) -> Optional[Dict[str, any]]:
+def get_image_info(image_path: Path) -> Optional[Dict[str, Any]]:
     """
     Extract basic information from an image file.
 
