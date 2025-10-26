@@ -124,9 +124,7 @@ def cli(
         sys.exit(0)
 
     if len(image_files) < 2:
-        console.print(
-            "[yellow]Need at least 2 images to find duplicates.[/yellow]"
-        )
+        console.print("[yellow]Need at least 2 images to find duplicates.[/yellow]")
         sys.exit(0)
 
     if not quiet:
@@ -155,7 +153,9 @@ def cli(
                 progress.advance(task)
             except Exception as e:
                 if verbose:
-                    console.print(f"[yellow]Error processing {image_path}: {e}[/yellow]")
+                    console.print(
+                        f"[yellow]Error processing {image_path}: {e}[/yellow]"
+                    )
                 progress.advance(task)
 
     # Find duplicates

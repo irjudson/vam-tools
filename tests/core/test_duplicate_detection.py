@@ -125,7 +125,9 @@ class TestHammingDistance:
 class TestExactDuplicates:
     """Tests for exact duplicate detection."""
 
-    def test_find_exact_duplicates(self, duplicate_images: dict[str, list[Path]]) -> None:
+    def test_find_exact_duplicates(
+        self, duplicate_images: dict[str, list[Path]]
+    ) -> None:
         """Test finding exact file duplicates."""
         exact_duplicates = duplicate_images["exact"]
 
@@ -153,7 +155,9 @@ class TestExactDuplicates:
 class TestPerceptualDuplicates:
     """Tests for perceptual duplicate detection."""
 
-    def test_find_perceptual_duplicates(self, duplicate_images: dict[str, list[Path]]) -> None:
+    def test_find_perceptual_duplicates(
+        self, duplicate_images: dict[str, list[Path]]
+    ) -> None:
         """Test finding perceptually similar images."""
         similar_images = duplicate_images["similar"]
 

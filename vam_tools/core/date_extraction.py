@@ -105,17 +105,13 @@ class DateExtractor:
                             or parsed_date.timestamp() < earliest_date.timestamp()
                         ):
                             earliest_date = parsed_date
-                            logger.debug(
-                                f"Found EXIF date in {key}: {parsed_date}"
-                            )
+                            logger.debug(f"Found EXIF date in {key}: {parsed_date}")
                     except (arrow.ParserError, ValueError, TypeError):
                         logger.debug(f"Could not parse date from {key}: {value}")
                         continue
 
             if earliest_date:
-                return DateInfo(
-                    date=earliest_date, source="exif", confidence=95
-                )
+                return DateInfo(date=earliest_date, source="exif", confidence=95)
 
         except Exception as e:
             logger.debug(f"Error extracting EXIF date from {image_path}: {e}")
@@ -145,15 +141,11 @@ class DateExtractor:
                         # Assume MM-DD-YYYY for ambiguous formats
                         month, day, year = groups
 
-                    parsed_date = arrow.get(
-                        f"{year}-{month}-{day}", "YYYY-MM-DD"
-                    )
+                    parsed_date = arrow.get(f"{year}-{month}-{day}", "YYYY-MM-DD")
                     logger.debug(
                         f"Extracted date from filename {filename}: {parsed_date}"
                     )
-                    return DateInfo(
-                        date=parsed_date, source="filename", confidence=70
-                    )
+                    return DateInfo(date=parsed_date, source="filename", confidence=70)
                 except (ValueError, arrow.ParserError):
                     continue
 
@@ -191,9 +183,7 @@ class DateExtractor:
 
                     try:
                         parsed_date = arrow.get(year, month, day)
-                        logger.debug(
-                            f"Extracted date from directory: {parsed_date}"
-                        )
+                        logger.debug(f"Extracted date from directory: {parsed_date}")
                         return DateInfo(
                             date=parsed_date, source="directory", confidence=50
                         )
@@ -220,13 +210,9 @@ class DateExtractor:
             timestamp = min(stat.st_ctime, stat.st_mtime)
             parsed_date = arrow.get(timestamp)
             logger.debug(f"Using filesystem date: {parsed_date}")
-            return DateInfo(
-                date=parsed_date, source="filesystem", confidence=30
-            )
+            return DateInfo(date=parsed_date, source="filesystem", confidence=30)
         except Exception as e:
-            logger.debug(
-                f"Error getting filesystem date for {image_path}: {e}"
-            )
+            logger.debug(f"Error getting filesystem date for {image_path}: {e}")
             return None
 
     def extract_earliest_date(self, image_path: Path) -> Optional[DateInfo]:
@@ -258,9 +244,7 @@ class DateExtractor:
         # Return the earliest date (prioritize by confidence in case of ties)
         return min(dates, key=lambda d: (d.date.timestamp(), -d.confidence))
 
-    def analyze_images(
-        self, image_paths: List[Path]
-    ) -> Dict[Path, Optional[DateInfo]]:
+    def analyze_images(self, image_paths: List[Path]) -> Dict[Path, Optional[DateInfo]]:
         """
         Analyze multiple images and extract dates.
 

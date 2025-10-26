@@ -126,9 +126,7 @@ def collect_image_files(
 
     try:
         if recursive:
-            for root, _, files in os.walk(
-                directory, followlinks=follow_symlinks
-            ):
+            for root, _, files in os.walk(directory, followlinks=follow_symlinks):
                 root_path = Path(root)
                 for file in files:
                     file_path = root_path / file

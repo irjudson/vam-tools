@@ -35,7 +35,9 @@ def compute_checksum(file_path: Path, algorithm: str = "sha256") -> Optional[str
         return None
 
 
-def verify_checksum(file_path: Path, expected_checksum: str, algorithm: str = "sha256") -> bool:
+def verify_checksum(
+    file_path: Path, expected_checksum: str, algorithm: str = "sha256"
+) -> bool:
     """
     Verify that a file's checksum matches expected value.
 
@@ -114,10 +116,26 @@ def is_image_file(file_path: Path) -> bool:
         True if image file, False otherwise
     """
     image_extensions = {
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp",
-        ".tiff", ".tif", ".webp", ".heic", ".heif",
-        ".raw", ".cr2", ".nef", ".arw", ".dng", ".orf",
-        ".rw2", ".pef", ".sr2", ".raf"
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".tif",
+        ".webp",
+        ".heic",
+        ".heif",
+        ".raw",
+        ".cr2",
+        ".nef",
+        ".arw",
+        ".dng",
+        ".orf",
+        ".rw2",
+        ".pef",
+        ".sr2",
+        ".raf",
     }
     return file_path.suffix.lower() in image_extensions
 
@@ -133,9 +151,19 @@ def is_video_file(file_path: Path) -> bool:
         True if video file, False otherwise
     """
     video_extensions = {
-        ".mp4", ".mov", ".avi", ".mkv", ".wmv",
-        ".flv", ".webm", ".m4v", ".mpg", ".mpeg",
-        ".3gp", ".mts", ".m2ts"
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".wmv",
+        ".flv",
+        ".webm",
+        ".m4v",
+        ".mpg",
+        ".mpeg",
+        ".3gp",
+        ".mts",
+        ".m2ts",
     }
     return file_path.suffix.lower() in video_extensions
 

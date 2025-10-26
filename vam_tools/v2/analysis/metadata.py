@@ -22,10 +22,13 @@ logger = logging.getLogger(__name__)
 # Register HEIC support for Pillow
 try:
     from pillow_heif import register_heif_opener
+
     register_heif_opener()
     logger.debug("HEIC support registered")
 except ImportError:
-    logger.warning("pillow-heif not installed, HEIC files may not be processed correctly")
+    logger.warning(
+        "pillow-heif not installed, HEIC files may not be processed correctly"
+    )
 
 
 class MetadataExtractor:
@@ -131,7 +134,9 @@ class MetadataExtractor:
 
         return {}
 
-    def _extract_exif_dates(self, exif: Dict[str, any]) -> Dict[str, Optional[datetime]]:
+    def _extract_exif_dates(
+        self, exif: Dict[str, any]
+    ) -> Dict[str, Optional[datetime]]:
         """Extract date fields from EXIF data."""
         dates = {}
 
@@ -186,7 +191,10 @@ class MetadataExtractor:
 
         # Common date patterns
         patterns = [
-            (r"(\d{4})-(\d{2})-(\d{2})[_\s](\d{2}):?(\d{2}):?(\d{2})", True),  # YYYY-MM-DD HH:MM:SS
+            (
+                r"(\d{4})-(\d{2})-(\d{2})[_\s](\d{2}):?(\d{2}):?(\d{2})",
+                True,
+            ),  # YYYY-MM-DD HH:MM:SS
             (r"(\d{4})-(\d{2})-(\d{2})", True),  # YYYY-MM-DD
             (r"(\d{4})_(\d{2})_(\d{2})", True),  # YYYY_MM_DD
             (r"(\d{4})(\d{2})(\d{2})", True),  # YYYYMMDD
@@ -209,8 +217,12 @@ class MetadataExtractor:
                         # Date and time
                         year, month, day, hour, minute, second = groups
                         return datetime(
-                            int(year), int(month), int(day),
-                            int(hour), int(minute), int(second)
+                            int(year),
+                            int(month),
+                            int(day),
+                            int(hour),
+                            int(minute),
+                            int(second),
                         )
                 except (ValueError, TypeError):
                     continue
@@ -271,7 +283,9 @@ class MetadataExtractor:
             # Parse directory date (might be just YYYY or YYYY-MM)
             try:
                 if len(date_info.directory_date) == 4:  # Just year
-                    date_info.selected_date = datetime(int(date_info.directory_date), 1, 1)
+                    date_info.selected_date = datetime(
+                        int(date_info.directory_date), 1, 1
+                    )
                 else:  # YYYY-MM
                     year, month = date_info.directory_date.split("-")
                     date_info.selected_date = datetime(int(year), int(month), 1)
@@ -308,9 +322,13 @@ class MetadataExtractor:
             ]
             if any(date_info.selected_date.date() == d.date() for d in default_dates):
                 date_info.suspicious = True
-                logger.warning(f"Suspicious default date detected: {date_info.selected_date}")
+                logger.warning(
+                    f"Suspicious default date detected: {date_info.selected_date}"
+                )
 
-    def _get_image_format(self, file_path: Path) -> Tuple[Optional[str], Optional[Tuple[int, int]]]:
+    def _get_image_format(
+        self, file_path: Path
+    ) -> Tuple[Optional[str], Optional[Tuple[int, int]]]:
         """Get image format and resolution using Pillow."""
         try:
             with Image.open(file_path) as img:
