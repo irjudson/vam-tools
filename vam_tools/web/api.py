@@ -559,3 +559,138 @@ async def get_statistics_summary():
         "by_date_source": by_date_source,
         "by_year": dict(sorted(by_year.items())),
     }
+
+
+# Pydantic models for duplicate groups
+class DuplicateGroupSummary(BaseModel):
+    """Summary of a duplicate group."""
+
+    id: str
+    primary_image_id: str
+    duplicate_count: int
+    total_size_bytes: int
+    format_types: List[str]
+    needs_review: bool
+
+
+class DuplicateGroupDetail(BaseModel):
+    """Detailed duplicate group information."""
+
+    id: str
+    primary_image_id: str
+    duplicate_image_ids: List[str]
+    similarity_score: float
+    needs_review: bool
+    review_reason: Optional[str] = None
+
+
+@app.get("/api/duplicates/groups", response_model=List[DuplicateGroupSummary])
+async def list_duplicate_groups(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    needs_review_only: bool = Query(False),
+):
+    """
+    List duplicate groups with pagination.
+
+    Args:
+        skip: Number of groups to skip (for pagination)
+        limit: Maximum number of groups to return
+        needs_review_only: Only return groups that need review
+
+    Returns:
+        List of duplicate group summaries
+    """
+    catalog = get_catalog()
+    groups = catalog.get_duplicate_groups()
+
+    # Filter if requested
+    if needs_review_only:
+        groups = [g for g in groups if g.needs_review]
+
+    # Paginate
+    groups = groups[skip : skip + limit]
+
+    # Convert to summaries
+    summaries = []
+    for group in groups:
+        # Get images for this group
+        images = [catalog.get_image(img_id) for img_id in group.images]
+        images = [img for img in images if img]  # Filter out None
+
+        # Calculate stats
+        total_size = sum(img.metadata.size_bytes or 0 for img in images if img.metadata)
+        formats = list(
+            set(
+                img.metadata.format
+                for img in images
+                if img.metadata and img.metadata.format
+            )
+        )
+
+        summaries.append(
+            DuplicateGroupSummary(
+                id=group.id,
+                primary_image_id=group.primary,
+                duplicate_count=len(group.images),
+                total_size_bytes=total_size,
+                format_types=formats,
+                needs_review=group.needs_review,
+            )
+        )
+
+    return summaries
+
+
+@app.get("/api/duplicates/groups/{group_id}", response_model=DuplicateGroupDetail)
+async def get_duplicate_group(group_id: str):
+    """Get detailed information about a specific duplicate group."""
+    catalog = get_catalog()
+    groups = catalog.get_duplicate_groups()
+
+    # Find the group
+    group = next((g for g in groups if g.id == group_id), None)
+    if not group:
+        raise HTTPException(status_code=404, detail="Duplicate group not found")
+
+    return DuplicateGroupDetail(
+        id=group.id,
+        primary_image_id=group.primary,
+        duplicate_image_ids=group.images,
+        similarity_score=group.similarity_score,
+        needs_review=group.needs_review,
+        review_reason=group.review_reason,
+    )
+
+
+@app.get("/api/duplicates/stats")
+async def get_duplicate_stats():
+    """Get statistics about duplicate groups."""
+    catalog = get_catalog()
+    groups = catalog.get_duplicate_groups()
+
+    total_groups = len(groups)
+    needs_review = sum(1 for g in groups if g.needs_review)
+    total_duplicates = sum(len(g.images) for g in groups)
+    total_unique = total_groups  # One primary per group
+
+    # Calculate potential space savings
+    total_duplicate_size = 0
+    for group in groups:
+        images = [catalog.get_image(img_id) for img_id in group.images]
+        images = [img for img in images if img and img.metadata]
+
+        if len(images) > 1:
+            # Keep largest, count rest as savings
+            sizes = sorted(
+                [img.metadata.size_bytes or 0 for img in images], reverse=True
+            )
+            total_duplicate_size += sum(sizes[1:])  # All but the largest
+
+    return {
+        "total_groups": total_groups,
+        "needs_review": needs_review,
+        "total_duplicates": total_duplicates,
+        "total_unique": total_unique,
+        "potential_space_savings_bytes": total_duplicate_size,
+    }
