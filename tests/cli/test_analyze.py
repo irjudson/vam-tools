@@ -2,7 +2,6 @@
 Tests for analyze CLI.
 """
 
-import json
 from pathlib import Path
 
 from click.testing import CliRunner

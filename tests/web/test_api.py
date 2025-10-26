@@ -2,7 +2,6 @@
 Tests for FastAPI web API.
 """
 
-import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
