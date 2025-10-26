@@ -4,17 +4,21 @@ A professional collection of Python tools for managing and organizing photo/vide
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Tests](https://img.shields.io/badge/tests-178%20passing-success.svg)](https://github.com/irjudson/vam-tools)
+[![Coverage](https://img.shields.io/badge/coverage-59%25-yellow.svg)](https://github.com/irjudson/vam-tools)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ## Features
 
 - **High-Performance Scanning** - Multi-core parallel processing for fast catalog analysis
 - **Comprehensive Metadata Extraction** - Extract dates from EXIF, XMP, filenames, and directory structure using ExifTool
-- **Duplicate Detection** - Find duplicate images using checksums and perceptual hashing
+- **Duplicate Detection** - Find exact and similar duplicates using checksums and perceptual hashing (dHash/aHash)
+- **Quality Scoring** - Automatically select the best copy among duplicates based on format, resolution, and metadata
 - **Date-Based Reorganization** - Reorganize photo/video catalogs into date-based directory structures
 - **Web Interface** - Modern web UI for reviewing and managing your catalog
 - **Beautiful CLI** - Rich terminal interface with progress bars and formatted output
-- **Fully Tested** - Comprehensive test suite with 105 passing tests
-- **Type Safe** - Full type hints throughout the codebase
+- **Fully Tested** - Comprehensive test suite with 178 passing tests and 59% coverage
+- **Type Safe** - Full type hints throughout the codebase with Pydantic v2
 
 ## Installation
 
@@ -70,13 +74,18 @@ The V2 system provides high-performance catalog scanning with multiprocessing su
 # Analyze photos from one or more source directories
 vam-analyze /path/to/catalog -s /path/to/photos -s /path/to/more/photos
 
-# Use all CPU cores (auto-detected)
-vam-analyze /path/to/catalog -s /path/to/photos
+# Use all CPU cores with duplicate detection (recommended)
+vam-analyze /path/to/catalog -s /path/to/photos --detect-duplicates -v
 
 # Specify number of workers (great for multi-core systems)
-vam-analyze /path/to/catalog -s /path/to/photos --workers 32
+vam-analyze /path/to/catalog -s /path/to/photos --workers 32 --detect-duplicates
 
-# Start fresh (clears existing catalog)
+# Customize similarity threshold (default: 5, lower = more strict)
+vam-analyze /path/to/catalog -s /path/to/photos \
+  --detect-duplicates \
+  --similarity-threshold 3
+
+# Start fresh (clears existing catalog, creates backup)
 vam-analyze /path/to/catalog -s /path/to/photos --clear
 
 # Repair corrupted catalog
@@ -87,6 +96,8 @@ vam-analyze /path/to/catalog -s /path/to/photos -v
 ```
 
 **Performance:** On a 32-core system, expect 20-30x speedup compared to single-threaded processing.
+
+**Duplicate Detection:** Uses both perceptual hashing (dHash and aHash) and quality scoring to identify duplicates and automatically select the best copy based on format (RAW > JPEG), resolution, file size, and metadata completeness.
 
 #### Web Interface
 
@@ -201,9 +212,16 @@ mypy vam_tools/
 vam-tools/
 ├── vam_tools/
 │   ├── v2/                   # V2 system (current)
-│   │   ├── analysis/         # Scanner and metadata extraction
+│   │   ├── analysis/         # Scanner, metadata, duplicate detection
+│   │   │   ├── scanner.py            # Multi-core file scanner
+│   │   │   ├── metadata.py           # ExifTool metadata extraction
+│   │   │   ├── duplicate_detector.py # Perceptual hash duplicate detection
+│   │   │   ├── perceptual_hash.py    # dHash and aHash algorithms
+│   │   │   └── quality_scorer.py     # Quality scoring for duplicates
 │   │   ├── core/             # Catalog database and types
-│   │   ├── web/              # Web interface
+│   │   │   ├── catalog.py            # Catalog database with locking
+│   │   │   └── types.py              # Pydantic models
+│   │   ├── web/              # Web interface (FastAPI)
 │   │   ├── cli_analyze.py    # Analysis CLI
 │   │   └── cli_web.py        # Web server CLI
 │   ├── cli/                  # V1 legacy CLI
@@ -218,7 +236,11 @@ vam-tools/
 │   │   └── catalog_reorganization.py
 │   └── shared/               # Shared utilities
 │       └── media_utils.py    # Image/video utilities
-├── tests/                    # Test suite (105 tests)
+├── tests/                    # Test suite (178 tests, 59% coverage)
+│   ├── v2/analysis/          # V2 analysis tests (91% coverage)
+│   ├── cli/                  # CLI integration tests
+│   ├── core/                 # Core logic tests
+│   └── shared/               # Shared utilities tests
 ├── docs/                     # Documentation
 ├── pyproject.toml
 └── README.md
