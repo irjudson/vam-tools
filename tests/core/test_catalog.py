@@ -9,6 +9,7 @@ from vam_tools.core.catalog import CatalogDatabase
 from vam_tools.core.types import (
     CatalogConfiguration,
     CatalogPhase,
+    CatalogState,
     DuplicateGroup,
     FileType,
     ImageMetadata,
@@ -486,3 +487,224 @@ class TestCatalogDatabase:
 
         assert "version" in data
         assert data["version"] == "2.0.0"
+
+    def test_update_image_metadata(self, tmp_path: Path) -> None:
+        """Test updating image metadata."""
+        catalog_dir = tmp_path / "catalog"
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[tmp_path])
+
+            # Add image
+            image = ImageRecord(
+                id="test123",
+                source_path=tmp_path / "test.jpg",
+                file_type=FileType.IMAGE,
+                checksum="abc123",
+                status=ImageStatus.APPROVED,
+            )
+            db.add_image(image)
+
+            # Update with metadata
+            metadata = ImageMetadata(
+                format="JPEG",
+                resolution=(1920, 1080),
+                width=1920,
+                height=1080,
+                size_bytes=500000,
+            )
+            image.metadata = metadata
+            db.update_image(image)
+
+            # Retrieve and verify
+            updated = db.get_image("test123")
+            assert updated is not None
+            assert updated.metadata is not None
+            assert updated.metadata.format == "JPEG"
+            assert updated.metadata.width == 1920
+
+    def test_checkpoint_with_duplicate_groups(self, tmp_path: Path) -> None:
+        """Test checkpointing with duplicate groups."""
+        catalog_dir = tmp_path / "catalog"
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[tmp_path])
+
+            # Add images
+            for i in range(3):
+                image = ImageRecord(
+                    id=f"img{i}",
+                    source_path=tmp_path / f"test{i}.jpg",
+                    file_type=FileType.IMAGE,
+                    checksum=f"hash{i}",
+                    status=ImageStatus.APPROVED,
+                )
+                db.add_image(image)
+
+            # Add duplicate group
+            group = DuplicateGroup(
+                id="dup1",
+                images=["img0", "img1"],
+                primary="img0",
+            )
+            db.add_duplicate_group(group)
+
+            # Checkpoint
+            db.checkpoint(force=True)
+
+        # Reload and verify
+        with CatalogDatabase(catalog_dir) as db:
+            groups = db.get_duplicate_groups()
+            assert len(groups) == 1
+            assert groups[0].id == "dup1"
+
+    def test_save_with_no_data(self, tmp_path: Path) -> None:
+        """Test save() when no data is loaded."""
+        catalog_dir = tmp_path / "catalog"
+
+        # Create catalog but don't initialize
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        # save() should handle None gracefully and just log warning
+        db.save()  # Should not crash
+
+    def test_get_configuration_no_data(self, tmp_path: Path) -> None:
+        """Test get_configuration when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        # Should return default configuration
+        config = db.get_configuration()
+        assert config is not None
+        assert isinstance(config, CatalogConfiguration)
+
+    def test_update_configuration_no_data(self, tmp_path: Path) -> None:
+        """Test update_configuration when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        config = CatalogConfiguration(checkpoint_interval_seconds=120)
+
+        # Should not crash
+        db.update_configuration(config)
+
+    def test_get_state_no_data(self, tmp_path: Path) -> None:
+        """Test get_state when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        # Should return default state
+        state = db.get_state()
+        assert state is not None
+        assert isinstance(state, CatalogState)
+
+    def test_update_state_no_data(self, tmp_path: Path) -> None:
+        """Test update_state when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        state = CatalogState(images_processed=50)
+
+        # Should not crash
+        db.update_state(state)
+
+    def test_get_statistics_no_data(self, tmp_path: Path) -> None:
+        """Test get_statistics when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        # Should return default statistics
+        stats = db.get_statistics()
+        assert stats is not None
+        assert isinstance(stats, Statistics)
+        assert stats.total_images == 0
+
+    def test_update_statistics_no_data(self, tmp_path: Path) -> None:
+        """Test update_statistics when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        stats = Statistics(total_images=10)
+
+        # Should not crash
+        db.update_statistics(stats)
+
+    def test_add_image_no_data(self, tmp_path: Path) -> None:
+        """Test add_image when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        image = ImageRecord(
+            id="test",
+            source_path=tmp_path / "test.jpg",
+            file_type=FileType.IMAGE,
+            checksum="abc",
+            metadata=ImageMetadata(),
+            status=ImageStatus.APPROVED,
+        )
+
+        # Should not crash
+        db.add_image(image)
+
+    def test_get_image_no_data(self, tmp_path: Path) -> None:
+        """Test get_image when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        result = db.get_image("test123")
+        assert result is None
+
+    def test_list_images_no_data(self, tmp_path: Path) -> None:
+        """Test list_images when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        images = db.list_images()
+        assert images == []
+
+    def test_get_all_images_no_data(self, tmp_path: Path) -> None:
+        """Test get_all_images when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        images = db.get_all_images()
+        assert images == {}
+
+    def test_has_image_by_path_no_data(self, tmp_path: Path) -> None:
+        """Test has_image_by_path when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+        db._path_index = {}
+
+        result = db.has_image_by_path(tmp_path / "test.jpg")
+        assert result is False
+
+    def test_get_duplicate_groups_no_data(self, tmp_path: Path) -> None:
+        """Test get_duplicate_groups when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        groups = db.get_duplicate_groups()
+        assert groups == []
+
+    def test_get_review_queue_no_data(self, tmp_path: Path) -> None:
+        """Test get_review_queue when no data loaded."""
+        catalog_dir = tmp_path / "catalog"
+        db = CatalogDatabase(catalog_dir)
+        db._data = None
+
+        queue = db.get_review_queue()
+        assert queue == []

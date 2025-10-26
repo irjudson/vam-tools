@@ -95,7 +95,7 @@ def analyze(
     """
     setup_logging(verbose)
 
-    catalog_path = Path(catalog_path)
+    catalog_dir = Path(catalog_path)
 
     # Validate source directories are provided when not in repair mode
     if not repair and not source:
@@ -108,7 +108,7 @@ def analyze(
     source_dirs = [Path(s) for s in source] if source else []
 
     console.print("\n[bold cyan]VAM Tools V2 - Analysis[/bold cyan]\n")
-    console.print(f"Catalog: {catalog_path}")
+    console.print(f"Catalog: {catalog_dir}")
     if source_dirs:
         console.print(f"Sources: {', '.join(str(s) for s in source_dirs)}")
     console.print()
@@ -116,14 +116,14 @@ def analyze(
     # Check if repair mode is requested
     if repair:
         console.print("[yellow]🔧 Repair mode enabled[/yellow]\n")
-        catalog_file = catalog_path / ".catalog.json"
+        catalog_file = catalog_dir / ".catalog.json"
         if not catalog_file.exists():
             console.print("[red]Error: No catalog found to repair[/red]")
             console.print(f"  Catalog file: {catalog_file}")
             sys.exit(1)
 
         try:
-            with CatalogDatabase(catalog_path) as db:
+            with CatalogDatabase(catalog_dir) as db:
                 console.print("[green]Repairing catalog...[/green]")
                 db.repair()
                 console.print("[green]✓ Catalog repaired successfully![/green]\n")
@@ -142,17 +142,17 @@ def analyze(
         return
 
     # Check if clear mode is requested
-    catalog_file = catalog_path / ".catalog.json"
+    catalog_file = catalog_dir / ".catalog.json"
     if clear and catalog_file.exists():
         console.print("[yellow]⚠ Clearing existing catalog...[/yellow]")
-        backup_file = catalog_path / ".catalog.backup.json"
+        backup_file = catalog_dir / ".catalog.backup.json"
 
         # Create backup before clearing
         try:
             import shutil
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_name = catalog_path / f".catalog.backup.{timestamp}.json"
+            backup_name = catalog_dir / f".catalog.backup.{timestamp}.json"
             shutil.copy2(catalog_file, backup_name)
             console.print(f"[dim]Backup saved to: {backup_name.name}[/dim]")
 
@@ -167,9 +167,9 @@ def analyze(
 
     # Initialize or load catalog
     try:
-        with CatalogDatabase(catalog_path) as db:
+        with CatalogDatabase(catalog_dir) as db:
             # Check if catalog exists
-            catalog_exists = (catalog_path / ".catalog.json").exists() and not clear
+            catalog_exists = (catalog_dir / ".catalog.json").exists() and not clear
 
             if not catalog_exists:
                 console.print("[yellow]Initializing new catalog...[/yellow]")

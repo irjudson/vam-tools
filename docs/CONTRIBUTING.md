@@ -65,7 +65,7 @@ Every `git push` runs these checks:
 1. ✅ **Black** - Code formatting
 2. ✅ **isort** - Import sorting
 3. ✅ **flake8** - Linting
-4. ✅ **pytest** - All 122 tests
+4. ✅ **pytest** - All 213 tests
 5. ✅ **Common issues** - No debugger statements
 
 **The pre-push hook matches CI exactly** - if it passes locally, CI will pass!

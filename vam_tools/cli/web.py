@@ -37,8 +37,8 @@ def web(catalog_path: str, host: str, port: int, reload: bool) -> None:
 
     CATALOG_PATH: Path to the catalog directory (containing .catalog.json)
     """
-    catalog_path = Path(catalog_path)
-    catalog_file = catalog_path / ".catalog.json"
+    catalog_dir = Path(catalog_path)
+    catalog_file = catalog_dir / ".catalog.json"
 
     if not catalog_file.exists():
         console.print(f"[red]Error: Catalog not found at {catalog_file}[/red]")
@@ -46,11 +46,11 @@ def web(catalog_path: str, host: str, port: int, reload: bool) -> None:
         return
 
     console.print("\n[bold cyan]VAM Tools - Catalog Viewer[/bold cyan]\n")
-    console.print(f"Catalog: {catalog_path}")
+    console.print(f"Catalog: {catalog_dir}")
     console.print(f"Server: http://{host}:{port}\n")
 
     # Initialize catalog
-    init_catalog(catalog_path)
+    init_catalog(catalog_dir)
 
     console.print("[green]Starting web server...[/green]")
     console.print(f"[yellow]Open http://{host}:{port} in your browser[/yellow]\n")

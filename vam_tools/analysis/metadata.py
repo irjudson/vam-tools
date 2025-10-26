@@ -163,7 +163,7 @@ class MetadataExtractor:
         self, exif: Dict[str, Any]
     ) -> Dict[str, Optional[datetime]]:
         """Extract date fields from EXIF data."""
-        dates = {}
+        dates: Dict[str, Optional[datetime]] = {}
 
         # Common EXIF date fields
         date_fields = [
