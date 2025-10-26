@@ -9,7 +9,7 @@ Scores images based on multiple factors:
 """
 
 import logging
-from typing import Dict
+from typing import Dict, Optional
 
 from ..core.types import FileType, ImageMetadata, QualityScore
 
@@ -110,7 +110,7 @@ def _score_format(format_str: str) -> float:
     return float(FORMAT_SCORES.get(ext, 50.0))
 
 
-def _score_resolution(width: int | None, height: int | None) -> float:
+def _score_resolution(width: Optional[int], height: Optional[int]) -> float:
     """
     Score based on image resolution.
 
@@ -147,7 +147,7 @@ def _score_resolution(width: int | None, height: int | None) -> float:
         return megapixels * 40  # Scale 0-40
 
 
-def _score_file_size(size_bytes: int | None, format_str: str) -> float:
+def _score_file_size(size_bytes: Optional[int], format_str: str) -> float:
     """
     Score based on file size relative to format.
 
