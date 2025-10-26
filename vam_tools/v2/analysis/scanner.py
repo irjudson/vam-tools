@@ -17,6 +17,8 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+from vam_tools.shared import compute_checksum, get_file_type
+
 from ..core.catalog import CatalogDatabase
 from ..core.types import (
     CatalogPhase,
@@ -25,7 +27,6 @@ from ..core.types import (
     ImageStatus,
     Statistics,
 )
-from ..core.utils import compute_checksum, get_file_type
 from .metadata import MetadataExtractor
 
 logger = logging.getLogger(__name__)

@@ -18,7 +18,7 @@ from ..core.catalog_reorganization import (
     ConflictResolution,
     OrganizationStrategy,
 )
-from ..core.image_utils import collect_image_files, setup_logging
+from vam_tools.shared import collect_image_files, setup_logging
 
 console = Console()
 

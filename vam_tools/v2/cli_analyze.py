@@ -14,9 +14,10 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
+from vam_tools.shared import format_bytes
+
 from .analysis.scanner import ImageScanner
 from .core.catalog import CatalogDatabase
-from .core.utils import format_bytes
 
 console = Console()
 
