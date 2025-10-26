@@ -379,3 +379,128 @@ class TestMetadataExtractor:
             assert metadata.resolution == (1024, 768)
             assert isinstance(metadata.resolution, tuple)
             assert len(metadata.resolution) == 2
+
+    def test_video_resolution_extraction_from_exif(self, tmp_path: Path) -> None:
+        """Test video resolution extraction from EXIF metadata."""
+        with MetadataExtractor() as extractor:
+            # Test ImageWidth/ImageHeight
+            exif_data = {"ImageWidth": 1920, "ImageHeight": 1080}
+            resolution = extractor._get_video_resolution(exif_data)
+            assert resolution == (1920, 1080)
+
+            # Test SourceImageWidth/SourceImageHeight
+            exif_data = {"SourceImageWidth": 3840, "SourceImageHeight": 2160}
+            resolution = extractor._get_video_resolution(exif_data)
+            assert resolution == (3840, 2160)
+
+            # Test VideoWidth/VideoHeight (MOV files)
+            exif_data = {"VideoWidth": 1280, "VideoHeight": 720}
+            resolution = extractor._get_video_resolution(exif_data)
+            assert resolution == (1280, 720)
+
+    def test_video_resolution_extraction_priority(self, tmp_path: Path) -> None:
+        """Test that video resolution uses first available field."""
+        with MetadataExtractor() as extractor:
+            # Multiple fields present - should use first match
+            exif_data = {
+                "ImageWidth": 1920,
+                "ImageHeight": 1080,
+                "VideoWidth": 1280,
+                "VideoHeight": 720,
+            }
+            resolution = extractor._get_video_resolution(exif_data)
+            # Should use ImageWidth/ImageHeight (first in priority)
+            assert resolution == (1920, 1080)
+
+    def test_video_resolution_extraction_missing_data(self, tmp_path: Path) -> None:
+        """Test video resolution extraction with missing data."""
+        with MetadataExtractor() as extractor:
+            # No resolution data
+            exif_data = {}
+            resolution = extractor._get_video_resolution(exif_data)
+            assert resolution is None
+
+            # Only width, no height
+            exif_data = {"ImageWidth": 1920}
+            resolution = extractor._get_video_resolution(exif_data)
+            assert resolution is None
+
+            # Only height, no width
+            exif_data = {"ImageHeight": 1080}
+            resolution = extractor._get_video_resolution(exif_data)
+            assert resolution is None
+
+    def test_video_resolution_extraction_invalid_values(self, tmp_path: Path) -> None:
+        """Test video resolution extraction with invalid values."""
+        with MetadataExtractor() as extractor:
+            # Zero values
+            exif_data = {"ImageWidth": 0, "ImageHeight": 0}
+            resolution = extractor._get_video_resolution(exif_data)
+            assert resolution is None
+
+            # Negative values
+            exif_data = {"ImageWidth": -1920, "ImageHeight": -1080}
+            resolution = extractor._get_video_resolution(exif_data)
+            assert resolution is None
+
+            # String values that can be parsed
+            exif_data = {"ImageWidth": "1920", "ImageHeight": "1080"}
+            resolution = extractor._get_video_resolution(exif_data)
+            assert resolution == (1920, 1080)
+
+    def test_video_format_from_codec(self, tmp_path: Path) -> None:
+        """Test video format extraction from codec information."""
+        video_path = tmp_path / "test.mp4"
+
+        with MetadataExtractor() as extractor:
+            # Test H.264 codec
+            exif_data = {"CompressorName": "H.264"}
+            format_str = extractor._get_video_format(video_path, exif_data)
+            assert format_str == "H.264"
+
+            # Test HEVC codec
+            exif_data = {"VideoCodecID": "HEVC"}
+            format_str = extractor._get_video_format(video_path, exif_data)
+            assert format_str == "HEVC"
+
+            # Test AVC codec
+            exif_data = {"VideoCodec": "AVC"}
+            format_str = extractor._get_video_format(video_path, exif_data)
+            assert format_str == "AVC"
+
+    def test_video_format_fallback_to_extension(self, tmp_path: Path) -> None:
+        """Test video format falls back to extension when no codec data."""
+        with MetadataExtractor() as extractor:
+            # No codec information
+            video_path = tmp_path / "test.mp4"
+            exif_data = {}
+            format_str = extractor._get_video_format(video_path, exif_data)
+            assert format_str == "mp4"
+
+            # Unknown/None codec values
+            exif_data = {"CompressorName": "unknown"}
+            format_str = extractor._get_video_format(video_path, exif_data)
+            assert format_str == "mp4"
+
+            exif_data = {"CompressorName": "none"}
+            format_str = extractor._get_video_format(video_path, exif_data)
+            assert format_str == "mp4"
+
+    def test_video_format_different_extensions(self, tmp_path: Path) -> None:
+        """Test video format extraction for different file types."""
+        with MetadataExtractor() as extractor:
+            # MOV file
+            video_path = tmp_path / "test.mov"
+            exif_data = {}
+            format_str = extractor._get_video_format(video_path, exif_data)
+            assert format_str == "mov"
+
+            # AVI file
+            video_path = tmp_path / "test.avi"
+            format_str = extractor._get_video_format(video_path, exif_data)
+            assert format_str == "avi"
+
+            # MKV file
+            video_path = tmp_path / "test.mkv"
+            format_str = extractor._get_video_format(video_path, exif_data)
+            assert format_str == "mkv"

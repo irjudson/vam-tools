@@ -98,8 +98,12 @@ class MetadataExtractor:
                 if format_info[1]:
                     metadata.width, metadata.height = format_info[1]
             elif file_type == FileType.VIDEO:
-                metadata.format = self._get_video_format(file_path)
-                # TODO: Extract video resolution from EXIF
+                metadata.format = self._get_video_format(file_path, exif_data)
+                # Extract video resolution from EXIF
+                resolution = self._get_video_resolution(exif_data)
+                if resolution:
+                    metadata.resolution = resolution
+                    metadata.width, metadata.height = resolution
 
         except Exception as e:
             logger.error(f"Error extracting metadata from {file_path}: {e}")
@@ -358,10 +362,90 @@ class MetadataExtractor:
             logger.debug(f"Error getting image format: {e}")
             return None, None
 
-    def _get_video_format(self, file_path: Path) -> Optional[str]:
-        """Get video format from extension."""
-        # For now, just use extension
-        # TODO: Use ffmpeg or similar for proper video format detection
+    def _get_video_resolution(
+        self, exif_data: Dict[str, any]
+    ) -> Optional[Tuple[int, int]]:
+        """
+        Extract video resolution from EXIF metadata.
+
+        Args:
+            exif_data: EXIF metadata dictionary
+
+        Returns:
+            Tuple of (width, height) or None if not found
+        """
+        # Video resolution can be stored in various EXIF fields
+        # depending on the video format and container
+        width_fields = [
+            "ImageWidth",
+            "SourceImageWidth",
+            "VideoWidth",
+            "ExifImageWidth",
+        ]
+        height_fields = [
+            "ImageHeight",
+            "SourceImageHeight",
+            "VideoHeight",
+            "ExifImageHeight",
+        ]
+
+        width = None
+        height = None
+
+        # Try to extract width
+        for field in width_fields:
+            if field in exif_data:
+                width = self._parse_int(exif_data[field])
+                if width:
+                    break
+
+        # Try to extract height
+        for field in height_fields:
+            if field in exif_data:
+                height = self._parse_int(exif_data[field])
+                if height:
+                    break
+
+        # Both width and height must be present
+        if width and height and width > 0 and height > 0:
+            return (width, height)
+
+        return None
+
+    def _get_video_format(
+        self, file_path: Path, exif_data: Dict[str, any]
+    ) -> Optional[str]:
+        """
+        Get video format from EXIF metadata.
+
+        Tries to extract the actual video codec/format from EXIF data.
+        Falls back to file extension if not available.
+
+        Args:
+            file_path: Path to video file
+            exif_data: EXIF metadata dictionary
+
+        Returns:
+            Video format string (e.g., "H.264", "HEVC", "mp4")
+        """
+        # Try to get codec information from EXIF
+        # Different video containers store this in different fields
+        codec_fields = [
+            "CompressorName",  # QuickTime/MOV
+            "VideoCodecID",  # MP4
+            "VideoCodec",  # General
+            "CompressorID",  # Alternative
+            "FileType",  # Container format
+        ]
+
+        for field in codec_fields:
+            if field in exif_data and exif_data[field]:
+                codec = str(exif_data[field])
+                # Clean up codec name
+                if codec and codec.lower() not in ["unknown", "none"]:
+                    return codec
+
+        # Fall back to file extension
         return file_path.suffix.lower().lstrip(".")
 
     def _parse_float(self, value: any) -> Optional[float]:
