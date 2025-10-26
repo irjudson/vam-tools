@@ -3,15 +3,17 @@
 A professional collection of Python tools for managing and organizing photo/video libraries.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ## Features
 
-- **Image Date Analyzer** - Extract earliest dates from EXIF data, filenames, and directory structure using ExifTool
-- **Duplicate Image Finder** - Find duplicate images across different formats and sizes using perceptual hashing (dHash + aHash)
-- **Catalog Reorganizer** - Reorganize photo/video catalog files into date-based directory structures with dry-run support
+- **High-Performance Scanning** - Multi-core parallel processing for fast catalog analysis
+- **Comprehensive Metadata Extraction** - Extract dates from EXIF, XMP, filenames, and directory structure using ExifTool
+- **Duplicate Detection** - Find duplicate images using checksums and perceptual hashing
+- **Date-Based Reorganization** - Reorganize photo/video catalogs into date-based directory structures
+- **Web Interface** - Modern web UI for reviewing and managing your catalog
 - **Beautiful CLI** - Rich terminal interface with progress bars and formatted output
-- **Fully Tested** - Comprehensive test suite with fixtures
+- **Fully Tested** - Comprehensive test suite with 105 passing tests
 - **Type Safe** - Full type hints throughout the codebase
 
 ## Installation
@@ -56,154 +58,99 @@ pip install -e ".[dev]"
 
 ## Usage
 
-### Interactive Mode
+VAM Tools provides two main interfaces:
 
-Launch the interactive menu interface:
+### 1. V2 Catalog Analysis (Recommended)
 
-```bash
-vam-tools
-```
+The V2 system provides high-performance catalog scanning with multiprocessing support.
 
-This provides an easy-to-use menu for accessing all tools.
-
-### Command Line Tools
-
-Each tool can be run directly from the command line:
-
-#### 1. Image Date Analyzer
-
-Extract and analyze dates from images:
+#### Analyze and Build Catalog
 
 ```bash
-# Analyze dates in a directory
-vam-dates /path/to/photos
+# Analyze photos from one or more source directories
+vam-analyze /path/to/catalog -s /path/to/photos -s /path/to/more/photos
 
-# Analyze with custom output file
-vam-dates /path/to/photos -o dates_report.txt
+# Use all CPU cores (auto-detected)
+vam-analyze /path/to/catalog -s /path/to/photos
 
-# Non-recursive scan
-vam-dates /path/to/photos --no-recursive
+# Specify number of workers (great for multi-core systems)
+vam-analyze /path/to/catalog -s /path/to/photos --workers 32
 
-# Verbose output
-vam-dates /path/to/photos -v
+# Start fresh (clears existing catalog)
+vam-analyze /path/to/catalog -s /path/to/photos --clear
 
-# Sort by source instead of date
-vam-dates /path/to/photos --sort-by source
+# Repair corrupted catalog
+vam-analyze /path/to/catalog --repair
+
+# Verbose logging
+vam-analyze /path/to/catalog -s /path/to/photos -v
 ```
 
-**Output Example:**
-```
-Image Date Analysis Results
-================================================================================
+**Performance:** On a 32-core system, expect 20-30x speedup compared to single-threaded processing.
 
-/photos/vacation - IMG_1234.jpg - 2023-06-15 14:30:22 (from exif, confidence: 95%)
-/photos/vacation - photo.jpg - 2023-06-15 00:00:00 (from filename, confidence: 70%)
-/photos/old - scan.jpg - 2020-01-01 00:00:00 (from directory, confidence: 50%)
-```
+#### Web Interface
 
-#### 2. Duplicate Image Finder
-
-Find duplicate and similar images:
+Launch the web UI to browse and manage your catalog:
 
 ```bash
-# Find duplicates with default threshold
-vam-duplicates /path/to/photos
+# Start web server
+vam-web /path/to/catalog
 
-# Strict matching (lower threshold = more strict)
-vam-duplicates /path/to/photos -t 3
+# Custom port
+vam-web /path/to/catalog --port 8080
 
-# Loose matching
-vam-duplicates /path/to/photos -t 15
-
-# Custom output file
-vam-duplicates /path/to/photos -o duplicates.txt
-
-# Verbose mode
-vam-duplicates /path/to/photos -v
+# Allow external access
+vam-web /path/to/catalog --host 0.0.0.0
 ```
 
-**Similarity Thresholds:**
-- `0-5`: Very similar images only (recommended for finding true duplicates)
-- `6-15`: Similar images (good for finding variations)
-- `16-30`: Somewhat similar
-- `31-64`: Very loose matching
+Then open your browser to http://localhost:5000 to view your catalog.
 
-**Output Example:**
-```
-DUPLICATE IMAGE ANALYSIS RESULTS
-================================================================================
+### 2. V1 Legacy Tools
 
-GROUP 1 - EXACT
-----------------------------------------
-File: /photos/IMG_001.jpg
-  Size: 2.5 MB
-  Dimensions: 3840x2160
-  Format: JPEG
-
-File: /photos/backup/IMG_001.jpg
-  Size: 2.5 MB
-  Dimensions: 3840x2160
-  Format: JPEG
-
-GROUP 2 - PERCEPTUAL
-Similarity distance: 3
-----------------------------------------
-File: /photos/vacation.jpg
-  Size: 3.1 MB
-  Dimensions: 4032x3024
-  Format: JPEG
-
-File: /photos/vacation_resized.jpg
-  Size: 1.2 MB
-  Dimensions: 1920x1440
-  Format: JPEG
-```
-
-#### 3. Catalog Reorganizer
-
-Reorganize photos into date-based directory structure:
+The V1 tools provide the original date analysis, duplicate detection, and reorganization features via an interactive menu:
 
 ```bash
-# Dry-run (preview without making changes)
-vam-catalog /path/to/photos -o /path/to/organized --dry-run
-
-# Actually reorganize (move files)
-vam-catalog /path/to/photos -o /path/to/organized
-
-# Copy instead of move
-vam-catalog /path/to/photos -o /path/to/organized --copy
-
-# Different organization strategies
-vam-catalog /path/to/photos -o /output -s year/month-day  # 2023/12-25/
-vam-catalog /path/to/photos -o /output -s year/month      # 2023/12/
-vam-catalog /path/to/photos -o /output -s year            # 2023/
-vam-catalog /path/to/photos -o /output -s flat            # 2023-12-25/
-
-# Handle file conflicts
-vam-catalog /path/to/photos -o /output --conflict rename    # Add counter (default)
-vam-catalog /path/to/photos -o /output --conflict skip      # Skip existing
-vam-catalog /path/to/photos -o /output --conflict overwrite # Overwrite
+# Launch interactive menu
+vam-v1
 ```
 
-**Organization Strategies:**
+The menu provides access to:
+- **Image Date Analyzer** - Extract and analyze dates from images
+- **Duplicate Image Finder** - Find duplicate and similar images
+- **Catalog Reorganizer** - Reorganize photos into date-based structure
 
-| Strategy | Example Structure |
-|----------|------------------|
-| `year/month-day` | `2023/12-25/2023-12-25_143022_image.jpg` |
-| `year/month` | `2023/12/2023-12-25_143022_image.jpg` |
-| `year` | `2023/2023-12-25_143022_image.jpg` |
-| `flat` | `2023-12-25/2023-12-25_143022_image.jpg` |
+## Catalog Analysis Process
 
-## Supported Image Formats
+The V2 system performs the following steps:
 
-- JPEG/JPG
-- PNG
-- TIFF/TIF
-- BMP
-- GIF
-- WEBP
-- HEIC/HEIF
-- RAW formats: CR2, NEF, ARW, DNG
+1. **File Discovery** - Scans directories for image and video files
+2. **Parallel Processing** - Uses worker pool to process files in parallel:
+   - Computes checksums (for duplicate detection)
+   - Extracts comprehensive metadata via ExifTool
+   - Extracts dates from multiple sources
+3. **Catalog Building** - Creates a catalog database with:
+   - Image/video records indexed by checksum
+   - Comprehensive metadata for each file
+   - Date information with confidence levels
+   - Statistics (total images, videos, size, etc.)
+4. **Incremental Updates** - Rescan to add new files without reprocessing existing ones
+
+## Date Extraction
+
+Dates are extracted from multiple sources with confidence levels:
+
+1. **EXIF Metadata** (95% confidence) - Camera timestamps from EXIF/XMP data
+2. **Filename Patterns** (70% confidence) - Dates in filenames (YYYY-MM-DD, YYYYMMDD, etc.)
+3. **Directory Structure** (50% confidence) - Year/month from folder names
+4. **Filesystem Metadata** (30% confidence) - File creation/modification time
+
+The system selects the **earliest date** from all available sources.
+
+## Supported Formats
+
+- **Images:** JPEG, PNG, TIFF, BMP, GIF, WEBP, HEIC/HEIF
+- **RAW Formats:** CR2, NEF, ARW, DNG, and more
+- **Videos:** MP4, MOV, AVI, MKV, and more
 
 ## Development
 
@@ -224,13 +171,15 @@ pytest
 pytest --cov=vam_tools --cov-report=html
 
 # Run specific test file
-pytest tests/core/test_image_utils.py
+pytest tests/core/test_date_extraction.py
 
 # Run with verbose output
 pytest -v
 ```
 
 ### Code Quality
+
+The project uses pre-commit hooks to ensure code quality:
 
 ```bash
 # Format code
@@ -251,62 +200,38 @@ mypy vam_tools/
 ```
 vam-tools/
 ├── vam_tools/
-│   ├── core/                 # Core business logic
-│   │   ├── image_utils.py
+│   ├── v2/                   # V2 system (current)
+│   │   ├── analysis/         # Scanner and metadata extraction
+│   │   ├── core/             # Catalog database and types
+│   │   ├── web/              # Web interface
+│   │   ├── cli_analyze.py    # Analysis CLI
+│   │   └── cli_web.py        # Web server CLI
+│   ├── cli/                  # V1 legacy CLI
+│   │   ├── base.py           # Shared CLI components
+│   │   ├── date_cli.py       # Date analyzer
+│   │   ├── duplicate_cli.py  # Duplicate finder
+│   │   ├── catalog_cli.py    # Catalog reorganizer
+│   │   └── main.py           # Interactive menu
+│   ├── core/                 # V1 legacy core logic
 │   │   ├── date_extraction.py
 │   │   ├── duplicate_detection.py
 │   │   └── catalog_reorganization.py
-│   ├── cli/                  # Command-line interfaces
-│   │   ├── date_cli.py
-│   │   ├── duplicate_cli.py
-│   │   ├── catalog_cli.py
-│   │   └── main.py
-│   └── __init__.py
-├── tests/                    # Test suite
-│   ├── core/
-│   ├── cli/
-│   ├── fixtures/
-│   └── conftest.py
+│   └── shared/               # Shared utilities
+│       └── media_utils.py    # Image/video utilities
+├── tests/                    # Test suite (105 tests)
+├── docs/                     # Documentation
 ├── pyproject.toml
 └── README.md
 ```
 
-## How It Works
-
-### Date Extraction
-
-The date analyzer examines multiple sources to find the earliest date:
-
-1. **EXIF Metadata** (95% confidence) - Camera timestamps from EXIF data
-2. **Filename Patterns** (70% confidence) - Dates in filenames (YYYY-MM-DD, YYYYMMDD, etc.)
-3. **Directory Structure** (50% confidence) - Year/month from folder names
-4. **Filesystem Metadata** (30% confidence) - File creation/modification time
-
-### Duplicate Detection
-
-Uses multiple algorithms to find duplicates:
-
-1. **MD5 Hash** - Identifies exact file duplicates
-2. **dHash (Difference Hash)** - Compares adjacent pixels for perceptual similarity
-3. **aHash (Average Hash)** - Compares pixels to average for perceptual similarity
-4. **Hamming Distance** - Measures similarity between perceptual hashes
-
-### Catalog Reorganization
-
-1. Extracts date from each image using all available sources
-2. Generates new path based on organization strategy
-3. Handles filename conflicts according to chosen strategy
-4. Supports dry-run mode for safe testing
-5. Can copy or move files
-
 ## Best Practices
 
 1. **Always backup your photos before reorganizing**
-2. **Use dry-run mode first** to preview changes
-3. **Start with strict thresholds** for duplicate detection (3-5)
-4. **Review duplicate results** carefully before deleting files
-5. **Use copy mode** when unsure about reorganization
-6. **Enable verbose logging** (`-v`) for troubleshooting
+2. **Use dry-run mode** when testing reorganization
+3. **Start with multiple workers** for large catalogs (--workers option)
+4. **Review results** in the web UI before making changes
+5. **Enable verbose logging** (-v) for troubleshooting
+6. **Use incremental scanning** to add new files to existing catalogs
 
 ## Troubleshooting
 
@@ -320,13 +245,20 @@ Uses multiple algorithms to find duplicates:
 - Ensure you have read/write permissions for the directories
 - On Unix systems, check with `ls -la`
 
-**"Memory issues with large directories"**
-- Process directories in smaller batches
-- Use `--no-recursive` to limit scope
+**"Catalog corrupted"**
+- Use `vam-analyze /path/to/catalog --repair` to fix
+- Or use `--clear` to start fresh (creates backup first)
 
 **"Dates not being extracted"**
 - Check that images actually have EXIF data: `exiftool image.jpg`
-- Try verbose mode (`-v`) to see what's being detected
+- Try verbose mode (-v) to see what's being detected
+
+## Performance Tips
+
+- **Use multiprocessing:** Specify `--workers N` where N is your CPU core count
+- **Process in batches:** For very large libraries, process subdirectories separately
+- **SSD recommended:** Faster I/O significantly improves scanning speed
+- **Incremental updates:** Rerun analysis to add only new files
 
 ## Contributing
 
@@ -336,21 +268,24 @@ Uses multiple algorithms to find duplicates:
 4. Add tests for your changes
 5. Ensure tests pass (`pytest`)
 6. Format code (`black`, `isort`)
-7. Commit your changes (`git commit -m 'Add amazing feature'`)
+7. Commit your changes
 8. Push to the branch (`git push origin feature/amazing-feature`)
 9. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
 
 ## Acknowledgments
 
 - Uses [Pillow](https://python-pillow.org/) for image processing
-- Uses [ExifTool](https://exiftool.org/) for comprehensive EXIF data extraction
+- Uses [pillow-heif](https://github.com/bigcat88/pillow_heif) for HEIC support
+- Uses [ExifTool](https://exiftool.org/) for comprehensive metadata extraction
 - Uses [Click](https://click.palletsprojects.com/) for CLI framework
 - Uses [Rich](https://rich.readthedocs.io/) for beautiful terminal output
 - Uses [Arrow](https://arrow.readthedocs.io/) for date/time handling
+- Uses [FastAPI](https://fastapi.tiangolo.com/) for web interface
+- Uses [Pydantic](https://docs.pydantic.dev/) for data validation
 
 ## Author
 
@@ -358,6 +293,5 @@ Ivan R. Judson - [irjudson@gmail.com](mailto:irjudson@gmail.com)
 
 ## Project Links
 
-- **Homepage**: https://github.com/irjudson/vam-tools
-- **Issues**: https://github.com/irjudson/vam-tools/issues
 - **Repository**: https://github.com/irjudson/vam-tools
+- **Issues**: https://github.com/irjudson/vam-tools/issues
