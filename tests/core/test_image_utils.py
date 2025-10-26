@@ -100,24 +100,24 @@ class TestFormatFileSize:
 
     def test_bytes(self) -> None:
         """Test formatting bytes."""
-        assert format_file_size(100) == "100.0 B"
-        assert format_file_size(1023) == "1023.0 B"
+        assert format_file_size(100) == "100.00 B"
+        assert format_file_size(1023) == "1023.00 B"
 
     def test_kilobytes(self) -> None:
         """Test formatting kilobytes."""
-        assert format_file_size(1024) == "1.0 KB"
-        assert format_file_size(2048) == "2.0 KB"
-        assert format_file_size(1536) == "1.5 KB"
+        assert format_file_size(1024) == "1.00 KB"
+        assert format_file_size(2048) == "2.00 KB"
+        assert format_file_size(1536) == "1.50 KB"
 
     def test_megabytes(self) -> None:
         """Test formatting megabytes."""
-        assert format_file_size(1024 * 1024) == "1.0 MB"
-        assert format_file_size(5 * 1024 * 1024) == "5.0 MB"
+        assert format_file_size(1024 * 1024) == "1.00 MB"
+        assert format_file_size(5 * 1024 * 1024) == "5.00 MB"
 
     def test_gigabytes(self) -> None:
         """Test formatting gigabytes."""
-        assert format_file_size(1024 * 1024 * 1024) == "1.0 GB"
-        assert format_file_size(2 * 1024 * 1024 * 1024) == "2.0 GB"
+        assert format_file_size(1024 * 1024 * 1024) == "1.00 GB"
+        assert format_file_size(2 * 1024 * 1024 * 1024) == "2.00 GB"
 
 
 class TestCollectImageFiles:

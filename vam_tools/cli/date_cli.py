@@ -14,7 +14,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from ..core.date_extraction import DateExtractor
-from ..core.image_utils import collect_image_files, setup_logging
+from vam_tools.shared import collect_image_files, setup_logging
 
 console = Console()
 

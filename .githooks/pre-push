@@ -1,0 +1,86 @@
+#!/bin/bash
+#
+# Pre-push hook to ensure code quality before pushing to GitHub
+# This ensures CI will always succeed
+#
+
+set -e
+
+echo "🔍 Running pre-push checks..."
+echo ""
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Check if we're in a git repository
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo -e "${RED}✗ Not in a git repository${NC}"
+    exit 1
+fi
+
+# Check if virtual environment is activated
+if [ -z "$VIRTUAL_ENV" ]; then
+    echo -e "${YELLOW}⚠ Virtual environment not activated${NC}"
+    echo "  Attempting to activate venv..."
+    if [ -d "venv" ]; then
+        source venv/bin/activate
+    else
+        echo -e "${RED}✗ No venv found. Run: python -m venv venv && source venv/bin/activate && pip install -e '.[dev]'${NC}"
+        exit 1
+    fi
+fi
+
+# 1. Check Black formatting
+echo -e "${YELLOW}1. Checking code formatting with Black...${NC}"
+if ! black --check vam_tools/ tests/ 2>&1 | grep -q "would be reformatted"; then
+    echo -e "${GREEN}  ✓ Code formatting OK${NC}"
+else
+    echo -e "${RED}  ✗ Code formatting issues found${NC}"
+    echo ""
+    echo "  Run: black vam_tools/ tests/"
+    echo "  Then: git add -u && git commit --amend --no-edit"
+    exit 1
+fi
+
+# 2. Run tests
+echo ""
+echo -e "${YELLOW}2. Running tests...${NC}"
+if pytest tests/ -x --tb=short -q; then
+    echo -e "${GREEN}  ✓ All tests passed${NC}"
+else
+    echo -e "${RED}  ✗ Tests failed${NC}"
+    echo ""
+    echo "  Fix the failing tests before pushing"
+    exit 1
+fi
+
+# 3. Optional: Check for common issues
+echo ""
+echo -e "${YELLOW}3. Checking for common issues...${NC}"
+
+# Check for debugger statements
+if git diff --cached --name-only | xargs grep -n "import pdb\|breakpoint()" 2>/dev/null; then
+    echo -e "${RED}  ✗ Found debugger statements (pdb/breakpoint)${NC}"
+    echo "  Remove them before pushing"
+    exit 1
+fi
+
+# Check for print statements in production code (excluding CLI modules)
+if git diff --cached --name-only | grep -E "vam_tools/v2/(core|analysis)" | xargs grep -n "print(" 2>/dev/null; then
+    echo -e "${YELLOW}  ⚠ Found print() statements in core code${NC}"
+    echo "  Consider using logging instead"
+    # Don't exit - just warn
+fi
+
+echo -e "${GREEN}  ✓ No common issues found${NC}"
+
+# All checks passed!
+echo ""
+echo -e "${GREEN}✓ All pre-push checks passed!${NC}"
+echo -e "${GREEN}  Pushing to GitHub...${NC}"
+echo ""
+
+exit 0

@@ -18,13 +18,14 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from ..core.duplicate_detection import DuplicateDetector
-from ..core.image_utils import (
+from vam_tools.shared import (
     collect_image_files,
-    format_file_size,
+    format_bytes as format_file_size,  # Alias for backward compatibility
     get_image_info,
     setup_logging,
 )
+
+from ..core.duplicate_detection import DuplicateDetector
 
 console = Console()
 
