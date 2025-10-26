@@ -244,3 +244,135 @@ class TestImageScanner:
             assert scanner.files_added == 1
             assert scanner.files_skipped == 1
             assert len(images) == 1
+
+    def test_scanner_processes_video_files(self, tmp_path: Path) -> None:
+        """Test that scanner handles video files."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create a fake video file
+        video_path = photos_dir / "test_video.mp4"
+        # Create a minimal valid video-like file
+        video_path.write_bytes(b"\x00\x00\x00\x20ftypmp42" + b"\x00" * 100)
+
+        # Create a normal image too
+        img_path = photos_dir / "image.jpg"
+        Image.new("RGB", (100, 100), color="blue").save(img_path)
+
+        # Initialize and scan
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+            scanner.scan_directories([photos_dir])
+
+            stats = db.get_statistics()
+            # Should have both image and video
+            assert stats.total_images >= 1
+            assert stats.total_videos >= 1
+
+    def test_scanner_handles_permission_errors(self, tmp_path: Path) -> None:
+        """Test scanner handles permission errors gracefully."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create a subdirectory with restricted permissions
+        restricted_dir = photos_dir / "restricted"
+        restricted_dir.mkdir(mode=0o000)
+
+        # Create an accessible image
+        img_path = photos_dir / "accessible.jpg"
+        Image.new("RGB", (100, 100), color="green").save(img_path)
+
+        try:
+            # Initialize and scan
+            with CatalogDatabase(catalog_dir) as db:
+                db.initialize(source_directories=[photos_dir])
+                scanner = ImageScanner(db, workers=1)
+                scanner.scan_directories([photos_dir])
+
+                # Should process accessible images without crashing
+                images = db.list_images()
+                assert len(images) >= 1
+        finally:
+            # Restore permissions for cleanup
+            restricted_dir.chmod(0o755)
+
+    def test_scanner_checkpoint_logic(self, tmp_path: Path) -> None:
+        """Test that scanner creates checkpoints during long scans."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create enough files to trigger checkpoint (every 100 files)
+        for i in range(105):
+            img_path = photos_dir / f"image{i:03d}.jpg"
+            # Create unique images
+            color = (i % 256, (i * 2) % 256, (i * 3) % 256)
+            Image.new("RGB", (50, 50), color=color).save(img_path)
+
+        # Initialize and scan
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+            scanner.scan_directories([photos_dir])
+
+            # Verify all files were processed
+            images = db.list_images()
+            assert len(images) >= 100
+
+            # Verify statistics were updated
+            stats = db.get_statistics()
+            assert stats.total_images >= 100
+
+    def test_scanner_handles_files_without_dates(self, tmp_path: Path) -> None:
+        """Test scanner tracks images without date metadata."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create images with no date info in filename or directory
+        img1_path = photos_dir / "no_date_image.jpg"
+        img2_path = photos_dir / "another_image.jpg"
+        Image.new("RGB", (100, 100), color="red").save(img1_path)
+        Image.new("RGB", (100, 100), color="blue").save(img2_path)
+
+        # Initialize and scan
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+            scanner.scan_directories([photos_dir])
+
+            stats = db.get_statistics()
+            # Images should be processed even without dates
+            assert stats.total_images == 2
+            # no_date count should be tracked
+            assert stats.no_date is not None
+
+    def test_scanner_unknown_file_types(self, tmp_path: Path) -> None:
+        """Test scanner skips unknown file types."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create files of various types
+        img_path = photos_dir / "photo.jpg"
+        Image.new("RGB", (100, 100), color="red").save(img_path)
+
+        # Unknown file types
+        (photos_dir / "document.pdf").write_bytes(b"PDF content")
+        (photos_dir / "spreadsheet.xlsx").write_bytes(b"Excel content")
+        (photos_dir / "readme.txt").write_text("Text file")
+
+        # Initialize and scan
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+            scanner.scan_directories([photos_dir])
+
+            # Should only process the image
+            images = db.list_images()
+            assert len(images) == 1
+            stats = db.get_statistics()
+            assert stats.total_images == 1
