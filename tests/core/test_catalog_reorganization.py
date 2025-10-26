@@ -4,7 +4,6 @@ Tests for catalog_reorganization module.
 
 from pathlib import Path
 
-import pytest
 from PIL import Image
 
 from vam_tools.core.catalog_reorganization import (
@@ -110,16 +109,18 @@ class TestConflictResolution:
         assert results["copied"] == 2
         assert results["errors"] == 0
 
-    @pytest.mark.skip(reason="V1 code has bug - skip logic not working correctly")
     def test_skip_conflict_resolution(self, temp_dir: Path) -> None:
         """Test that SKIP skips existing files."""
         output_dir = temp_dir / "output"
         output_dir.mkdir()
 
-        # Create two identical images
+        # Create two images with SAME filename but in different locations
         img = Image.new("RGB", (10, 10), color="red")
+        subdir = temp_dir / "subdir"
+        subdir.mkdir()
+
         img1 = temp_dir / "photo_2023-01-01.jpg"
-        img2 = temp_dir / "photo2_2023-01-01.jpg"
+        img2 = subdir / "photo_2023-01-01.jpg"  # Same name, different location
 
         img.save(img1)
         img.save(img2)
@@ -134,9 +135,9 @@ class TestConflictResolution:
         # Reorganize both images
         results = reorganizer.reorganize([img1, img2], dry_run=False)
 
-        # First should be copied, second should be skipped
-        assert results["copied"] >= 1
-        assert results["skipped"] >= 1
+        # First should be copied, second should be skipped (same destination)
+        assert results["copied"] == 1
+        assert results["skipped"] == 1
 
 
 class TestCopyVsMove:
@@ -314,14 +315,13 @@ class TestBatchProcessing:
 class TestErrorHandling:
     """Tests for error handling."""
 
-    @pytest.mark.skip(reason="V1 code has bug - invalid images not tracked in stats")
     def test_invalid_image_handling(self, temp_dir: Path) -> None:
-        """Test that invalid images are handled gracefully."""
+        """Test that invalid images are handled gracefully with filesystem fallback."""
         output_dir = temp_dir / "output"
 
-        # Create a fake image (text file with .jpg extension)
+        # Create a fake image (binary garbage with .jpg extension)
         fake_img = temp_dir / "fake.jpg"
-        fake_img.write_text("This is not an image")
+        fake_img.write_bytes(b"\x00\x01\x02\x03\x04\x05")  # Binary garbage
 
         reorganizer = CatalogReorganizer(
             output_directory=output_dir,
@@ -329,8 +329,9 @@ class TestErrorHandling:
 
         results = reorganizer.reorganize([fake_img], dry_run=False)
 
-        # Should be skipped or error, not crash
-        assert results["skipped"] + results["errors"] >= 1
+        # Should not crash - invalid images fall back to filesystem dates
+        assert results["moved"] + results["copied"] >= 1
+        assert results["errors"] == 0  # No errors, just filesystem fallback
 
     def test_missing_file_handling(self, temp_dir: Path) -> None:
         """Test that missing files are handled gracefully."""

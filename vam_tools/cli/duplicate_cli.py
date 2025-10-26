@@ -8,30 +8,17 @@ import sys
 from pathlib import Path
 
 import click
-from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeRemainingColumn,
-)
-from rich.table import Table
 
 from vam_tools.shared import (
     collect_image_files,
 )
-from vam_tools.shared import (
-    format_bytes as format_file_size,  # Alias for backward compatibility
-)
+from vam_tools.shared import format_bytes as format_file_size
 from vam_tools.shared import (
     get_image_info,
-    setup_logging,
 )
 
 from ..core.duplicate_detection import DuplicateDetector
-
-console = Console()
+from .base import CLIDisplay, common_options, file_scan_options, init_logging
 
 
 @click.command()
@@ -44,42 +31,21 @@ console = Console()
     help="Output file for results",
 )
 @click.option(
-    "-r",
-    "--recursive",
-    is_flag=True,
-    default=True,
-    help="Scan directories recursively",
-)
-@click.option(
-    "--no-recursive",
-    is_flag=True,
-    help="Disable recursive scanning",
-)
-@click.option(
     "-t",
     "--threshold",
     type=int,
     default=5,
     help="Similarity threshold (0-64, lower = more strict)",
 )
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    help="Enable verbose logging",
-)
-@click.option(
-    "-q",
-    "--quiet",
-    is_flag=True,
-    help="Suppress all output except errors",
-)
+@file_scan_options
+@common_options
+@init_logging
 def cli(
     directory: str,
     output: str,
+    threshold: int,
     recursive: bool,
     no_recursive: bool,
-    threshold: int,
     verbose: bool,
     quiet: bool,
 ) -> None:
@@ -97,56 +63,47 @@ def cli(
 
     # Validate threshold
     if not 0 <= threshold <= 64:
-        console.print("[red]Error: Threshold must be between 0 and 64[/red]")
+        display = CLIDisplay(quiet=False)
+        display.print_error("Error: Threshold must be between 0 and 64")
         sys.exit(1)
-
-    # Setup logging
-    setup_logging(verbose=verbose, quiet=quiet)
 
     directory_path = Path(directory).resolve()
     output_path = Path(output).resolve()
 
-    if not quiet:
-        console.print("\n[bold cyan]Duplicate Image Finder[/bold cyan]\n")
-        console.print(f"Directory: {directory_path}")
-        console.print(f"Recursive: {recursive}")
-        console.print(f"Threshold: {threshold} (0=exact, 64=very loose)")
-        console.print(f"Output: {output_path}\n")
+    # Initialize display helper
+    display = CLIDisplay(quiet=quiet)
+
+    # Display header and configuration
+    display.print_header("Duplicate Image Finder")
+    display.print_config(
+        {
+            "Directory": str(directory_path),
+            "Recursive": str(recursive),
+            "Threshold": f"{threshold} (0=exact, 64=very loose)",
+            "Output": str(output_path),
+        }
+    )
 
     # Collect image files
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-        disable=quiet,
-    ) as progress:
+    with display.spinner_progress("Collecting image files...") as progress:
         task = progress.add_task("Collecting image files...", total=None)
         image_files = collect_image_files(directory_path, recursive=recursive)
         progress.update(task, completed=True)
 
     if not image_files:
-        console.print("[yellow]No image files found.[/yellow]")
+        display.print_warning("No image files found.")
         sys.exit(0)
 
     if len(image_files) < 2:
-        console.print("[yellow]Need at least 2 images to find duplicates.[/yellow]")
+        display.print_warning("Need at least 2 images to find duplicates.")
         sys.exit(0)
 
-    if not quiet:
-        console.print(f"Found [bold]{len(image_files)}[/bold] image files\n")
+    display.print_info(f"Found [bold]{len(image_files)}[/bold] image files\n")
 
     # Find duplicates
     detector = DuplicateDetector()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeRemainingColumn(),
-        console=console,
-        disable=quiet,
-    ) as progress:
+    with display.bar_progress("Finding duplicates...") as progress:
         task = progress.add_task("Finding duplicates...", total=len(image_files))
 
         # Process images with progress updates
@@ -158,14 +115,11 @@ def cli(
                 progress.advance(task)
             except Exception as e:
                 if verbose:
-                    console.print(
-                        f"[yellow]Error processing {image_path}: {e}[/yellow]"
-                    )
+                    display.print_warning(f"Error processing {image_path}: {e}")
                 progress.advance(task)
 
     # Find duplicates
-    if not quiet:
-        console.print("\n[cyan]Analyzing for duplicates...[/cyan]\n")
+    display.print_info("\n[cyan]Analyzing for duplicates...[/cyan]\n")
 
     exact_duplicates = detector.find_exact_duplicates()
     perceptual_duplicates = detector.find_perceptual_duplicates(threshold)
@@ -202,34 +156,29 @@ def cli(
                     f.write("\n")
 
     # Display summary
-    if not quiet:
-        table = Table(title="Duplicate Detection Summary")
-        table.add_column("Metric", style="cyan")
-        table.add_column("Value", style="green")
+    total_images = len(image_files)
+    total_groups = len(all_duplicates)
+    exact_groups = len(exact_duplicates)
+    perceptual_groups = len(perceptual_duplicates)
+    images_in_groups = sum(len(g.images) for g in all_duplicates)
 
-        total_images = len(image_files)
-        total_groups = len(all_duplicates)
-        exact_groups = len(exact_duplicates)
-        perceptual_groups = len(perceptual_duplicates)
+    metrics = {
+        "Total images scanned": total_images,
+        "Images in duplicate groups": images_in_groups,
+        "Unique images": total_images - images_in_groups,
+        "": "",
+        "Total duplicate groups": total_groups,
+        "Exact duplicates": exact_groups,
+        "Perceptual duplicates": perceptual_groups,
+    }
+    display.print_summary(metrics, title="Duplicate Detection Summary")
 
-        images_in_groups = sum(len(g.images) for g in all_duplicates)
+    if total_groups > 0:
+        display.print_warning(
+            "\nReview the results carefully before deleting any files!"
+        )
 
-        table.add_row("Total images scanned", str(total_images))
-        table.add_row("Images in duplicate groups", str(images_in_groups))
-        table.add_row("Unique images", str(total_images - images_in_groups))
-        table.add_row("", "")
-        table.add_row("Total duplicate groups", str(total_groups))
-        table.add_row("Exact duplicates", str(exact_groups))
-        table.add_row("Perceptual duplicates", str(perceptual_groups))
-
-        console.print(table)
-
-        if total_groups > 0:
-            console.print(
-                "\n[yellow]Review the results carefully before deleting any files![/yellow]"
-            )
-
-        console.print(f"\n[green]Results written to:[/green] {output_path}")
+    display.print_success(f"\nResults written to: {output_path}")
 
 
 if __name__ == "__main__":

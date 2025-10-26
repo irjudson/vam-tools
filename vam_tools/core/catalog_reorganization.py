@@ -162,6 +162,7 @@ class CatalogReorganizer:
             List of ReorganizationPlan objects
         """
         plans: List[ReorganizationPlan] = []
+        planned_destinations: set[Path] = set()  # Track destinations in this batch
 
         with DateExtractor() as extractor:
             for image_path in image_paths:
@@ -172,8 +173,8 @@ class CatalogReorganizer:
                     # Generate destination path
                     destination = self.generate_destination_path(image_path, date_info)
 
-                    # Check for conflicts
-                    if destination.exists():
+                    # Check for conflicts (both existing files and planned destinations)
+                    if destination.exists() or destination in planned_destinations:
                         if self.conflict_resolution == ConflictResolution.SKIP:
                             plans.append(
                                 ReorganizationPlan(
@@ -205,6 +206,8 @@ class CatalogReorganizer:
                             reason=reason,
                         )
                     )
+                    # Track this destination to detect conflicts within the batch
+                    planned_destinations.add(destination)
 
                 except Exception as e:
                     logger.error(f"Error creating plan for {image_path}: {e}")
@@ -213,7 +216,7 @@ class CatalogReorganizer:
                             source=image_path,
                             destination=image_path,
                             date_info=None,
-                            action="skip",
+                            action="error",
                             reason=f"Error: {e}",
                         )
                     )
@@ -244,6 +247,11 @@ class CatalogReorganizer:
                 if plan.action == "skip":
                     logger.info(f"Skipping {plan.source}: {plan.reason}")
                     stats["skipped"] += 1
+                    continue
+
+                if plan.action == "error":
+                    logger.error(f"Error with {plan.source}: {plan.reason}")
+                    stats["errors"] += 1
                     continue
 
                 if dry_run:
