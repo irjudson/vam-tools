@@ -90,9 +90,13 @@ class DateExtractor:
             metadata = metadata_list[0]
             earliest_date: Optional[arrow.Arrow] = None
 
-            # Look for date fields in EXIF data
+            # Look for date fields in EXIF data (exclude File: tags which are filesystem metadata)
             for key, value in metadata.items():
-                if "date" in key.lower() and isinstance(value, str):
+                if (
+                    "date" in key.lower()
+                    and isinstance(value, str)
+                    and not key.startswith("File:")
+                ):
                     try:
                         parsed_date = arrow.get(
                             value,

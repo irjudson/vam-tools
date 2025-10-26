@@ -5,7 +5,6 @@ Tests for date_extraction module.
 from pathlib import Path
 
 import arrow
-import pytest
 
 from vam_tools.core.date_extraction import DateExtractor
 
@@ -167,10 +166,9 @@ class TestEarliestDateExtraction:
         # Should prioritize filename date over filesystem date
         assert date_info.date.year == 2020
 
-    @pytest.mark.skip(reason="V1 code has bug - PIL adds EXIF data on save")
     def test_fallback_to_filesystem(self, temp_dir: Path) -> None:
-        """Test that filesystem date is used as fallback."""
-        image_path = temp_dir / "random_image.jpg"
+        """Test that filesystem date is used as fallback when no EXIF data exists."""
+        image_path = temp_dir / "random_image.png"  # PNG doesn't auto-add EXIF
         from PIL import Image
 
         Image.new("RGB", (10, 10)).save(image_path)

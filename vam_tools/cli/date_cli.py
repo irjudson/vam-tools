@@ -8,15 +8,12 @@ import sys
 from pathlib import Path
 
 import click
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from vam_tools.shared import collect_image_files, setup_logging
+from vam_tools.shared import collect_image_files
 
 from ..core.date_extraction import DateExtractor
-
-console = Console()
+from .base import CLIDisplay, common_options, file_scan_options, init_logging
 
 
 @click.command()
@@ -28,36 +25,15 @@ console = Console()
     default="image_dates.txt",
     help="Output file for results",
 )
-@click.option(
-    "-r",
-    "--recursive",
-    is_flag=True,
-    default=True,
-    help="Scan directories recursively",
-)
-@click.option(
-    "--no-recursive",
-    is_flag=True,
-    help="Disable recursive scanning",
-)
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    help="Enable verbose logging",
-)
-@click.option(
-    "-q",
-    "--quiet",
-    is_flag=True,
-    help="Suppress all output except errors",
-)
+@file_scan_options
+@common_options
 @click.option(
     "--sort-by",
     type=click.Choice(["date", "path", "source"], case_sensitive=False),
     default="date",
     help="Sort output by date, path, or source",
 )
+@init_logging
 def cli(
     directory: str,
     output: str,
@@ -79,46 +55,38 @@ def cli(
     if no_recursive:
         recursive = False
 
-    # Setup logging
-    setup_logging(verbose=verbose, quiet=quiet)
-
     directory_path = Path(directory).resolve()
     output_path = Path(output).resolve()
 
-    if not quiet:
-        console.print("\n[bold cyan]Image Date Analyzer[/bold cyan]\n")
-        console.print(f"Directory: {directory_path}")
-        console.print(f"Recursive: {recursive}")
-        console.print(f"Output: {output_path}\n")
+    # Initialize display helper
+    display = CLIDisplay(quiet=quiet)
+
+    # Display header and configuration
+    display.print_header("Image Date Analyzer")
+    display.print_config(
+        {
+            "Directory": str(directory_path),
+            "Recursive": str(recursive),
+            "Output": str(output_path),
+        }
+    )
 
     # Collect image files
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-        disable=quiet,
-    ) as progress:
+    with display.spinner_progress("Collecting image files...") as progress:
         task = progress.add_task("Collecting image files...", total=None)
         image_files = collect_image_files(directory_path, recursive=recursive)
         progress.update(task, completed=True)
 
     if not image_files:
-        console.print("[yellow]No image files found.[/yellow]")
+        display.print_warning("No image files found.")
         sys.exit(0)
 
-    if not quiet:
-        console.print(f"Found [bold]{len(image_files)}[/bold] image files\n")
+    display.print_info(f"Found [bold]{len(image_files)}[/bold] image files\n")
 
     # Analyze images
     results = []
     with DateExtractor() as extractor:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            console=console,
-            disable=quiet,
-        ) as progress:
+        with display.percent_progress("Analyzing images...") as progress:
             task = progress.add_task("Analyzing images...", total=len(image_files))
 
             for image_path in image_files:
@@ -181,8 +149,8 @@ def cli(
         for source, count in sorted(source_counts.items()):
             table.add_row(f"From {source}", str(count))
 
-        console.print(table)
-        console.print(f"\n[green]Results written to:[/green] {output_path}")
+        display.console.print(table)
+        display.console.print(f"\n[green]Results written to:[/green] {output_path}")
 
 
 if __name__ == "__main__":

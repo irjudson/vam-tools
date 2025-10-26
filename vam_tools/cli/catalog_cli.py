@@ -8,20 +8,16 @@ import sys
 from pathlib import Path
 
 import click
-from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
 
-from vam_tools.shared import collect_image_files, setup_logging
+from vam_tools.shared import collect_image_files
 
 from ..core.catalog_reorganization import (
     CatalogReorganizer,
     ConflictResolution,
     OrganizationStrategy,
 )
-
-console = Console()
+from .base import CLIDisplay, common_options, file_scan_options, init_logging
 
 
 @click.command()
@@ -55,51 +51,30 @@ console = Console()
     help="Copy files instead of moving them",
 )
 @click.option(
-    "-r",
-    "--recursive",
-    is_flag=True,
-    default=True,
-    help="Scan directories recursively",
-)
-@click.option(
-    "--no-recursive",
-    is_flag=True,
-    help="Disable recursive scanning",
-)
-@click.option(
     "--dry-run",
     is_flag=True,
     help="Simulate reorganization without moving files",
-)
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    help="Enable verbose logging",
-)
-@click.option(
-    "-q",
-    "--quiet",
-    is_flag=True,
-    help="Suppress all output except errors",
 )
 @click.option(
     "--yes",
     is_flag=True,
     help="Skip confirmation prompt",
 )
+@file_scan_options
+@common_options
+@init_logging
 def cli(
     directory: str,
     output: str,
     strategy: str,
     conflict: str,
     copy: bool,
+    dry_run: bool,
+    yes: bool,
     recursive: bool,
     no_recursive: bool,
-    dry_run: bool,
     verbose: bool,
     quiet: bool,
-    yes: bool,
 ) -> None:
     """
     Reorganize photo catalog into date-based structure.
@@ -113,11 +88,11 @@ def cli(
     if no_recursive:
         recursive = False
 
-    # Setup logging
-    setup_logging(verbose=verbose, quiet=quiet)
-
     directory_path = Path(directory).resolve()
     output_path = Path(output).resolve()
+
+    # Initialize display helper
+    display = CLIDisplay(quiet=quiet)
 
     # Convert string strategy to enum
     strategy_map = {
@@ -136,50 +111,39 @@ def cli(
     }
     conflict_resolution = conflict_map[conflict]
 
-    # Display configuration
-    if not quiet:
-        console.print("\n[bold cyan]Catalog Reorganizer[/bold cyan]\n")
-
-        config_table = Table(show_header=False, box=None)
-        config_table.add_column("Setting", style="cyan")
-        config_table.add_column("Value", style="green")
-
-        config_table.add_row("Source directory", str(directory_path))
-        config_table.add_row("Output directory", str(output_path))
-        config_table.add_row("Organization strategy", strategy)
-        config_table.add_row("Conflict resolution", conflict)
-        config_table.add_row("Mode", "copy" if copy else "move")
-        config_table.add_row("Recursive scan", str(recursive))
-        config_table.add_row("Dry run", str(dry_run))
-
-        console.print(config_table)
-        console.print()
+    # Display header and configuration
+    display.print_header("Catalog Reorganizer")
+    display.print_config(
+        {
+            "Source directory": str(directory_path),
+            "Output directory": str(output_path),
+            "Organization strategy": strategy,
+            "Conflict resolution": conflict,
+            "Mode": "copy" if copy else "move",
+            "Recursive scan": str(recursive),
+            "Dry run": str(dry_run),
+        }
+    )
 
     # Safety check: prevent organizing into source directory
     if output_path == directory_path or output_path in directory_path.parents:
-        console.print(
-            "[red]Error: Output directory cannot be the same as or "
-            "parent of source directory[/red]"
+        display.print_error(
+            "Error: Output directory cannot be the same as or "
+            "parent of source directory"
         )
         sys.exit(1)
 
     # Collect image files
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-        disable=quiet,
-    ) as progress:
+    with display.spinner_progress("Collecting image files...") as progress:
         task = progress.add_task("Collecting image files...", total=None)
         image_files = collect_image_files(directory_path, recursive=recursive)
         progress.update(task, completed=True)
 
     if not image_files:
-        console.print("[yellow]No image files found.[/yellow]")
+        display.print_warning("No image files found.")
         sys.exit(0)
 
-    if not quiet:
-        console.print(f"Found [bold]{len(image_files)}[/bold] image files\n")
+    display.print_info(f"Found [bold]{len(image_files)}[/bold] image files\n")
 
     # Confirmation prompt
     if not dry_run and not yes and not quiet:
@@ -190,7 +154,7 @@ def cli(
             f"{'[yellow]Consider running with --dry-run first![/yellow]' if not copy else ''}"
         )
 
-        console.print(
+        display.console.print(
             Panel(
                 warning_text,
                 title="⚠️  Confirmation Required",
@@ -199,7 +163,7 @@ def cli(
         )
 
         if not click.confirm("Do you want to continue?", default=False):
-            console.print("[yellow]Operation cancelled.[/yellow]")
+            display.print_warning("Operation cancelled.")
             sys.exit(0)
 
     # Create reorganizer
@@ -211,44 +175,31 @@ def cli(
     )
 
     # Execute reorganization
-    if not quiet:
-        mode_text = "[DRY RUN]" if dry_run else ""
-        console.print(f"\n{mode_text} [cyan]Starting reorganization...[/cyan]\n")
+    mode_text = "[DRY RUN] " if dry_run else ""
+    display.print_info(f"\n{mode_text}[cyan]Starting reorganization...[/cyan]\n")
 
     stats = reorganizer.reorganize(image_files, dry_run=dry_run)
 
     # Display results
-    if not quiet:
-        result_table = Table(title="Reorganization Results")
-        result_table.add_column("Status", style="cyan")
-        result_table.add_column("Count", style="green")
+    metrics = {
+        "Copied" if copy else "Moved": stats.get("copied" if copy else "moved", 0),
+        "Skipped": stats.get("skipped", 0),
+        "Errors": stats.get("errors", 0),
+    }
+    display.print_summary(metrics, title="Reorganization Results")
 
-        if copy:
-            result_table.add_row("Copied", str(stats.get("copied", 0)))
-        else:
-            result_table.add_row("Moved", str(stats.get("moved", 0)))
+    if dry_run:
+        display.print_warning("\nThis was a dry run. No files were actually modified.")
+        display.print_warning("Run without --dry-run to perform the reorganization.")
+    else:
+        display.print_success("\nReorganization complete!")
+        display.print_success(f"Files are in: {output_path}")
 
-        result_table.add_row("Skipped", str(stats.get("skipped", 0)))
-        result_table.add_row("Errors", str(stats.get("errors", 0)))
-
-        console.print(result_table)
-
-        if dry_run:
-            console.print(
-                "\n[yellow]This was a dry run. No files were actually modified.[/yellow]"
+        if stats.get("errors", 0) > 0:
+            display.print_error(
+                f"\nWarning: {stats['errors']} errors occurred. "
+                f"Check logs for details."
             )
-            console.print(
-                "[yellow]Run without --dry-run to perform the reorganization.[/yellow]"
-            )
-        else:
-            console.print("\n[green]Reorganization complete![/green]")
-            console.print(f"[green]Files are in:[/green] {output_path}")
-
-            if stats.get("errors", 0) > 0:
-                console.print(
-                    f"\n[red]Warning: {stats['errors']} errors occurred. "
-                    f"Check logs for details.[/red]"
-                )
 
 
 if __name__ == "__main__":
