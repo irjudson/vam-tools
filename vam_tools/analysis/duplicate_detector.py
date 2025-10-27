@@ -9,7 +9,7 @@ Identifies duplicate and similar images using:
 
 import logging
 from collections import defaultdict
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from rich.progress import (
     BarColumn,
@@ -20,8 +20,13 @@ from rich.progress import (
 )
 
 from ..core.catalog import CatalogDatabase
-from ..core.types import DuplicateGroup, ImageRecord
-from .perceptual_hash import combined_hash, hamming_distance
+from ..core.types import DuplicateGroup, ImageRecord, SimilarityMetrics
+from .perceptual_hash import (
+    HashMethod,
+    combined_hash,
+    hamming_distance,
+    similarity_score,
+)
 from .quality_scorer import calculate_quality_score, select_best
 
 logger = logging.getLogger(__name__)
@@ -35,6 +40,7 @@ class DuplicateDetector:
         catalog: CatalogDatabase,
         similarity_threshold: int = 5,
         hash_size: int = 8,
+        hash_methods: Optional[List[HashMethod]] = None,
     ):
         """
         Initialize duplicate detector.
@@ -43,10 +49,16 @@ class DuplicateDetector:
             catalog: Catalog database to analyze
             similarity_threshold: Maximum Hamming distance for similar images (default: 5)
             hash_size: Size of perceptual hash (default: 8 = 64-bit)
+            hash_methods: Hash methods to use (default: [DHASH, AHASH, WHASH])
         """
         self.catalog = catalog
         self.similarity_threshold = similarity_threshold
         self.hash_size = hash_size
+        self.hash_methods = hash_methods or [
+            HashMethod.DHASH,
+            HashMethod.AHASH,
+            HashMethod.WHASH,
+        ]
         self.duplicate_groups: List[DuplicateGroup] = []
 
     def detect_duplicates(self, recompute_hashes: bool = False) -> List[DuplicateGroup]:
@@ -101,7 +113,27 @@ class DuplicateDetector:
 
         for image in images:
             # Check if we need to compute hash
-            if force or not image.metadata.perceptual_hash_dhash:
+            # Need to recompute if any of the requested hash methods are missing
+            needs_compute = force
+            if not force:
+                for method in self.hash_methods:
+                    if (
+                        method == HashMethod.DHASH
+                        and not image.metadata.perceptual_hash_dhash
+                    ):
+                        needs_compute = True
+                    elif (
+                        method == HashMethod.AHASH
+                        and not image.metadata.perceptual_hash_ahash
+                    ):
+                        needs_compute = True
+                    elif (
+                        method == HashMethod.WHASH
+                        and not image.metadata.perceptual_hash_whash
+                    ):
+                        needs_compute = True
+
+            if needs_compute:
                 images_to_process.append(image)
 
         if not images_to_process:
@@ -122,14 +154,19 @@ class DuplicateDetector:
             )
 
             for image in images_to_process:
-                # Compute both hashes
-                hashes = combined_hash(image.source_path, self.hash_size)
+                # Compute requested hashes
+                hashes = combined_hash(
+                    image.source_path, self.hash_size, self.hash_methods
+                )
 
                 if hashes:
-                    dhash, ahash = hashes
-                    # Update image metadata
-                    image.metadata.perceptual_hash_dhash = dhash
-                    image.metadata.perceptual_hash_ahash = ahash
+                    # Update image metadata with computed hashes
+                    if "dhash" in hashes:
+                        image.metadata.perceptual_hash_dhash = hashes["dhash"]
+                    if "ahash" in hashes:
+                        image.metadata.perceptual_hash_ahash = hashes["ahash"]
+                    if "whash" in hashes:
+                        image.metadata.perceptual_hash_whash = hashes["whash"]
                     # Save to catalog
                     self.catalog.update_image(image)
                 else:
@@ -176,12 +213,32 @@ class DuplicateDetector:
         """
         images = self.catalog.list_images()
 
-        # Filter to images with valid perceptual hashes
-        hashed_images = [
-            img
-            for img in images
-            if img.metadata.perceptual_hash_dhash and img.metadata.perceptual_hash_ahash
-        ]
+        # Filter to images with at least one valid perceptual hash
+        # Images must have hashes for the methods we're using
+        hashed_images = []
+        for img in images:
+            has_required_hashes = True
+            for method in self.hash_methods:
+                if (
+                    method == HashMethod.DHASH
+                    and not img.metadata.perceptual_hash_dhash
+                ):
+                    has_required_hashes = False
+                    break
+                elif (
+                    method == HashMethod.AHASH
+                    and not img.metadata.perceptual_hash_ahash
+                ):
+                    has_required_hashes = False
+                    break
+                elif (
+                    method == HashMethod.WHASH
+                    and not img.metadata.perceptual_hash_whash
+                ):
+                    has_required_hashes = False
+                    break
+            if has_required_hashes:
+                hashed_images.append(img)
 
         if not hashed_images:
             logger.warning("No images with perceptual hashes found")
@@ -214,6 +271,7 @@ class DuplicateDetector:
 
                 # Find all similar images
                 similar_ids = [image1.id]
+                similarity_metrics = {}
 
                 for image2 in hashed_images[i + 1 :]:
                     if image2.id in grouped:
@@ -224,12 +282,20 @@ class DuplicateDetector:
                         similar_ids.append(image2.id)
                         grouped.add(image2.id)
 
+                        # Capture similarity metrics for this pair
+                        metrics = self._compute_similarity_metrics(image1, image2)
+                        if metrics:
+                            # Use sorted IDs for consistent key format
+                            key = self._make_pair_key(image1.id, image2.id)
+                            similarity_metrics[key] = metrics
+
                 # Create group if we found similar images
                 if len(similar_ids) > 1:
                     group = DuplicateGroup(
                         id=f"similar_{image1.id[:16]}",
                         images=similar_ids,
                         perceptual_hash=image1.metadata.perceptual_hash_dhash,
+                        similarity_metrics=similarity_metrics,
                     )
                     groups.append(group)
                     grouped.add(image1.id)
@@ -238,11 +304,95 @@ class DuplicateDetector:
 
         return groups
 
+    @staticmethod
+    def _make_pair_key(id1: str, id2: str) -> str:
+        """
+        Create a consistent key for an image pair.
+
+        Args:
+            id1: First image ID
+            id2: Second image ID
+
+        Returns:
+            Consistent key format (sorted IDs separated by colon)
+        """
+        # Sort IDs to ensure consistent key regardless of order
+        sorted_ids = sorted([id1, id2])
+        return f"{sorted_ids[0]}:{sorted_ids[1]}"
+
+    def _compute_similarity_metrics(
+        self, image1: ImageRecord, image2: ImageRecord
+    ) -> Optional[SimilarityMetrics]:
+        """
+        Compute detailed similarity metrics between two images.
+
+        Computes hamming distance and similarity percentage for all configured hash methods.
+
+        Args:
+            image1: First image
+            image2: Second image
+
+        Returns:
+            SimilarityMetrics object with detailed comparison, or None if hashes are missing
+        """
+        metrics = SimilarityMetrics()
+
+        try:
+            # Compute metrics for each configured hash method
+            distances = []
+            similarities = []
+
+            for method in self.hash_methods:
+                hash1 = None
+                hash2 = None
+
+                if method == HashMethod.DHASH:
+                    hash1 = image1.metadata.perceptual_hash_dhash
+                    hash2 = image2.metadata.perceptual_hash_dhash
+                    if hash1 and hash2:
+                        metrics.dhash_distance = hamming_distance(hash1, hash2)
+                        metrics.dhash_similarity = similarity_score(
+                            hash1, hash2, self.hash_size
+                        )
+                        distances.append(metrics.dhash_distance)
+                        similarities.append(metrics.dhash_similarity)
+                elif method == HashMethod.AHASH:
+                    hash1 = image1.metadata.perceptual_hash_ahash
+                    hash2 = image2.metadata.perceptual_hash_ahash
+                    if hash1 and hash2:
+                        metrics.ahash_distance = hamming_distance(hash1, hash2)
+                        metrics.ahash_similarity = similarity_score(
+                            hash1, hash2, self.hash_size
+                        )
+                        distances.append(metrics.ahash_distance)
+                        similarities.append(metrics.ahash_similarity)
+                elif method == HashMethod.WHASH:
+                    hash1 = image1.metadata.perceptual_hash_whash
+                    hash2 = image2.metadata.perceptual_hash_whash
+                    if hash1 and hash2:
+                        metrics.whash_distance = hamming_distance(hash1, hash2)
+                        metrics.whash_similarity = similarity_score(
+                            hash1, hash2, self.hash_size
+                        )
+                        distances.append(metrics.whash_distance)
+                        similarities.append(metrics.whash_similarity)
+
+            # Compute overall similarity as average of all methods
+            if similarities:
+                metrics.overall_similarity = sum(similarities) / len(similarities)
+
+            return metrics
+
+        except Exception as e:
+            logger.error(f"Error computing similarity metrics: {e}")
+            return None
+
     def _are_images_similar(self, image1: ImageRecord, image2: ImageRecord) -> bool:
         """
         Check if two images are similar based on perceptual hashes.
 
-        Uses both dHash and aHash for better accuracy.
+        Uses all configured hash methods for better accuracy.
+        All hash methods must agree (within threshold) for images to be considered similar.
 
         Args:
             image1: First image
@@ -251,30 +401,32 @@ class DuplicateDetector:
         Returns:
             True if images are similar
         """
-        # Both hashes must be similar
-        dhash1 = image1.metadata.perceptual_hash_dhash
-        dhash2 = image2.metadata.perceptual_hash_dhash
-        ahash1 = image1.metadata.perceptual_hash_ahash
-        ahash2 = image2.metadata.perceptual_hash_ahash
-
-        if not all([dhash1, dhash2, ahash1, ahash2]):
-            return False
-
         try:
-            # Type narrowing for mypy
-            assert dhash1 is not None and dhash2 is not None
-            assert ahash1 is not None and ahash2 is not None
+            # Check all configured hash methods
+            for method in self.hash_methods:
+                hash1 = None
+                hash2 = None
 
-            # Check dHash distance
-            dhash_distance = hamming_distance(dhash1, dhash2)
-            if dhash_distance > self.similarity_threshold:
-                return False
+                if method == HashMethod.DHASH:
+                    hash1 = image1.metadata.perceptual_hash_dhash
+                    hash2 = image2.metadata.perceptual_hash_dhash
+                elif method == HashMethod.AHASH:
+                    hash1 = image1.metadata.perceptual_hash_ahash
+                    hash2 = image2.metadata.perceptual_hash_ahash
+                elif method == HashMethod.WHASH:
+                    hash1 = image1.metadata.perceptual_hash_whash
+                    hash2 = image2.metadata.perceptual_hash_whash
 
-            # Check aHash distance for confirmation
-            ahash_distance = hamming_distance(ahash1, ahash2)
-            if ahash_distance > self.similarity_threshold:
-                return False
+                # If either hash is missing, not similar
+                if not hash1 or not hash2:
+                    return False
 
+                # Check if this hash method shows similarity
+                distance = hamming_distance(hash1, hash2)
+                if distance > self.similarity_threshold:
+                    return False
+
+            # All hash methods agree - images are similar
             return True
 
         except Exception as e:
@@ -330,8 +482,11 @@ class DuplicateDetector:
 
             # Merge all related groups
             merged_images = set()
+            merged_metrics = {}
             for related_idx in related_indices:
                 merged_images.update(all_groups[related_idx].images)
+                # Merge similarity metrics from all related groups
+                merged_metrics.update(all_groups[related_idx].similarity_metrics)
                 merged_indices.add(related_idx)
 
             # Create merged group
@@ -339,6 +494,7 @@ class DuplicateDetector:
                 id=f"merged_{group.id}",
                 images=list(merged_images),
                 perceptual_hash=group.perceptual_hash,
+                similarity_metrics=merged_metrics,
             )
             final_groups.append(merged_group)
 

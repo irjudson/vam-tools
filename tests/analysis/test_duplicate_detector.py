@@ -334,3 +334,65 @@ class TestDuplicateDetector:
 
             # Lenient should find same or more groups
             assert len(groups_lenient) >= len(groups_strict)
+
+    def test_similarity_metrics_capture(self, tmp_path: Path) -> None:
+        """Test that similarity metrics are captured for duplicate groups."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create two visually similar but not identical images
+        # (different checksums to avoid exact duplicate detection)
+        img1 = Image.new("RGB", (100, 100), color="red")
+        img1.save(photos_dir / "img1.jpg", quality=95)
+
+        # Slightly different quality to get different checksum
+        img2 = Image.new("RGB", (100, 100), color="red")
+        img2.save(photos_dir / "img2.jpg", quality=90)
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+            scanner.scan_directories([photos_dir])
+
+            # Detect duplicates with all hash methods
+            from vam_tools.analysis.perceptual_hash import HashMethod
+
+            detector = DuplicateDetector(
+                db,
+                similarity_threshold=10,
+                hash_methods=[HashMethod.DHASH, HashMethod.AHASH, HashMethod.WHASH],
+            )
+            groups = detector.detect_duplicates()
+
+            # Should find one group with two images
+            assert len(groups) == 1
+            group = groups[0]
+            assert len(group.images) == 2
+
+            # Should have similarity metrics captured
+            assert len(group.similarity_metrics) > 0
+
+            # Get the metrics for the pair
+            pair_key = list(group.similarity_metrics.keys())[0]
+            metrics = group.similarity_metrics[pair_key]
+
+            # Should have metrics for all three hash methods
+            assert metrics.dhash_distance is not None
+            assert metrics.ahash_distance is not None
+            assert metrics.whash_distance is not None
+            assert metrics.dhash_similarity is not None
+            assert metrics.ahash_similarity is not None
+            assert metrics.whash_similarity is not None
+
+            # Overall similarity should be computed
+            assert metrics.overall_similarity > 0
+
+            # For very similar images, distances should be low and similarities should be high
+            assert metrics.dhash_distance <= 5
+            assert metrics.ahash_distance <= 5
+            assert metrics.whash_distance <= 5
+            assert metrics.dhash_similarity >= 90.0
+            assert metrics.ahash_similarity >= 90.0
+            assert metrics.whash_similarity >= 90.0
+            assert metrics.overall_similarity >= 90.0

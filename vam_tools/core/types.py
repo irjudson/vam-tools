@@ -145,6 +145,7 @@ class ImageMetadata(BaseModel):
     # Perceptual hashes for duplicate detection
     perceptual_hash_dhash: Optional[str] = None
     perceptual_hash_ahash: Optional[str] = None
+    perceptual_hash_whash: Optional[str] = None
 
     merged_from: List[str] = Field(default_factory=list)
 
@@ -184,6 +185,18 @@ class QualityScore(BaseModel):
     ai_score: Optional[float] = None
 
 
+class SimilarityMetrics(BaseModel):
+    """Similarity metrics between two images."""
+
+    dhash_distance: Optional[int] = None
+    ahash_distance: Optional[int] = None
+    whash_distance: Optional[int] = None
+    dhash_similarity: Optional[float] = None
+    ahash_similarity: Optional[float] = None
+    whash_similarity: Optional[float] = None
+    overall_similarity: float = 0.0
+
+
 class ImageRecord(BaseModel):
     """Complete record for a single image."""
 
@@ -213,6 +226,8 @@ class DuplicateGroup(BaseModel):
     primary: Optional[str] = None  # Primary image ID
     perceptual_hash: Optional[str] = None
     quality_scores: Dict[str, QualityScore] = Field(default_factory=dict)
+    # Pairwise similarity metrics: key is "imageA_id:imageB_id"
+    similarity_metrics: Dict[str, SimilarityMetrics] = Field(default_factory=dict)
     date_conflict: bool = False
     needs_review: bool = False
     user_override: Optional[str] = None
