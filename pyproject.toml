@@ -55,6 +55,27 @@ dev = [
     "pre-commit>=3.0.0,<5.0.0",
     "bandit[toml]>=1.7.0,<2.0.0",
 ]
+gpu = [
+    # GPU acceleration for perceptual hash computation
+    # Install with: pip install -e ".[gpu]"
+    # Or from PyPI index: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+]
+gpu-search = [
+    # Fast similarity search with FAISS
+    # Install with: pip install -e ".[gpu-search]"
+    # Note: faiss-gpu not available via pip; using CPU version
+    # For GPU support, install via conda: conda install -c conda-forge faiss-gpu
+    "faiss-cpu>=1.7.4",
+]
+gpu-all = [
+    # Complete GPU acceleration stack
+    # Install with: pip install -e ".[gpu-all]"
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "faiss-cpu>=1.7.4",
+]
 
 [project.scripts]
 vam-analyze = "vam_tools.cli.analyze:analyze"
@@ -122,6 +143,22 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "pywt.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "torch.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "torchvision.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "faiss.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pyopencl.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

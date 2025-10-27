@@ -96,10 +96,20 @@ GPU_CONFIG = {
 
 ## Installation Options
 
-### Option A: Minimal GPU Support (Recommended First)
-Just add GPU-accelerated batch processing:
+### Option A: Via Package Extras (Recommended)
+Install VAM Tools with GPU support using package extras:
 
 ```bash
+# Activate your virtual environment
+source venv/bin/activate
+
+# Option 1: GPU acceleration for hash computation
+pip install -e ".[gpu]"
+
+# Option 2: Add FAISS for fast similarity search
+pip install -e ".[gpu-all]"
+
+# Or install from the specific PyTorch index for CUDA 12.4
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 ```
 
@@ -109,30 +119,32 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 - GPU-accelerated image preprocessing
 - 10-20x speedup
 
-### Option B: Full GPU Acceleration (Maximum Performance)
-Add FAISS for ultra-fast similarity search:
+### Option B: Manual Installation (More Control)
+Install dependencies manually for specific CUDA versions:
 
 ```bash
-# Install PyTorch with CUDA
+# Install PyTorch with CUDA 12.4 (matches your driver)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
-# Install FAISS-GPU for fast similarity search
-pip install faiss-gpu
+# Install FAISS for fast similarity search
+# Note: GPU version requires conda
+pip install faiss-cpu  # CPU version via pip
+# OR
+conda install -c conda-forge faiss-gpu  # GPU version via conda
 ```
 
 **Size**: ~3GB total
 **Features**:
 - Everything from Option A
-- GPU-accelerated similarity search with FAISS
-- 300x speedup for finding duplicates in large catalogs
+- FAISS similarity search (CPU or GPU)
+- 100-300x speedup for finding duplicates in large catalogs
 
 ### Option C: Ultimate Performance (For Production)
 Add NVIDIA DALI for maximum image preprocessing speed:
 
 ```bash
 # Install all GPU dependencies
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-pip install faiss-gpu
+pip install -e ".[gpu-all]"
 pip install --extra-index-url https://pypi.nvidia.com nvidia-dali-cuda120
 
 # Or with cupy for additional NumPy acceleration

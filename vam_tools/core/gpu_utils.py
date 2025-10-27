@@ -106,7 +106,7 @@ def _detect_cuda(gpu_info: GPUInfo) -> bool:
         True if CUDA GPU detected
     """
     try:
-        import torch  # type: ignore[import-not-found]
+        import torch
 
         if torch.cuda.is_available():
             device_props = torch.cuda.get_device_properties(0)
@@ -169,7 +169,7 @@ def _detect_opencl(gpu_info: GPUInfo) -> bool:
         True if OpenCL GPU detected
     """
     try:
-        import pyopencl as cl  # type: ignore[import-not-found]
+        import pyopencl as cl
 
         platforms = cl.get_platforms()
         if not platforms:
