@@ -4,16 +4,15 @@ Performance and accuracy tests for perceptual hashing algorithms.
 These tests verify that the hash algorithms correctly identify similar and different
 images, and measure the performance of each method.
 """
+# mypy: disable-error-code="arg-type,no-untyped-def,operator"
 
 import time
 from pathlib import Path
-from typing import List, Tuple
 
 import pytest
 from PIL import Image, ImageDraw, ImageFilter
 
 from vam_tools.analysis.perceptual_hash import (
-    HashMethod,
     ahash,
     combined_hash,
     dhash,
@@ -36,9 +35,9 @@ def test_images(tmp_path: Path) -> dict:
     draw = ImageDraw.Draw(original)
     # Create a complex pattern
     for i in range(0, 400, 40):
-        draw.rectangle([i, 0, i + 20, 400], fill="black")
+        draw.rectangle((i, 0, i + 20, 400), fill="black")
     for i in range(0, 400, 40):
-        draw.rectangle([0, i, 400, i + 20], fill="red")
+        draw.rectangle((0, i, 400, i + 20), fill="red")
     original_path = images_dir / "original.jpg"
     original.save(original_path, quality=95)
     images["original"] = original_path
