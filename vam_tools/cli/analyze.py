@@ -95,6 +95,22 @@ def setup_logging(verbose: bool = False) -> None:
     is_flag=True,
     help="Recompute perceptual hashes even if they already exist",
 )
+@click.option(
+    "--gpu",
+    is_flag=True,
+    help="Enable GPU acceleration for hash computation (requires PyTorch with CUDA)",
+)
+@click.option(
+    "--gpu-batch-size",
+    type=int,
+    default=None,
+    help="GPU batch size for hash computation (default: auto-detect based on VRAM)",
+)
+@click.option(
+    "--use-faiss",
+    is_flag=True,
+    help="Use FAISS for fast similarity search (100-300x faster for large catalogs)",
+)
 def analyze(
     catalog_path: str,
     source: tuple,
@@ -107,6 +123,9 @@ def analyze(
     hash_methods: tuple,
     hash_size: int,
     recompute_hashes: bool,
+    gpu: bool,
+    gpu_batch_size: int,
+    use_faiss: bool,
 ) -> None:
     """
     Analyze images and build catalog database.
@@ -285,6 +304,12 @@ def analyze(
                 )
                 if recompute_hashes:
                     console.print("[dim]Recomputing existing hashes[/dim]")
+                if gpu:
+                    console.print("[green]GPU acceleration enabled[/green]")
+                    if gpu_batch_size:
+                        console.print(f"[dim]GPU batch size: {gpu_batch_size}[/dim]")
+                if use_faiss:
+                    console.print("[green]FAISS fast similarity search enabled[/green]")
                 console.print()
 
                 detector = DuplicateDetector(
@@ -292,6 +317,9 @@ def analyze(
                     similarity_threshold=similarity_threshold,
                     hash_size=hash_size,
                     hash_methods=selected_methods,
+                    use_gpu=gpu,
+                    gpu_batch_size=gpu_batch_size,
+                    use_faiss=use_faiss,
                 )
 
                 # Detect duplicates

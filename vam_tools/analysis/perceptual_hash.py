@@ -173,7 +173,7 @@ def whash(image_path: Path, hash_size: int = 8, mode: str = "haar") -> Optional[
 
 def combined_hash(
     image_path: Path, hash_size: int = 8, methods: Optional[List[HashMethod]] = None
-) -> Optional[Dict[str, str]]:
+) -> Optional[Dict[str, Optional[str]]]:
     """
     Calculate multiple perceptual hashes for an image.
 
@@ -211,7 +211,7 @@ def combined_hash(
             if h:
                 hashes["whash"] = h
 
-    return hashes if hashes else None
+    return hashes if hashes else None  # type: ignore[return-value]
 
 
 def hamming_distance(hash1: str, hash2: str) -> int:
@@ -412,3 +412,50 @@ def get_recommended_threshold(method: HashMethod) -> int:
         HashMethod.WHASH: 4,  # Lower for wavelet (more robust)
     }
     return thresholds.get(method, 5)
+
+
+def compute_hashes_batch(
+    image_paths: List[Path],
+    use_gpu: bool = False,
+    batch_size: Optional[int] = None,
+) -> List[Optional[Dict[str, Optional[str]]]]:
+    """
+    Compute perceptual hashes for multiple images efficiently.
+
+    Uses GPU acceleration if available and enabled, otherwise processes
+    on CPU.
+
+    Args:
+        image_paths: List of image file paths to process
+        use_gpu: Whether to use GPU acceleration if available
+        batch_size: Number of images to process in parallel (None = auto)
+
+    Returns:
+        List of hash dictionaries, one per image
+
+    Example:
+        >>> paths = [Path("img1.jpg"), Path("img2.jpg")]
+        >>> hashes = compute_hashes_batch(paths, use_gpu=True)
+        >>> len(hashes)
+        2
+        >>> hashes[0].keys()
+        dict_keys(['dhash', 'ahash', 'whash'])
+    """
+    if use_gpu:
+        try:
+            from vam_tools.analysis.gpu_hash import GPUHashProcessor
+
+            processor = GPUHashProcessor(batch_size=batch_size, enable_gpu=True)
+            if processor.use_gpu:
+                logger.info(
+                    f"Using GPU batch processing for {len(image_paths)} images"
+                )
+                return processor.process_images(image_paths)  # type: ignore[return-value]
+            else:
+                logger.info("GPU not available, using CPU batch processing")
+        except ImportError:
+            logger.warning("GPU modules not available, using CPU batch processing")
+
+    # CPU fallback - process sequentially
+    logger.info(f"Using CPU batch processing for {len(image_paths)} images")
+    return [combined_hash(path) for path in image_paths]
