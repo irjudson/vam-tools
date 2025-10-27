@@ -37,6 +37,7 @@ dependencies = [
     "fastapi>=0.104.0,<1.0.0",
     "uvicorn[standard]>=0.24.0,<1.0.0",
     "pydantic>=2.0.0,<3.0.0",
+    "PyWavelets>=1.4.0,<2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -117,6 +118,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "pillow_heif.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pywt.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

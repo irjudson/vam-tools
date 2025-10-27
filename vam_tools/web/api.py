@@ -580,6 +580,20 @@ class DuplicateGroupSummary(BaseModel):
     needs_review: bool
 
 
+class SimilarityMetricsResponse(BaseModel):
+    """Similarity metrics for a pair of images."""
+
+    image1_id: str
+    image2_id: str
+    dhash_distance: Optional[int] = None
+    ahash_distance: Optional[int] = None
+    whash_distance: Optional[int] = None
+    dhash_similarity: Optional[float] = None
+    ahash_similarity: Optional[float] = None
+    whash_similarity: Optional[float] = None
+    overall_similarity: float = 0.0
+
+
 class DuplicateGroupDetail(BaseModel):
     """Detailed duplicate group information."""
 
@@ -587,6 +601,8 @@ class DuplicateGroupDetail(BaseModel):
     primary_image_id: str
     duplicate_image_ids: List[str]
     similarity_score: float
+    # Pairwise similarity metrics for all images in group
+    similarity_metrics: List[SimilarityMetricsResponse] = []
     needs_review: bool
     review_reason: Optional[str] = None
 
@@ -663,13 +679,42 @@ async def get_duplicate_group(group_id: str) -> DuplicateGroupDetail:
     if not group:
         raise HTTPException(status_code=404, detail="Duplicate group not found")
 
+    # Convert similarity metrics to response format
+    similarity_responses = []
+    for pair_key, metrics in group.similarity_metrics.items():
+        # Parse the pair key to get image IDs
+        image_ids = pair_key.split(":")
+        if len(image_ids) == 2:
+            similarity_responses.append(
+                SimilarityMetricsResponse(
+                    image1_id=image_ids[0],
+                    image2_id=image_ids[1],
+                    dhash_distance=metrics.dhash_distance,
+                    ahash_distance=metrics.ahash_distance,
+                    whash_distance=metrics.whash_distance,
+                    dhash_similarity=metrics.dhash_similarity,
+                    ahash_similarity=metrics.ahash_similarity,
+                    whash_similarity=metrics.whash_similarity,
+                    overall_similarity=metrics.overall_similarity,
+                )
+            )
+
+    # Calculate overall group similarity score
+    if similarity_responses:
+        avg_similarity = sum(m.overall_similarity for m in similarity_responses) / len(
+            similarity_responses
+        )
+    else:
+        avg_similarity = 0.0
+
     return DuplicateGroupDetail(
         id=group.id,
         primary_image_id=group.primary or "",
         duplicate_image_ids=group.images,
-        similarity_score=0.0,  # TODO: Calculate from perceptual hashes
+        similarity_score=avg_similarity,
+        similarity_metrics=similarity_responses,
         needs_review=group.needs_review,
-        review_reason=None,  # TODO: Add reason to DuplicateGroup model
+        review_reason="Date conflict detected" if group.date_conflict else None,
     )
 
 

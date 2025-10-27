@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
+from vam_tools.analysis.perceptual_hash import HashMethod
 from vam_tools.analysis.scanner import ImageScanner
 from vam_tools.core.catalog import CatalogDatabase
 from vam_tools.core.types import Statistics
@@ -76,6 +77,24 @@ def setup_logging(verbose: bool = False) -> None:
     default=5,
     help="Hamming distance threshold for similar images (default: 5, lower is more strict)",
 )
+@click.option(
+    "--hash-methods",
+    type=click.Choice(["dhash", "ahash", "whash", "all"], case_sensitive=False),
+    multiple=True,
+    default=["dhash", "ahash"],
+    help="Perceptual hash methods to use (default: dhash+ahash, can specify multiple)",
+)
+@click.option(
+    "--hash-size",
+    type=int,
+    default=8,
+    help="Size of perceptual hash in bits (default: 8 = 64-bit hash)",
+)
+@click.option(
+    "--recompute-hashes",
+    is_flag=True,
+    help="Recompute perceptual hashes even if they already exist",
+)
 def analyze(
     catalog_path: str,
     source: tuple,
@@ -85,6 +104,9 @@ def analyze(
     workers: int,
     detect_duplicates: bool,
     similarity_threshold: int,
+    hash_methods: tuple,
+    hash_size: int,
+    recompute_hashes: bool,
 ) -> None:
     """
     Analyze images and build catalog database.
@@ -233,12 +255,47 @@ def analyze(
 
                 from vam_tools.analysis.duplicate_detector import DuplicateDetector
 
+                # Convert CLI hash method strings to HashMethod enum
+                selected_methods = []
+                if "all" in hash_methods:
+                    selected_methods = [
+                        HashMethod.DHASH,
+                        HashMethod.AHASH,
+                        HashMethod.WHASH,
+                    ]
+                else:
+                    method_map = {
+                        "dhash": HashMethod.DHASH,
+                        "ahash": HashMethod.AHASH,
+                        "whash": HashMethod.WHASH,
+                    }
+                    selected_methods = [
+                        method_map[m.lower()]
+                        for m in hash_methods
+                        if m.lower() in method_map
+                    ]
+
+                # Show selected configuration
+                console.print(
+                    f"[dim]Using hash methods: {', '.join(m.value for m in selected_methods)}[/dim]"
+                )
+                console.print(f"[dim]Hash size: {hash_size}-bit[/dim]")
+                console.print(
+                    f"[dim]Similarity threshold: {similarity_threshold}[/dim]"
+                )
+                if recompute_hashes:
+                    console.print("[dim]Recomputing existing hashes[/dim]")
+                console.print()
+
                 detector = DuplicateDetector(
-                    db, similarity_threshold=similarity_threshold
+                    db,
+                    similarity_threshold=similarity_threshold,
+                    hash_size=hash_size,
+                    hash_methods=selected_methods,
                 )
 
                 # Detect duplicates
-                detector.detect_duplicates()
+                detector.detect_duplicates(recompute_hashes=recompute_hashes)
 
                 # Save to catalog
                 detector.save_duplicate_groups()
