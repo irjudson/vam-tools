@@ -41,6 +41,9 @@ class DuplicateDetector:
         similarity_threshold: int = 5,
         hash_size: int = 8,
         hash_methods: Optional[List[HashMethod]] = None,
+        use_gpu: bool = False,
+        gpu_batch_size: Optional[int] = None,
+        use_faiss: bool = False,
     ):
         """
         Initialize duplicate detector.
@@ -50,6 +53,9 @@ class DuplicateDetector:
             similarity_threshold: Maximum Hamming distance for similar images (default: 5)
             hash_size: Size of perceptual hash (default: 8 = 64-bit)
             hash_methods: Hash methods to use (default: [DHASH, AHASH, WHASH])
+            use_gpu: Enable GPU acceleration for hash computation
+            gpu_batch_size: Batch size for GPU processing (None = auto)
+            use_faiss: Enable FAISS for fast similarity search
         """
         self.catalog = catalog
         self.similarity_threshold = similarity_threshold
@@ -59,6 +65,9 @@ class DuplicateDetector:
             HashMethod.AHASH,
             HashMethod.WHASH,
         ]
+        self.use_gpu = use_gpu
+        self.gpu_batch_size = gpu_batch_size
+        self.use_faiss = use_faiss
         self.duplicate_groups: List[DuplicateGroup] = []
 
     def detect_duplicates(self, recompute_hashes: bool = False) -> List[DuplicateGroup]:
@@ -142,37 +151,77 @@ class DuplicateDetector:
 
         logger.info(f"Computing perceptual hashes for {len(images_to_process)} images")
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-        ) as progress:
-            task = progress.add_task(
-                "Computing hashes...", total=len(images_to_process)
-            )
+        # Use GPU batch processing if enabled
+        if self.use_gpu:
+            from .perceptual_hash import compute_hashes_batch
 
-            for image in images_to_process:
-                # Compute requested hashes
-                hashes = combined_hash(
-                    image.source_path, self.hash_size, self.hash_methods
+            image_paths = [img.source_path for img in images_to_process]
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+            ) as progress:
+                task = progress.add_task(
+                    "Computing hashes (GPU)...", total=len(images_to_process)
                 )
 
-                if hashes:
-                    # Update image metadata with computed hashes
-                    if "dhash" in hashes:
-                        image.metadata.perceptual_hash_dhash = hashes["dhash"]
-                    if "ahash" in hashes:
-                        image.metadata.perceptual_hash_ahash = hashes["ahash"]
-                    if "whash" in hashes:
-                        image.metadata.perceptual_hash_whash = hashes["whash"]
-                    # Save to catalog
-                    self.catalog.update_image(image)
-                else:
-                    logger.warning(f"Failed to compute hash for {image.source_path}")
+                # Process all images in batches
+                all_hashes = compute_hashes_batch(
+                    image_paths,
+                    use_gpu=True,
+                    batch_size=self.gpu_batch_size,
+                )
 
-                progress.advance(task)
+                # Update catalog with computed hashes
+                for image, hashes in zip(images_to_process, all_hashes):
+                    if hashes:
+                        if "dhash" in hashes:
+                            image.metadata.perceptual_hash_dhash = hashes["dhash"]
+                        if "ahash" in hashes:
+                            image.metadata.perceptual_hash_ahash = hashes["ahash"]
+                        if "whash" in hashes:
+                            image.metadata.perceptual_hash_whash = hashes["whash"]
+                        self.catalog.update_image(image)
+                    else:
+                        logger.warning(f"Failed to compute hash for {image.source_path}")
+                    progress.advance(task)
+
+        else:
+            # CPU fallback - sequential processing
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+            ) as progress:
+                task = progress.add_task(
+                    "Computing hashes...", total=len(images_to_process)
+                )
+
+                for image in images_to_process:
+                    # Compute requested hashes
+                    hashes = combined_hash(
+                        image.source_path, self.hash_size, self.hash_methods
+                    )
+
+                    if hashes:
+                        # Update image metadata with computed hashes
+                        if "dhash" in hashes:
+                            image.metadata.perceptual_hash_dhash = hashes["dhash"]
+                        if "ahash" in hashes:
+                            image.metadata.perceptual_hash_ahash = hashes["ahash"]
+                        if "whash" in hashes:
+                            image.metadata.perceptual_hash_whash = hashes["whash"]
+                        # Save to catalog
+                        self.catalog.update_image(image)
+                    else:
+                        logger.warning(f"Failed to compute hash for {image.source_path}")
+
+                    progress.advance(task)
 
         # Save catalog after hash computation
         self.catalog.save()
@@ -249,6 +298,11 @@ class DuplicateDetector:
             f"(threshold: {self.similarity_threshold})"
         )
 
+        # Use FAISS for fast similarity search if enabled
+        if self.use_faiss:
+            return self._find_similar_with_faiss(hashed_images)
+
+        # Fallback to pairwise comparison
         # Track which images have been grouped
         grouped: Set[str] = set()
         groups: List[DuplicateGroup] = []
@@ -302,6 +356,129 @@ class DuplicateDetector:
 
                 progress.advance(task)
 
+        return groups
+
+    def _find_similar_with_faiss(
+        self, hashed_images: List[ImageRecord]
+    ) -> List[DuplicateGroup]:
+        """
+        Find similar images using FAISS fast similarity search.
+
+        Args:
+            hashed_images: List of images with perceptual hashes
+
+        Returns:
+            List of similar image groups
+        """
+        from .fast_search import FastSimilaritySearcher
+
+        logger.info("Using FAISS for fast similarity search")
+
+        # For now, use primary hash method (first in list)
+        primary_method = self.hash_methods[0]
+
+        # Build hash dictionary for FAISS
+        hashes = {}
+        image_map = {}  # Map image ID to image record
+
+        for img in hashed_images:
+            if primary_method == HashMethod.DHASH and img.metadata.perceptual_hash_dhash:
+                hashes[img.id] = img.metadata.perceptual_hash_dhash
+                image_map[img.id] = img
+            elif (
+                primary_method == HashMethod.AHASH and img.metadata.perceptual_hash_ahash
+            ):
+                hashes[img.id] = img.metadata.perceptual_hash_ahash
+                image_map[img.id] = img
+            elif (
+                primary_method == HashMethod.WHASH and img.metadata.perceptual_hash_whash
+            ):
+                hashes[img.id] = img.metadata.perceptual_hash_whash
+                image_map[img.id] = img
+
+        if not hashes:
+            logger.warning("No valid hashes found for FAISS search")
+            return []
+
+        # Build FAISS index
+        searcher = FastSimilaritySearcher(
+            hash_size=64, use_gpu=self.use_gpu  # 64-bit hash
+        )
+        searcher.build_index(hashes, method=primary_method.value)
+
+        # Find similar pairs
+        similar_pairs = searcher.find_similar(
+            threshold=self.similarity_threshold,
+            k=100,  # Search up to 100 nearest neighbors
+        )
+
+        logger.info(f"FAISS found {len(similar_pairs)} similar pairs")
+
+        # Group similar images into clusters
+        # Use union-find to merge overlapping pairs
+        from collections import defaultdict
+
+        neighbors: Dict[str, Set[str]] = defaultdict(set)
+
+        for id1, id2, dist in similar_pairs:
+            neighbors[id1].add(id2)
+            neighbors[id2].add(id1)
+
+        # Build groups from connected components
+        visited: Set[str] = set()
+        groups: List[DuplicateGroup] = []
+
+        for image_id in neighbors.keys():
+            if image_id in visited:
+                continue
+
+            # BFS to find all connected images
+            cluster = {image_id}
+            queue = [image_id]
+            visited.add(image_id)
+
+            while queue:
+                current = queue.pop(0)
+                for neighbor in neighbors[current]:
+                    if neighbor not in visited:
+                        cluster.add(neighbor)
+                        queue.append(neighbor)
+                        visited.add(neighbor)
+
+            # Create group if cluster has multiple images
+            if len(cluster) > 1:
+                cluster_list = list(cluster)
+
+                # Compute similarity metrics for all pairs in this group
+                similarity_metrics = {}
+                for i, id1 in enumerate(cluster_list):
+                    for id2 in cluster_list[i + 1 :]:
+                        image1 = image_map[id1]
+                        image2 = image_map[id2]
+                        metrics = self._compute_similarity_metrics(image1, image2)
+                        if metrics:
+                            key = self._make_pair_key(id1, id2)
+                            similarity_metrics[key] = metrics
+
+                # Use first image's hash as group hash
+                first_img = image_map[cluster_list[0]]
+                group_hash = None
+                if primary_method == HashMethod.DHASH:
+                    group_hash = first_img.metadata.perceptual_hash_dhash
+                elif primary_method == HashMethod.AHASH:
+                    group_hash = first_img.metadata.perceptual_hash_ahash
+                elif primary_method == HashMethod.WHASH:
+                    group_hash = first_img.metadata.perceptual_hash_whash
+
+                group = DuplicateGroup(
+                    id=f"similar_{cluster_list[0][:16]}",
+                    images=cluster_list,
+                    perceptual_hash=group_hash,
+                    similarity_metrics=similarity_metrics,
+                )
+                groups.append(group)
+
+        logger.info(f"Created {len(groups)} groups from FAISS results")
         return groups
 
     @staticmethod
