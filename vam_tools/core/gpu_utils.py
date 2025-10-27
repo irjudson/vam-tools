@@ -6,8 +6,8 @@ for optimal configuration.
 """
 
 import logging
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +21,7 @@ class GPUInfo:
     memory_gb: float = 0.0
     cuda_version: Optional[str] = None
     compute_capability: Optional[tuple] = None
-    backends: List[str] = None
-
-    def __post_init__(self) -> None:
-        """Initialize mutable defaults."""
-        if self.backends is None:
-            self.backends = []
+    backends: List[str] = field(default_factory=list)
 
     @property
     def recommended_batch_size(self) -> int:
@@ -111,7 +106,7 @@ def _detect_cuda(gpu_info: GPUInfo) -> bool:
         True if CUDA GPU detected
     """
     try:
-        import torch
+        import torch  # type: ignore[import-not-found]
 
         if torch.cuda.is_available():
             device_props = torch.cuda.get_device_properties(0)
@@ -174,7 +169,7 @@ def _detect_opencl(gpu_info: GPUInfo) -> bool:
         True if OpenCL GPU detected
     """
     try:
-        import pyopencl as cl
+        import pyopencl as cl  # type: ignore[import-not-found]
 
         platforms = cl.get_platforms()
         if not platforms:
@@ -199,7 +194,7 @@ def _detect_opencl(gpu_info: GPUInfo) -> bool:
     return False
 
 
-def get_optimal_config(gpu_info: GPUInfo) -> Dict[str, any]:
+def get_optimal_config(gpu_info: GPUInfo) -> Dict[str, Any]:
     """
     Get optimal configuration based on GPU capabilities.
 
