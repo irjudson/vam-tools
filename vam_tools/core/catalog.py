@@ -50,7 +50,9 @@ class CatalogDatabase:
         self.db_file = self.catalog_path / "catalog.json"  # Visible file
         self.backup_file = self.catalog_path / ".backup.json"  # Hidden backup
         self.lock_file = self.catalog_path / ".lock"  # Hidden lock
-        self.transactions_dir = self.catalog_path / ".transactions"  # Hidden transactions
+        self.transactions_dir = (
+            self.catalog_path / ".transactions"
+        )  # Hidden transactions
         self.thumbnails_dir = self.catalog_path / "thumbnails"  # Visible thumbnails
 
         self._lock_fd: Optional[TextIO] = None

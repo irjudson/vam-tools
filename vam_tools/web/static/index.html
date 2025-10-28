@@ -750,7 +750,7 @@
                 <div class="image-grid">
                 <div v-for="image in images" :key="image.id" class="image-card" @click="showDetail(image)">
                     <div class="image-thumbnail">
-                        <img :src="`/api/images/${image.id}/file`"
+                        <img :src="`/api/images/${image.id}/thumbnail`"
                              :alt="image.source_path"
                              loading="lazy">
                     </div>

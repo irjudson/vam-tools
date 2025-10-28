@@ -8,7 +8,6 @@ It can also be used to regenerate thumbnails or generate them for newly added im
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 import click
 from rich.console import Console
@@ -93,7 +92,9 @@ def generate(
     )
 
     version_str = get_version_string()
-    console.print(f"[bold cyan]VAM Tools - Thumbnail Generator {version_str}[/bold cyan]\n")
+    console.print(
+        f"[bold cyan]VAM Tools - Thumbnail Generator {version_str}[/bold cyan]\n"
+    )
 
     console.print(f"Catalog: {catalog_dir}")
     console.print(f"Thumbnail size: {size}x{size}px")
@@ -187,7 +188,7 @@ def generate(
     if error_count > 0:
         console.print(f"  [red]Errors: {error_count:,}[/red]")
 
-    console.print(f"\n[green]✓ Thumbnail generation complete![/green]")
+    console.print("\n[green]✓ Thumbnail generation complete![/green]")
 
 
 if __name__ == "__main__":
