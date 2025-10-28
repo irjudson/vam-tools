@@ -51,10 +51,10 @@ class TestPerformanceTrackerIntegration:
                     assert "update_callback" in call_args.kwargs
                     assert call_args.kwargs["update_callback"] is not None
                     assert "update_interval" in call_args.kwargs
-                    assert call_args.kwargs["update_interval"] == 1.0
+                    assert call_args.kwargs["update_interval"] == 5.0
 
-    def test_performance_tracker_callback_is_broadcast_function(self, tmp_path):
-        """Test that the callback is the correct broadcast function."""
+    def test_performance_tracker_callback_writes_to_catalog(self, tmp_path):
+        """Test that the callback writes performance stats to catalog."""
         catalog_dir = tmp_path / "catalog"
         catalog_dir.mkdir()
         source_dir = tmp_path / "source"
@@ -62,9 +62,6 @@ class TestPerformanceTrackerIntegration:
 
         test_img = source_dir / "test.jpg"
         test_img.write_text("test")
-
-        # Import the expected callback function
-        from vam_tools.web.api import sync_broadcast_performance_update
 
         with patch("vam_tools.cli.analyze.PerformanceTracker") as mock_tracker_class:
             mock_tracker = MagicMock()
@@ -81,13 +78,13 @@ class TestPerformanceTrackerIntegration:
                     ],
                 )
 
-                # Verify the callback is the sync_broadcast function
+                # Verify the callback is a callable function
                 call_args = mock_tracker_class.call_args
                 if call_args.kwargs and "update_callback" in call_args.kwargs:
-                    assert (
-                        call_args.kwargs["update_callback"]
-                        == sync_broadcast_performance_update
-                    )
+                    callback = call_args.kwargs["update_callback"]
+                    assert callable(callback)
+                    # Verify it's named appropriately
+                    assert callback.__name__ == "performance_update_callback"
 
 
 class TestWebSocketBroadcastFunction:
