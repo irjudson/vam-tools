@@ -208,6 +208,7 @@ class ImageRecord(BaseModel):
     checksum: str
     dates: DateInfo = Field(default_factory=DateInfo)
     metadata: ImageMetadata = Field(default_factory=ImageMetadata)
+    thumbnail_path: Optional[Path] = None  # Relative path to thumbnail in catalog/thumbnails/
     duplicate_group_id: Optional[str] = None
     duplicate_role: Optional[DuplicateRole] = None
     burst_group_id: Optional[str] = None
