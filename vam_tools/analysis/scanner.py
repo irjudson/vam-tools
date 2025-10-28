@@ -19,6 +19,7 @@ from rich.progress import (
 )
 
 from vam_tools.shared import compute_checksum, get_file_type
+from vam_tools.shared.thumbnail_utils import generate_thumbnail, get_thumbnail_path
 
 from ..core.catalog import CatalogDatabase
 from ..core.performance_stats import PerformanceTracker
@@ -85,6 +86,7 @@ class ImageScanner:
         catalog: CatalogDatabase,
         workers: Optional[int] = None,
         perf_tracker: Optional[PerformanceTracker] = None,
+        generate_thumbnails: bool = True,
     ):
         """
         Initialize the scanner.
@@ -93,8 +95,10 @@ class ImageScanner:
             catalog: Catalog database to update
             workers: Number of worker processes (default: CPU count)
             perf_tracker: Optional performance tracker for collecting metrics
+            generate_thumbnails: Whether to generate thumbnails during scan (default: True)
         """
         self.catalog = catalog
+        self.generate_thumbnails = generate_thumbnails
         # Load existing statistics if catalog exists, otherwise start fresh
         self.stats = catalog.get_statistics()
         self.files_added = 0
@@ -246,6 +250,23 @@ class ImageScanner:
                                 # Add to catalog
                                 self.catalog.add_image(image)
                                 self.files_added += 1
+
+                                # Generate thumbnail if enabled
+                                if self.generate_thumbnails:
+                                    thumb_path = get_thumbnail_path(
+                                        image.id, self.catalog.thumbnails_dir
+                                    )
+                                    if generate_thumbnail(
+                                        source_path=image.source_path,
+                                        output_path=thumb_path,
+                                    ):
+                                        # Update image with thumbnail path (relative)
+                                        image.thumbnail_path = thumb_path.relative_to(
+                                            self.catalog.catalog_path
+                                        )
+                                        self.catalog.add_image(
+                                            image
+                                        )  # Update with thumbnail path
 
                                 # Update statistics
                                 if image.file_type == FileType.IMAGE:
