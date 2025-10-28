@@ -27,7 +27,7 @@ class TestWebCLI:
         assert result.exit_code != 0
 
     def test_web_catalog_file_missing(self, tmp_path: Path) -> None:
-        """Test error when catalog directory exists but .catalog.json missing."""
+        """Test error when catalog directory exists but catalog.json missing."""
         runner = CliRunner()
         catalog_path = tmp_path / "catalog"
         catalog_path.mkdir()

@@ -152,7 +152,7 @@ def init_catalog(catalog_path: Path) -> None:
     _catalog.load()
 
     # Track modification time
-    db_file = catalog_path / ".catalog.json"
+    db_file = catalog_path / "catalog.json"
     if db_file.exists():
         _catalog_mtime = db_file.stat().st_mtime
 
@@ -167,7 +167,7 @@ def get_catalog() -> CatalogDatabase:
         raise HTTPException(status_code=500, detail="Catalog not initialized")
 
     # Check if catalog file has been modified
-    db_file = _catalog_path / ".catalog.json"
+    db_file = _catalog_path / "catalog.json"
     if db_file.exists():
         current_mtime = db_file.stat().st_mtime
         if _catalog_mtime is None or current_mtime > _catalog_mtime:

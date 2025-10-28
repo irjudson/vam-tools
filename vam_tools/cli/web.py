@@ -36,10 +36,10 @@ def web(catalog_path: str, host: str, port: int, reload: bool) -> None:
     """
     Launch web-based catalog viewer.
 
-    CATALOG_PATH: Path to the catalog directory (containing .catalog.json)
+    CATALOG_PATH: Path to the catalog directory (containing catalog.json)
     """
     catalog_dir = Path(catalog_path)
-    catalog_file = catalog_dir / ".catalog.json"
+    catalog_file = catalog_dir / "catalog.json"
 
     if not catalog_file.exists():
         console.print(f"[red]Error: Catalog not found at {catalog_file}[/red]")

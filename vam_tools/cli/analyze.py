@@ -165,7 +165,7 @@ def analyze(
     # Check if repair mode is requested
     if repair:
         console.print("[yellow]🔧 Repair mode enabled[/yellow]\n")
-        catalog_file = catalog_dir / ".catalog.json"
+        catalog_file = catalog_dir / "catalog.json"
         if not catalog_file.exists():
             console.print("[red]Error: No catalog found to repair[/red]")
             console.print(f"  Catalog file: {catalog_file}")
@@ -191,10 +191,10 @@ def analyze(
         return
 
     # Check if clear mode is requested
-    catalog_file = catalog_dir / ".catalog.json"
+    catalog_file = catalog_dir / "catalog.json"
     if clear and catalog_file.exists():
         console.print("[yellow]⚠ Clearing existing catalog...[/yellow]")
-        backup_file = catalog_dir / ".catalog.backup.json"
+        backup_file = catalog_dir / ".backup.json"
 
         # Create backup before clearing
         try:
@@ -218,7 +218,7 @@ def analyze(
     try:
         with CatalogDatabase(catalog_dir) as db:
             # Check if catalog exists
-            catalog_exists = (catalog_dir / ".catalog.json").exists() and not clear
+            catalog_exists = (catalog_dir / "catalog.json").exists() and not clear
 
             if not catalog_exists:
                 console.print("[yellow]Initializing new catalog...[/yellow]")

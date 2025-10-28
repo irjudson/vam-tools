@@ -33,7 +33,7 @@ class TestCatalogDatabase:
             db.initialize(source_directories=[tmp_path])
 
             # Check catalog file was created
-            assert (catalog_dir / ".catalog.json").exists()
+            assert (catalog_dir / "catalog.json").exists()
 
             # Check state
             state = db.get_state()
@@ -274,7 +274,7 @@ class TestCatalogDatabase:
             db.save()
 
         # Check backup exists
-        backup_file = catalog_dir / ".catalog.backup.json"
+        backup_file = catalog_dir / ".backup.json"
         assert backup_file.exists()
 
     def test_add_duplicate_group(self, tmp_path: Path) -> None:
@@ -481,7 +481,7 @@ class TestCatalogDatabase:
             db.initialize(source_directories=[])
 
         # Check version in file
-        catalog_file = catalog_dir / ".catalog.json"
+        catalog_file = catalog_dir / "catalog.json"
         with open(catalog_file) as f:
             data = json.load(f)
 

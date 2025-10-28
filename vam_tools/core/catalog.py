@@ -47,10 +47,11 @@ class CatalogDatabase:
             catalog_path: Path to the organized catalog directory
         """
         self.catalog_path = Path(catalog_path)
-        self.db_file = self.catalog_path / ".catalog.json"
-        self.backup_file = self.catalog_path / ".catalog.backup.json"
-        self.lock_file = self.catalog_path / ".catalog.lock"
-        self.transactions_dir = self.catalog_path / ".transactions"
+        self.db_file = self.catalog_path / "catalog.json"  # Visible file
+        self.backup_file = self.catalog_path / ".backup.json"  # Hidden backup
+        self.lock_file = self.catalog_path / ".lock"  # Hidden lock
+        self.transactions_dir = self.catalog_path / ".transactions"  # Hidden transactions
+        self.thumbnails_dir = self.catalog_path / "thumbnails"  # Visible thumbnails
 
         self._lock_fd: Optional[TextIO] = None
         self._data: Optional[Dict] = None
@@ -62,6 +63,7 @@ class CatalogDatabase:
         # Ensure directories exist
         self.catalog_path.mkdir(parents=True, exist_ok=True)
         self.transactions_dir.mkdir(exist_ok=True)
+        self.thumbnails_dir.mkdir(exist_ok=True)
 
     def __enter__(self) -> "CatalogDatabase":
         """Context manager entry - acquire lock."""
