@@ -115,6 +115,11 @@ def setup_logging(verbose: bool = False) -> None:
     is_flag=True,
     help="Use FAISS for fast similarity search (100-300x faster for large catalogs)",
 )
+@click.option(
+    "--no-thumbnails",
+    is_flag=True,
+    help="Skip thumbnail generation during analysis (can generate later with vam-generate-thumbnails)",
+)
 def analyze(
     catalog_path: str,
     source: tuple,
@@ -130,6 +135,7 @@ def analyze(
     gpu: bool,
     gpu_batch_size: int,
     use_faiss: bool,
+    no_thumbnails: bool,
 ) -> None:
     """
     Analyze images and build catalog database.
@@ -290,7 +296,12 @@ def analyze(
                     f"\n[cyan]Starting scan with {workers_count} worker processes (auto-detected)...[/cyan]\n"
                 )
 
-            scanner = ImageScanner(db, workers=workers, perf_tracker=perf_tracker)
+            scanner = ImageScanner(
+                db,
+                workers=workers,
+                perf_tracker=perf_tracker,
+                generate_thumbnails=not no_thumbnails,
+            )
             scanner.scan_directories(source_dirs)
 
             # Store intermediate performance stats
