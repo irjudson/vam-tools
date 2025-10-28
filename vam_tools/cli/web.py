@@ -8,6 +8,7 @@ import click
 import uvicorn
 from rich.console import Console
 
+from vam_tools.version import get_version_string
 from vam_tools.web.api import init_catalog
 
 console = Console()
@@ -45,7 +46,10 @@ def web(catalog_path: str, host: str, port: int, reload: bool) -> None:
         console.print("\nRun [cyan]vam-analyze[/cyan] first to create a catalog.")
         return
 
-    console.print("\n[bold cyan]VAM Tools - Catalog Viewer[/bold cyan]\n")
+    version_str = get_version_string()
+    console.print(
+        f"\n[bold cyan]VAM Tools - Catalog Viewer[/bold cyan] [dim]v{version_str}[/dim]\n"
+    )
     console.print(f"Catalog: {catalog_dir}")
     console.print(f"Server: http://{host}:{port}\n")
 
