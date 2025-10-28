@@ -21,6 +21,7 @@ from vam_tools.core.catalog import CatalogDatabase
 from vam_tools.core.performance_stats import PerformanceTracker
 from vam_tools.core.types import Statistics
 from vam_tools.shared import format_bytes
+from vam_tools.version import get_version_string
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -152,7 +153,10 @@ def analyze(
 
     source_dirs = [Path(s) for s in source] if source else []
 
-    console.print("\n[bold cyan]VAM Tools V2 - Analysis[/bold cyan]\n")
+    version_str = get_version_string()
+    console.print(
+        f"\n[bold cyan]VAM Tools V2 - Analysis[/bold cyan] [dim]v{version_str}[/dim]\n"
+    )
     console.print(f"Catalog: {catalog_dir}")
     if source_dirs:
         console.print(f"Sources: {', '.join(str(s) for s in source_dirs)}")
