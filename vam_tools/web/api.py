@@ -8,7 +8,7 @@ import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,10 +58,10 @@ _catalog_mtime: Optional[float] = None  # Track last modification time
 class ConnectionManager:
     """Manages WebSocket connections for real-time updates."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_connections: List[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         """Accept and store a new WebSocket connection."""
         await websocket.accept()
         self.active_connections.append(websocket)
@@ -69,14 +69,14 @@ class ConnectionManager:
             f"WebSocket connected. Total connections: {len(self.active_connections)}"
         )
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
         """Remove a WebSocket connection."""
         self.active_connections.remove(websocket)
         logger.info(
             f"WebSocket disconnected. Total connections: {len(self.active_connections)}"
         )
 
-    async def broadcast(self, message: Dict[str, Any]):
+    async def broadcast(self, message: Dict[str, Any]) -> None:
         """Broadcast a message to all connected clients."""
         disconnected = []
         for connection in self.active_connections:
@@ -1182,9 +1182,9 @@ async def get_performance_history() -> Dict[str, Any]:
     """
     catalog = get_catalog()
 
-    perf_data = catalog._data.get("performance_statistics", {})
+    perf_data = cast(Dict[str, Any], catalog._data.get("performance_statistics", {}))  # type: ignore[union-attr]
 
-    if not perf_data:
+    if not perf_data or not isinstance(perf_data, dict):
         return {
             "status": "no_data",
             "history": [],
@@ -1217,9 +1217,9 @@ async def get_performance_summary() -> Dict[str, Any]:
     """
     catalog = get_catalog()
 
-    perf_data = catalog._data.get("performance_statistics", {})
+    perf_data = cast(Dict[str, Any], catalog._data.get("performance_statistics", {}))  # type: ignore[union-attr]
 
-    if not perf_data or "last_run" not in perf_data:
+    if not perf_data or not isinstance(perf_data, dict) or "last_run" not in perf_data:
         return {
             "status": "no_data",
             "summary": "No performance statistics available",
@@ -1288,10 +1288,16 @@ async def get_current_performance_stats() -> Dict[str, Any]:
     catalog = get_catalog()
     perf_stats = catalog.get_performance_statistics()
 
-    if not perf_stats or not perf_stats.get("last_run"):
+    if (
+        not perf_stats
+        or not isinstance(perf_stats, dict)
+        or not perf_stats.get("last_run")
+    ):
         return {"status": "no_data", "data": None}
 
     last_run = perf_stats.get("last_run")
+    if not last_run or not isinstance(last_run, dict):
+        return {"status": "no_data", "data": None}
 
     # Check if analysis is currently running by comparing timestamps
     # If completed_at is None, it's still running
@@ -1308,7 +1314,7 @@ async def get_current_performance_stats() -> Dict[str, Any]:
 
 
 @app.websocket("/ws/performance")
-async def websocket_performance_updates(websocket: WebSocket):
+async def websocket_performance_updates(websocket: WebSocket) -> None:
     """
     WebSocket endpoint for real-time performance updates.
 
@@ -1352,7 +1358,7 @@ async def broadcast_performance_update(stats_data: Dict[str, Any]) -> None:
     await ws_manager.broadcast(message)
 
 
-def sync_broadcast_performance_update(stats_data: Dict[str, Any]) -> None:
+def sync_broadcast_performance_update(stats_data: Dict[str, Any]) -> None:  # noqa: C901
     """
     Synchronous wrapper for broadcasting performance updates.
 
