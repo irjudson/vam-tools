@@ -7,11 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.core.gpu_utils import (
-    GPUInfo,
-    detect_gpu,
-    get_optimal_config,
-)
+from vam_tools.core.gpu_utils import GPUInfo, detect_gpu, get_optimal_config
 
 
 class TestGPUInfo:
