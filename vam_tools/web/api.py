@@ -144,6 +144,16 @@ class CatalogInfo(BaseModel):
     statistics: CatalogStats
 
 
+class ImageCountResponse(BaseModel):
+    """Counts of images by filter type."""
+
+    total: int
+    images: int
+    videos: int
+    no_date: int
+    suspicious: int
+
+
 def init_catalog(catalog_path: Path) -> None:
     """Initialize the catalog for API access."""
     global _catalog, _catalog_path, _catalog_mtime
@@ -302,6 +312,33 @@ async def list_images(
         )
 
     return summaries
+
+
+@app.get("/api/images/count", response_model=ImageCountResponse)
+async def get_image_counts() -> ImageCountResponse:
+    """
+    Get counts of images by filter type.
+
+    This lightweight endpoint returns just the counts without loading all image data.
+    Useful for pagination and UI indicators.
+    """
+    catalog = get_catalog()
+    images = catalog.list_images()
+
+    # Count by type
+    total_count = len(images)
+    images_count = sum(1 for img in images if img.file_type.value == "image")
+    videos_count = sum(1 for img in images if img.file_type.value == "video")
+    no_date_count = sum(1 for img in images if not (img.dates and img.dates.selected_date))
+    suspicious_count = sum(1 for img in images if img.dates and img.dates.suspicious)
+
+    return ImageCountResponse(
+        total=total_count,
+        images=images_count,
+        videos=videos_count,
+        no_date=no_date_count,
+        suspicious=suspicious_count,
+    )
 
 
 @app.get("/api/images/{image_id}", response_model=ImageDetail)
