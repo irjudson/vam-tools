@@ -47,7 +47,7 @@ class TestImageScanner:
             assert len(set(checksums)) == 2, "Checksums should be unique"
 
         # Verify catalog was saved to disk
-        catalog_file = catalog_dir / ".catalog.json"
+        catalog_file = catalog_dir / "catalog.json"
         assert catalog_file.exists(), "Catalog file should exist"
 
         # Verify catalog contents on disk

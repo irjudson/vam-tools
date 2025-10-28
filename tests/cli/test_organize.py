@@ -589,7 +589,7 @@ class TestOrganizeErrorHandling:
         catalog_dir.mkdir()
 
         # Create corrupt catalog file
-        catalog_file = catalog_dir / ".catalog.json"
+        catalog_file = catalog_dir / "catalog.json"
         catalog_file.write_text("{corrupt json")
 
         output_dir = tmp_path / "output"

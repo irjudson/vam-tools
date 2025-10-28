@@ -151,7 +151,7 @@ class TestDuplicateDetector:
             detector.save_duplicate_groups()
 
         # Verify saved to disk
-        catalog_file = catalog_dir / ".catalog.json"
+        catalog_file = catalog_dir / "catalog.json"
         assert catalog_file.exists()
 
         with open(catalog_file) as f:

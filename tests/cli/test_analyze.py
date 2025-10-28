@@ -42,7 +42,7 @@ class TestAnalyzeCLI:
 
         assert result.exit_code == 0
         assert "Scan complete!" in result.output
-        assert (catalog_path / ".catalog.json").exists()
+        assert (catalog_path / "catalog.json").exists()
 
     def test_analyze_multiple_sources(self, tmp_path: Path) -> None:
         """Test analyzing multiple source directories."""
@@ -294,7 +294,7 @@ class TestAnalyzeCLI:
         catalog_path.mkdir()
 
         # Create corrupted catalog
-        catalog_file = catalog_path / ".catalog.json"
+        catalog_file = catalog_path / "catalog.json"
         catalog_file.write_text("{ this is not valid json }")
 
         photos_dir = tmp_path / "photos"
@@ -382,7 +382,7 @@ class TestAnalyzeErrorHandling:
         catalog_path.mkdir()
 
         # Create a catalog file that exists but will error on repair
-        catalog_file = catalog_path / ".catalog.json"
+        catalog_file = catalog_path / "catalog.json"
         catalog_file.write_text("{}")
 
         # Mock the repair method to raise an exception
