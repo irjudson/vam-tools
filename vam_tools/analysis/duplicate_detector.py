@@ -8,9 +8,11 @@ Identifies duplicate and similar images using:
 """
 
 import logging
+import multiprocessing as mp
 from collections import defaultdict
 from contextlib import nullcontext
-from typing import Dict, List, Optional, Set
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 from rich.progress import (
     BarColumn,
@@ -32,6 +34,27 @@ from .perceptual_hash import (
 from .quality_scorer import calculate_quality_score, select_best
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_hash_worker(
+    args: Tuple[int, Path, int, List[HashMethod]],
+) -> Tuple[int, Optional[Dict]]:
+    """
+    Worker function for parallel hash computation.
+
+    Args:
+        args: Tuple of (index, image_path, hash_size, hash_methods)
+
+    Returns:
+        Tuple of (index, hashes_dict) - index to match back to image
+    """
+    idx, image_path, hash_size, hash_methods = args
+    try:
+        hashes = combined_hash(image_path, hash_size, hash_methods)
+        return (idx, hashes)
+    except Exception as e:
+        logger.error(f"Error computing hash for {image_path}: {e}")
+        return (idx, None)
 
 
 class DuplicateDetector:
@@ -58,7 +81,7 @@ class DuplicateDetector:
             hash_methods: Hash methods to use (default: [DHASH, AHASH, WHASH])
             use_gpu: Enable GPU acceleration for hash computation
             gpu_batch_size: Batch size for GPU processing (None = auto)
-            use_faiss: Enable FAISS for fast similarity search
+            use_faiss: Enable FAISS for fast similarity search (auto-detects if None)
             perf_tracker: Optional performance tracker for collecting metrics
         """
         self.catalog = catalog
@@ -71,7 +94,24 @@ class DuplicateDetector:
         ]
         self.use_gpu = use_gpu
         self.gpu_batch_size = gpu_batch_size
-        self.use_faiss = use_faiss
+
+        # Auto-detect FAISS availability if not explicitly set
+        if use_faiss:
+            self.use_faiss = True
+        else:
+            # Check if FAISS is available and auto-enable it for large catalogs
+            try:
+                import faiss  # noqa: F401
+
+                # Auto-enable FAISS for better performance
+                self.use_faiss = True
+                logger.info(
+                    "FAISS detected and auto-enabled for fast similarity search"
+                )
+            except ImportError:
+                self.use_faiss = False
+                logger.debug("FAISS not available, using standard similarity search")
+
         self.duplicate_groups: List[DuplicateGroup] = []
         self.perf_tracker = perf_tracker
 
@@ -239,7 +279,10 @@ class DuplicateDetector:
                     progress.advance(task)
 
         else:
-            # CPU fallback - sequential processing
+            # CPU parallel processing using multiprocessing
+            num_workers = mp.cpu_count()
+            logger.info(f"Computing hashes with {num_workers} CPU workers")
+
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -248,31 +291,42 @@ class DuplicateDetector:
                 TimeRemainingColumn(),
             ) as progress:
                 task = progress.add_task(
-                    "Computing hashes...", total=len(images_to_process)
+                    f"Computing hashes ({num_workers} workers)...",
+                    total=len(images_to_process),
                 )
 
-                for image in images_to_process:
-                    # Compute requested hashes
-                    hashes = combined_hash(
-                        image.source_path, self.hash_size, self.hash_methods
-                    )
+                # Prepare arguments for worker pool with indices
+                worker_args = [
+                    (idx, image.source_path, self.hash_size, self.hash_methods)
+                    for idx, image in enumerate(images_to_process)
+                ]
 
-                    if hashes:
-                        # Update image metadata with computed hashes
-                        if "dhash" in hashes:
-                            image.metadata.perceptual_hash_dhash = hashes["dhash"]
-                        if "ahash" in hashes:
-                            image.metadata.perceptual_hash_ahash = hashes["ahash"]
-                        if "whash" in hashes:
-                            image.metadata.perceptual_hash_whash = hashes["whash"]
-                        # Save to catalog
-                        self.catalog.update_image(image)
-                    else:
-                        logger.warning(
-                            f"Failed to compute hash for {image.source_path}"
-                        )
+                # Process in parallel using multiprocessing pool
+                with mp.Pool(processes=num_workers) as pool:
+                    # Use imap_unordered for better performance
+                    chunk_size = max(1, len(images_to_process) // (num_workers * 4))
 
-                    progress.advance(task)
+                    for idx, hashes in pool.imap_unordered(
+                        _compute_hash_worker, worker_args, chunk_size
+                    ):
+                        image = images_to_process[idx]
+
+                        if hashes:
+                            # Update image metadata with computed hashes
+                            if "dhash" in hashes:
+                                image.metadata.perceptual_hash_dhash = hashes["dhash"]
+                            if "ahash" in hashes:
+                                image.metadata.perceptual_hash_ahash = hashes["ahash"]
+                            if "whash" in hashes:
+                                image.metadata.perceptual_hash_whash = hashes["whash"]
+                            # Save to catalog
+                            self.catalog.update_image(image)
+                        else:
+                            logger.warning(
+                                f"Failed to compute hash for {image.source_path}"
+                            )
+
+                        progress.advance(task)
 
         # Save catalog after hash computation
         self.catalog.save()
