@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from PIL import Image
@@ -52,6 +52,47 @@ app.add_middleware(
 _catalog: Optional[CatalogDatabase] = None
 _catalog_path: Optional[Path] = None
 _catalog_mtime: Optional[float] = None  # Track last modification time
+
+
+# WebSocket connection manager for real-time updates
+class ConnectionManager:
+    """Manages WebSocket connections for real-time updates."""
+
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        """Accept and store a new WebSocket connection."""
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        logger.info(
+            f"WebSocket connected. Total connections: {len(self.active_connections)}"
+        )
+
+    def disconnect(self, websocket: WebSocket):
+        """Remove a WebSocket connection."""
+        self.active_connections.remove(websocket)
+        logger.info(
+            f"WebSocket disconnected. Total connections: {len(self.active_connections)}"
+        )
+
+    async def broadcast(self, message: Dict[str, Any]):
+        """Broadcast a message to all connected clients."""
+        disconnected = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error sending to WebSocket: {e}")
+                disconnected.append(connection)
+
+        # Remove disconnected clients
+        for conn in disconnected:
+            self.active_connections.remove(conn)
+
+
+# Global WebSocket manager
+ws_manager = ConnectionManager()
 
 
 # Pydantic models for API responses
@@ -385,10 +426,11 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
         try:
             # Use ExifTool to extract preview image
             # Most RAW files have embedded JPEG previews
+            # Increase timeout to 30s for large/slow files on network drives
             result = subprocess.run(
                 ["exiftool", "-b", "-PreviewImage", str(file_path)],
                 capture_output=True,
-                timeout=10,
+                timeout=30,
             )
 
             if result.returncode == 0 and len(result.stdout) > 0:
@@ -398,7 +440,8 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
                     buffer,
                     media_type="image/jpeg",
                     headers={
-                        "Content-Disposition": f"inline; filename={file_path.stem}_preview.jpg"
+                        "Content-Disposition": f"inline; filename={file_path.stem}_preview.jpg",
+                        "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
                     },
                 )
             else:
@@ -406,7 +449,7 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
                 result = subprocess.run(
                     ["exiftool", "-b", "-JpgFromRaw", str(file_path)],
                     capture_output=True,
-                    timeout=10,
+                    timeout=30,
                 )
 
                 if result.returncode == 0 and len(result.stdout) > 0:
@@ -415,7 +458,8 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
                         buffer,
                         media_type="image/jpeg",
                         headers={
-                            "Content-Disposition": f"inline; filename={file_path.stem}_preview.jpg"
+                            "Content-Disposition": f"inline; filename={file_path.stem}_preview.jpg",
+                            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
                         },
                     )
                 else:
@@ -424,10 +468,13 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
                         detail=f"No embedded preview found in {file_ext.upper()} file",
                     )
         except subprocess.TimeoutExpired:
-            logger.error(f"Timeout extracting preview from {file_path}")
+            # Warn instead of error - some network drives or large files may timeout
+            logger.warning(
+                f"Timeout extracting preview from {file_path} (file on slow storage or very large)"
+            )
             raise HTTPException(
-                status_code=500,
-                detail=f"Timeout extracting preview from {file_ext.upper()} file",
+                status_code=504,  # Gateway Timeout instead of 500
+                detail=f"Timeout extracting preview from {file_ext.upper()} file (file on slow storage)",
             )
         except FileNotFoundError:
             logger.error("ExifTool not found - required for RAW file previews")
@@ -460,7 +507,8 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
                     buffer,
                     media_type="image/jpeg",
                     headers={
-                        "Content-Disposition": f"inline; filename={file_path.stem}.jpg"
+                        "Content-Disposition": f"inline; filename={file_path.stem}.jpg",
+                        "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
                     },
                 )
         except Exception as e:
@@ -471,7 +519,12 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
             )
 
     # For browser-native formats (JPEG, PNG, GIF, WebP), serve directly
-    return FileResponse(file_path)
+    return FileResponse(
+        file_path,
+        headers={
+            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+        },
+    )
 
 
 @app.get("/api/statistics/summary")
@@ -605,6 +658,138 @@ class DuplicateGroupDetail(BaseModel):
     similarity_metrics: List[SimilarityMetricsResponse] = []
     needs_review: bool
     review_reason: Optional[str] = None
+
+
+@app.get("/api/dashboard/stats")
+async def get_dashboard_stats() -> Dict[str, Any]:
+    """
+    Get comprehensive statistics for dashboard display.
+
+    Combines catalog overview, duplicates, review queue, and hash performance.
+    Optimized to avoid loading all images into memory.
+    """
+    catalog = get_catalog()
+    stats = catalog.get_statistics()
+    groups = catalog.get_duplicate_groups()
+
+    # Basic catalog stats - use existing statistics
+    total_files = stats.total_images + stats.total_videos
+    total_size_bytes = stats.total_size_bytes
+
+    # Duplicate stats
+    total_groups = len(groups)
+    duplicates_needing_review = sum(1 for g in groups if g.needs_review)
+    total_duplicate_images = sum(len(g.images) for g in groups)
+
+    # Calculate potential space savings (only load images in duplicate groups)
+    potential_space_savings = 0
+    for group in groups:
+        images_in_group = [catalog.get_image(img_id) for img_id in group.images]
+        sizes = sorted(
+            [
+                (img.metadata.size_bytes or 0)
+                for img in images_in_group
+                if img and img.metadata
+            ],
+            reverse=True,
+        )
+        if len(sizes) > 1:
+            potential_space_savings += sum(sizes[1:])  # All but largest
+
+    # Review queue stats - use existing statistics where available
+    date_conflicts = 0
+    images_in_conflict_groups = set()
+    for group in groups:
+        if group.date_conflict:
+            images_in_conflict_groups.update(group.images)
+    date_conflicts = len(images_in_conflict_groups)
+
+    # Use stats from catalog statistics
+    no_date = stats.no_date or 0
+
+    # Count suspicious dates, low confidence, and hash coverage
+    # Since catalog data is already in memory (JSON), iterate efficiently
+    suspicious_dates = 0
+    low_confidence = 0
+    images_with_dhash = 0
+    images_with_ahash = 0
+    images_with_whash = 0
+    images_with_any_hash = 0
+
+    # Get all images as dict and iterate
+    all_images = catalog.get_all_images()
+    for img in all_images.values():
+        # Count hash coverage
+        if img.metadata:
+            has_dhash = bool(img.metadata.perceptual_hash_dhash)
+            has_ahash = bool(img.metadata.perceptual_hash_ahash)
+            has_whash = bool(img.metadata.perceptual_hash_whash)
+
+            if has_dhash:
+                images_with_dhash += 1
+            if has_ahash:
+                images_with_ahash += 1
+            if has_whash:
+                images_with_whash += 1
+            if has_dhash or has_ahash or has_whash:
+                images_with_any_hash += 1
+
+        # Count review queue items (only if not already counted in no_date)
+        if img.dates:
+            if img.dates.selected_date and img.dates.suspicious:
+                suspicious_dates += 1
+            elif img.dates.selected_date and img.dates.confidence < 70:
+                low_confidence += 1
+
+    total_needing_review = date_conflicts + no_date + suspicious_dates
+
+    hash_coverage_percent = (
+        (images_with_any_hash / total_files * 100) if total_files > 0 else 0
+    )
+
+    return {
+        # Catalog overview
+        "catalog": {
+            "total_files": total_files,
+            "total_images": stats.total_images,
+            "total_videos": stats.total_videos,
+            "total_size_bytes": total_size_bytes,
+            "total_size_gb": round(total_size_bytes / (1024**3), 2),
+        },
+        # Duplicate detection
+        "duplicates": {
+            "total_groups": total_groups,
+            "needs_review": duplicates_needing_review,
+            "total_duplicate_images": total_duplicate_images,
+            "potential_space_savings_bytes": potential_space_savings,
+            "potential_space_savings_gb": round(potential_space_savings / (1024**3), 2),
+        },
+        # Review queue
+        "review": {
+            "total_needing_review": total_needing_review,
+            "date_conflicts": date_conflicts,
+            "no_date": no_date,
+            "suspicious_dates": suspicious_dates,
+            "low_confidence": low_confidence,
+        },
+        # Hash performance
+        "hashes": {
+            "images_with_dhash": images_with_dhash,
+            "images_with_ahash": images_with_ahash,
+            "images_with_whash": images_with_whash,
+            "images_with_any_hash": images_with_any_hash,
+            "coverage_percent": round(hash_coverage_percent, 1),
+            "dhash_percent": round(
+                (images_with_dhash / total_files * 100) if total_files > 0 else 0, 1
+            ),
+            "ahash_percent": round(
+                (images_with_ahash / total_files * 100) if total_files > 0 else 0, 1
+            ),
+            "whash_percent": round(
+                (images_with_whash / total_files * 100) if total_files > 0 else 0, 1
+            ),
+        },
+    }
 
 
 @app.get("/api/duplicates/groups", response_model=List[DuplicateGroupSummary])
@@ -927,3 +1112,301 @@ async def get_review_stats() -> Dict[str, Any]:
     )
 
     return stats
+
+
+# ============================================================================
+# Performance Statistics Endpoints
+# ============================================================================
+
+
+class PerformanceStatsResponse(BaseModel):
+    """Response model for performance statistics."""
+
+    run_id: str
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    total_duration_seconds: float
+    total_files_analyzed: int
+    files_per_second: float
+    bytes_processed: int
+    bytes_per_second: float
+    peak_memory_mb: float
+    gpu_utilized: bool
+    gpu_device: Optional[str]
+    total_errors: int
+
+
+class OperationStatsResponse(BaseModel):
+    """Response model for operation statistics."""
+
+    operation_name: str
+    total_time_seconds: float
+    call_count: int
+    items_processed: int
+    errors: int
+    average_time_per_item: float
+    min_time_seconds: Optional[float]
+    max_time_seconds: Optional[float]
+
+
+class HashingStatsResponse(BaseModel):
+    """Response model for hashing statistics."""
+
+    dhash_time_seconds: float
+    ahash_time_seconds: float
+    whash_time_seconds: float
+    total_hashes_computed: int
+    gpu_hashes: int
+    cpu_hashes: int
+    failed_hashes: int
+    raw_conversions: int
+    raw_conversion_time_seconds: float
+
+
+class PerformanceDetailResponse(BaseModel):
+    """Detailed performance statistics response."""
+
+    metrics: PerformanceStatsResponse
+    operations: List[OperationStatsResponse]
+    hashing: HashingStatsResponse
+    bottlenecks: List[str]
+    slowest_operations: List[Dict[str, Any]]
+
+
+@app.get("/api/performance/history")
+async def get_performance_history() -> Dict[str, Any]:
+    """
+    Get historical performance statistics.
+
+    Returns performance trends across the last 10 analysis runs.
+    """
+    catalog = get_catalog()
+
+    perf_data = catalog._data.get("performance_statistics", {})
+
+    if not perf_data:
+        return {
+            "status": "no_data",
+            "history": [],
+            "total_runs": 0,
+            "average_throughput": 0,
+        }
+
+    history = perf_data.get("history", [])
+    total_runs = perf_data.get("total_runs", 0)
+    total_files_analyzed = perf_data.get("total_files_analyzed", 0)
+    total_time_seconds = perf_data.get("total_time_seconds", 0)
+    average_throughput = perf_data.get("average_throughput", 0)
+
+    return {
+        "status": "ok",
+        "history": history,
+        "total_runs": total_runs,
+        "total_files_analyzed": total_files_analyzed,
+        "total_time_seconds": total_time_seconds,
+        "average_throughput": average_throughput,
+    }
+
+
+@app.get("/api/performance/summary")
+async def get_performance_summary() -> Dict[str, Any]:
+    """
+    Get a summary report of current performance statistics.
+
+    Returns a human-readable summary of the last analysis run.
+    """
+    catalog = get_catalog()
+
+    perf_data = catalog._data.get("performance_statistics", {})
+
+    if not perf_data or "last_run" not in perf_data:
+        return {
+            "status": "no_data",
+            "summary": "No performance statistics available",
+        }
+
+    last_run = perf_data["last_run"]
+
+    # Build summary similar to PerformanceMetrics.get_summary_report()
+    lines = [
+        "=== Performance Analysis Summary ===",
+        f"Total Duration: {last_run.get('total_duration_seconds', 0):.2f}s",
+        f"Files Analyzed: {last_run.get('total_files_analyzed', 0)}",
+        f"Throughput: {last_run.get('files_per_second', 0):.2f} files/sec",
+        f"Data Processed: {last_run.get('bytes_processed', 0) / (1024**3):.2f} GB",
+        "",
+    ]
+
+    # Get top operations
+    operations = last_run.get("operations", {})
+    if operations:
+        lines.append("Top Operations:")
+        # Sort by total time
+        sorted_ops = sorted(
+            operations.items(),
+            key=lambda x: x[1].get("total_time_seconds", 0),
+            reverse=True,
+        )
+        for name, stats in sorted_ops[:5]:
+            duration = stats.get("total_time_seconds", 0)
+            total_duration = last_run.get("total_duration_seconds", 1)
+            percent = (duration / total_duration) * 100
+            lines.append(f"  {name}: {duration:.2f}s ({percent:.1f}%)")
+        lines.append("")
+
+    # Hashing stats
+    hashing = last_run.get("hashing", {})
+    if hashing:
+        lines.append("Hashing Statistics:")
+        lines.append(f"  Total Hashes: {hashing.get('total_hashes_computed', 0)}")
+        lines.append(f"  GPU Hashes: {hashing.get('gpu_hashes', 0)}")
+        lines.append(f"  CPU Hashes: {hashing.get('cpu_hashes', 0)}")
+        lines.append(f"  Failed: {hashing.get('failed_hashes', 0)}")
+
+    return {
+        "status": "ok",
+        "summary": "\n".join(lines),
+        "run_id": last_run.get("run_id"),
+        "completed_at": last_run.get("completed_at"),
+    }
+
+
+@app.get("/api/performance/current")
+async def get_current_performance_stats() -> Dict[str, Any]:
+    """
+    Get current performance statistics from catalog.
+
+    This endpoint supports polling for real-time updates during analysis.
+    The CLI writes performance stats to the catalog periodically, and
+    this endpoint reads them.
+
+    Returns:
+        Dictionary with status and performance data:
+        - status: "running" if analysis is active, "idle" if not, "no_data" if never run
+        - data: Performance metrics if available, None otherwise
+    """
+    catalog = get_catalog()
+    perf_stats = catalog.get_performance_statistics()
+
+    if not perf_stats or not perf_stats.get("last_run"):
+        return {"status": "no_data", "data": None}
+
+    last_run = perf_stats.get("last_run")
+
+    # Check if analysis is currently running by comparing timestamps
+    # If completed_at is None, it's still running
+    if last_run.get("completed_at") is None:
+        status = "running"
+    else:
+        status = "idle"
+
+    return {
+        "status": status,
+        "data": last_run,
+        "history": perf_stats.get("history", [])[:5],  # Last 5 runs
+    }
+
+
+@app.websocket("/ws/performance")
+async def websocket_performance_updates(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time performance updates.
+
+    NOTE: Due to multi-process architecture (CLI runs separately from web server),
+    WebSocket updates are not sent during analysis. Use GET /api/performance/current
+    with polling instead for real-time updates.
+
+    This endpoint is kept for backwards compatibility and future enhancements.
+    """
+    await ws_manager.connect(websocket)
+    try:
+        # Keep connection alive and send periodic updates
+        while True:
+            # Wait for messages from client (ping/pong)
+            try:
+                data = await websocket.receive_text()
+                if data == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except WebSocketDisconnect:
+                break
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        ws_manager.disconnect(websocket)
+
+
+async def broadcast_performance_update(stats_data: Dict[str, Any]) -> None:
+    """
+    Broadcast performance statistics update to all connected WebSocket clients.
+
+    This function should be called during analysis to send real-time updates.
+
+    Args:
+        stats_data: Performance statistics data to broadcast
+    """
+    message = {
+        "type": "performance_update",
+        "timestamp": datetime.now().isoformat(),
+        "data": stats_data,
+    }
+    await ws_manager.broadcast(message)
+
+
+def sync_broadcast_performance_update(stats_data: Dict[str, Any]) -> None:
+    """
+    Synchronous wrapper for broadcasting performance updates.
+
+    This can be used as a callback in PerformanceTracker for real-time WebSocket updates.
+
+    **IMPORTANT LIMITATIONS:**
+    - This function bridges synchronous analysis code with async WebSocket broadcasting
+    - In production, WebSocket connections must be managed by the FastAPI server process
+    - CLI analysis runs in a separate process and cannot directly push to WebSockets
+    - For production deployments, consider a message queue (Redis, RabbitMQ) to bridge processes
+    - This implementation is fire-and-forget; errors in broadcasting won't be reported
+    - Updates are throttled by PerformanceTracker (default: 1 update/second) to avoid flooding
+
+    **USE CASES:**
+    - Development/testing with web UI running alongside analysis
+    - Single-process deployments where FastAPI and analysis share the same process
+    - Monitoring dashboards where occasional missed updates are acceptable
+
+    **NOT RECOMMENDED FOR:**
+    - Production multi-process deployments (CLI + separate web server)
+    - Critical monitoring where every update must be guaranteed
+    - High-frequency updates (use update_interval parameter in PerformanceTracker)
+
+    Example:
+        ```python
+        from vam_tools.web.api import sync_broadcast_performance_update
+        from vam_tools.core.performance_stats import PerformanceTracker
+
+        # Create tracker with broadcast callback (throttled to 1 update/sec by default)
+        tracker = PerformanceTracker(
+            update_callback=sync_broadcast_performance_update,
+            update_interval=1.0  # Minimum 1 second between broadcasts
+        )
+
+        # Use tracker during analysis - updates will be broadcast automatically
+        with tracker.track_operation("scan_files"):
+            # ... do work ...
+            pass
+        ```
+
+    Args:
+        stats_data: Performance statistics data to broadcast
+    """
+    import asyncio
+
+    try:
+        # Try to get the current event loop
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If loop is already running, create a task
+            asyncio.create_task(broadcast_performance_update(stats_data))
+        else:
+            # If no loop is running, run the coroutine
+            loop.run_until_complete(broadcast_performance_update(stats_data))
+    except RuntimeError:
+        # No event loop available, create one
+        asyncio.run(broadcast_performance_update(stats_data))

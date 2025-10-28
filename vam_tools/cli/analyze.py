@@ -17,6 +17,9 @@ from rich.table import Table
 from vam_tools.analysis.perceptual_hash import HashMethod
 from vam_tools.analysis.scanner import ImageScanner
 from vam_tools.core.catalog import CatalogDatabase
+from vam_tools.core.performance_stats import (
+    PerformanceTracker,
+)
 from vam_tools.core.types import Statistics
 from vam_tools.shared import format_bytes
 
@@ -242,6 +245,19 @@ def analyze(
                         "\n[yellow]Scanning for new/changed files...[/yellow]"
                     )
 
+            # Create performance tracker with WebSocket broadcast callback
+            # This enables real-time performance updates in the web UI
+            try:
+                from ..web.api import sync_broadcast_performance_update
+
+                perf_tracker = PerformanceTracker(
+                    update_callback=sync_broadcast_performance_update,
+                    update_interval=1.0,  # Broadcast updates every 1 second
+                )
+            except ImportError:
+                # Web API not available, use tracker without callback
+                perf_tracker = PerformanceTracker()
+
             # Run scanner
             if workers:
                 console.print(
@@ -255,8 +271,24 @@ def analyze(
                     f"\n[cyan]Starting scan with {workers_count} worker processes (auto-detected)...[/cyan]\n"
                 )
 
-            scanner = ImageScanner(db, workers=workers)
+            scanner = ImageScanner(db, workers=workers, perf_tracker=perf_tracker)
             scanner.scan_directories(source_dirs)
+
+            # Store intermediate performance stats
+            metrics = perf_tracker.metrics
+            analysis_stats = db.get_performance_statistics() or {}
+            if "last_run" not in analysis_stats or analysis_stats["last_run"] is None:
+                analysis_stats = {
+                    "last_run": None,
+                    "history": [],
+                    "total_runs": 0,
+                    "total_files_analyzed": 0,
+                    "total_time_seconds": 0.0,
+                    "average_throughput": 0.0,
+                }
+            analysis_stats["last_run"] = metrics.model_dump(mode="json")
+            db.store_performance_statistics(analysis_stats)
+            db.save()
 
             # Display results
             console.print("\n[green]✓ Scan complete![/green]\n")
@@ -320,6 +352,7 @@ def analyze(
                     use_gpu=gpu,
                     gpu_batch_size=gpu_batch_size,
                     use_faiss=use_faiss,
+                    perf_tracker=perf_tracker,
                 )
 
                 # Detect duplicates
@@ -327,6 +360,22 @@ def analyze(
 
                 # Save to catalog
                 detector.save_duplicate_groups()
+
+                # Store intermediate performance stats after duplicate detection
+                metrics = perf_tracker.metrics
+                analysis_stats = db.get_performance_statistics() or {}
+                if "last_run" not in analysis_stats:
+                    analysis_stats = {
+                        "last_run": None,
+                        "history": [],
+                        "total_runs": 0,
+                        "total_files_analyzed": 0,
+                        "total_time_seconds": 0.0,
+                        "average_throughput": 0.0,
+                    }
+                analysis_stats["last_run"] = metrics.model_dump(mode="json")
+                db.store_performance_statistics(analysis_stats)
+                db.save()
 
                 # Display duplicate detection results
                 console.print("\n[green]✓ Duplicate detection complete![/green]\n")
@@ -350,8 +399,52 @@ def analyze(
                     )
                 console.print()
 
+            # Finalize performance tracking
+            final_metrics = perf_tracker.finalize()
+
+            # Store final performance statistics in catalog
+            perf_stats_data = db.get_performance_statistics() or {}
+
+            # Initialize AnalysisStatistics if needed
+            if not perf_stats_data or "history" not in perf_stats_data:
+                perf_stats_data = {
+                    "last_run": None,
+                    "history": [],
+                    "total_runs": 0,
+                    "total_files_analyzed": 0,
+                    "total_time_seconds": 0.0,
+                    "average_throughput": 0.0,
+                }
+
+            # Add current run to history
+            perf_stats_data["last_run"] = final_metrics.model_dump(mode="json")
+            perf_stats_data["history"].insert(0, final_metrics.model_dump(mode="json"))
+            perf_stats_data["history"] = perf_stats_data["history"][:10]  # Keep last 10
+            perf_stats_data["total_runs"] = perf_stats_data.get("total_runs", 0) + 1
+            perf_stats_data["total_files_analyzed"] = (
+                perf_stats_data.get("total_files_analyzed", 0)
+                + final_metrics.total_files_analyzed
+            )
+            perf_stats_data["total_time_seconds"] = (
+                perf_stats_data.get("total_time_seconds", 0.0)
+                + final_metrics.total_duration_seconds
+            )
+            if perf_stats_data["total_time_seconds"] > 0:
+                perf_stats_data["average_throughput"] = (
+                    perf_stats_data["total_files_analyzed"]
+                    / perf_stats_data["total_time_seconds"]
+                )
+
+            db.store_performance_statistics(perf_stats_data)
+            db.save()
+
             stats = db.get_statistics()
             display_statistics(stats)
+
+            # Display performance summary
+            console.print("\n[bold cyan]Performance Summary[/bold cyan]\n")
+            summary = final_metrics.get_summary_report()
+            console.print(summary)
     except Exception as e:
         console.print(f"\n[red]✗ Error loading/processing catalog: {e}[/red]")
         console.print(

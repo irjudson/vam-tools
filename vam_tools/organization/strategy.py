@@ -147,7 +147,9 @@ class OrganizationStrategy(BaseModel):
         filename = self.get_target_filename(image)
         return target_dir / filename
 
-    def resolve_naming_conflict(self, target_path: Path, image: ImageRecord) -> Path:
+    def resolve_naming_conflict(
+        self, target_path: Path, image: ImageRecord
+    ) -> Optional[Path]:
         """
         Resolve naming conflict by adding a suffix.
 
@@ -156,10 +158,10 @@ class OrganizationStrategy(BaseModel):
             image: Image record
 
         Returns:
-            Modified path with suffix to avoid conflict
+            Modified path with suffix to avoid conflict, or None if conflict handling is disabled
         """
         if not self.handle_duplicates:
-            return target_path
+            return None
 
         stem = target_path.stem
         suffix = target_path.suffix

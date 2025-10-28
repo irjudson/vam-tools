@@ -442,6 +442,166 @@ class TestAPIModels:
         assert stats.suspicious_dates == 3
 
 
+class TestDashboardAPI:
+    """Tests for dashboard statistics API endpoints."""
+
+    def test_get_dashboard_stats_empty_catalog(self, tmp_path: Path) -> None:
+        """Test dashboard stats with empty catalog."""
+        catalog_dir = tmp_path / "catalog"
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[])
+
+        init_catalog(catalog_dir)
+        client = TestClient(app)
+        response = client.get("/api/dashboard/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check structure
+        assert "catalog" in data
+        assert "duplicates" in data
+        assert "review" in data
+        assert "hashes" in data
+
+        # Check catalog section
+        assert data["catalog"]["total_files"] == 0
+        assert data["catalog"]["total_images"] == 0
+        assert data["catalog"]["total_videos"] == 0
+        assert data["catalog"]["total_size_bytes"] == 0
+        assert data["catalog"]["total_size_gb"] == 0.0
+
+        # Check duplicates section
+        assert data["duplicates"]["total_groups"] == 0
+        assert data["duplicates"]["needs_review"] == 0
+        assert data["duplicates"]["total_duplicate_images"] == 0
+        assert data["duplicates"]["potential_space_savings_bytes"] == 0
+        assert data["duplicates"]["potential_space_savings_gb"] == 0.0
+
+        # Check review section
+        assert data["review"]["total_needing_review"] == 0
+        assert data["review"]["date_conflicts"] == 0
+        assert data["review"]["no_date"] == 0
+        assert data["review"]["suspicious_dates"] == 0
+        assert data["review"]["low_confidence"] == 0
+
+        # Check hashes section
+        assert data["hashes"]["images_with_dhash"] == 0
+        assert data["hashes"]["images_with_ahash"] == 0
+        assert data["hashes"]["images_with_whash"] == 0
+        assert data["hashes"]["images_with_any_hash"] == 0
+        assert data["hashes"]["coverage_percent"] == 0.0
+        assert data["hashes"]["dhash_percent"] == 0.0
+        assert data["hashes"]["ahash_percent"] == 0.0
+        assert data["hashes"]["whash_percent"] == 0.0
+
+    def test_get_dashboard_stats_with_images(self, tmp_path: Path) -> None:
+        """Test dashboard stats with actual images."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create test images
+        for i in range(5):
+            Image.new("RGB", (100, 100), color="red").save(photos_dir / f"test{i}.jpg")
+
+        # Create catalog and scan
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+            scanner.scan_directories([photos_dir])
+
+        init_catalog(catalog_dir)
+        client = TestClient(app)
+        response = client.get("/api/dashboard/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify structure and types
+        assert data["catalog"]["total_files"] >= 0
+        assert data["catalog"]["total_images"] >= 0
+        assert data["catalog"]["total_videos"] >= 0
+        assert isinstance(data["catalog"]["total_size_bytes"], int)
+        assert isinstance(data["catalog"]["total_size_gb"], (int, float))
+
+        # No duplicates yet
+        assert data["duplicates"]["total_groups"] == 0
+
+        # Hash stats should be present
+        assert isinstance(data["hashes"]["coverage_percent"], (int, float))
+
+    def test_get_dashboard_stats_performance(self, tmp_path: Path) -> None:
+        """Test dashboard stats completes in reasonable time."""
+        import time
+
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create 100 test images
+        for i in range(100):
+            Image.new("RGB", (100, 100), color="red").save(photos_dir / f"test{i}.jpg")
+
+        # Create catalog and scan
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+            scanner.scan_directories([photos_dir])
+
+        init_catalog(catalog_dir)
+        client = TestClient(app)
+
+        # Measure response time
+        start = time.time()
+        response = client.get("/api/dashboard/stats")
+        elapsed = time.time() - start
+
+        assert response.status_code == 200
+        # Should complete in under 5 seconds even with 100 images
+        assert elapsed < 5.0
+
+        # Just verify we got valid data
+        data = response.json()
+        assert data["catalog"]["total_files"] >= 0
+
+
+class TestImageCaching:
+    """Tests for image endpoint caching headers."""
+
+    def test_image_file_has_cache_headers(self, tmp_path: Path) -> None:
+        """Test that image files are served with cache headers."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create test image
+        Image.new("RGB", (100, 100), color="blue").save(photos_dir / "test.jpg")
+
+        # Create catalog
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+            scanner.scan_directories([photos_dir])
+            images = db.list_images()
+            assert len(images) > 0
+            image_id = images[0].id
+
+        init_catalog(catalog_dir)
+        client = TestClient(app)
+        response = client.get(f"/api/images/{image_id}/file")
+
+        assert response.status_code == 200
+        # Check for cache-control header
+        assert "cache-control" in response.headers
+        cache_control = response.headers["cache-control"]
+        assert "public" in cache_control
+        assert "max-age" in cache_control
+        # Should cache for at least 1 hour (3600 seconds)
+        assert "3600" in cache_control
+
+
 class TestDuplicateAPI:
     """Tests for duplicate review API endpoints."""
 

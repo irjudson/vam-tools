@@ -6,6 +6,7 @@ Scans directories, extracts metadata, computes checksums, and builds catalog.
 
 import logging
 import multiprocessing as mp
+from contextlib import nullcontext
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -20,6 +21,7 @@ from rich.progress import (
 from vam_tools.shared import compute_checksum, get_file_type
 
 from ..core.catalog import CatalogDatabase
+from ..core.performance_stats import PerformanceTracker
 from ..core.types import CatalogPhase, FileType, ImageRecord, ImageStatus
 from .metadata import MetadataExtractor
 
@@ -78,13 +80,19 @@ def _process_file_worker(file_path: Path) -> Optional[Tuple[ImageRecord, int]]:
 class ImageScanner:
     """Scan directories and analyze images."""
 
-    def __init__(self, catalog: CatalogDatabase, workers: Optional[int] = None):
+    def __init__(
+        self,
+        catalog: CatalogDatabase,
+        workers: Optional[int] = None,
+        perf_tracker: Optional[PerformanceTracker] = None,
+    ):
         """
         Initialize the scanner.
 
         Args:
             catalog: Catalog database to update
             workers: Number of worker processes (default: CPU count)
+            perf_tracker: Optional performance tracker for collecting metrics
         """
         self.catalog = catalog
         # Load existing statistics if catalog exists, otherwise start fresh
@@ -92,6 +100,7 @@ class ImageScanner:
         self.files_added = 0
         self.files_skipped = 0
         self.workers = workers or mp.cpu_count()
+        self.perf_tracker = perf_tracker
 
     def scan_directories(self, directories: List[Path]) -> None:
         """
@@ -107,39 +116,56 @@ class ImageScanner:
         state.phase = CatalogPhase.ANALYZING
         self.catalog.update_state(state)
 
-        # Collect all files first
-        all_files = []
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=None,
-        ) as progress:
-            task = progress.add_task("Collecting files...", total=None)
-
-            for directory in directories:
-                files = self._collect_files(Path(directory))
-                all_files.extend(files)
-                progress.update(task, description=f"Found {len(all_files)} files...")
-
-        logger.info(f"Found {len(all_files)} image/video files")
-
-        # Update total count
-        state.images_total = len(all_files)
-        self.catalog.update_state(state)
-
-        # Process files
-        self._process_files(all_files)
-
-        # Update final statistics
-        self.catalog.update_statistics(self.stats)
-
-        # Save catalog with final statistics
-        self.catalog.save()
-
-        logger.info(
-            f"Scan complete: {self.files_added} files added, {self.files_skipped} files skipped "
-            f"({self.stats.total_images} images, {self.stats.total_videos} videos total)"
+        # Track file collection
+        ctx = (
+            self.perf_tracker.track_operation(
+                "scan_directories", items=len(directories)
+            )
+            if self.perf_tracker
+            else nullcontext()
         )
+
+        with ctx:
+            # Collect all files first
+            all_files = []
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=None,
+            ) as progress:
+                task = progress.add_task("Collecting files...", total=None)
+
+                for directory in directories:
+                    files = self._collect_files(Path(directory))
+                    all_files.extend(files)
+                    progress.update(
+                        task, description=f"Found {len(all_files)} files..."
+                    )
+
+            logger.info(f"Found {len(all_files)} image/video files")
+
+            # Update total count
+            state.images_total = len(all_files)
+            self.catalog.update_state(state)
+
+            # Process files
+            self._process_files(all_files)
+
+            # Update final statistics
+            self.catalog.update_statistics(self.stats)
+
+            # Track total files and bytes
+            if self.perf_tracker:
+                self.perf_tracker.metrics.total_files_analyzed = self.files_added
+                self.perf_tracker.metrics.bytes_processed = self.stats.total_size_bytes
+
+            # Save catalog with final statistics
+            self.catalog.save()
+
+            logger.info(
+                f"Scan complete: {self.files_added} files added, {self.files_skipped} files skipped "
+                f"({self.stats.total_images} images, {self.stats.total_videos} videos total)"
+            )
 
     def _collect_files(self, directory: Path) -> List[Path]:
         """Collect all image and video files from a directory."""
@@ -160,76 +186,109 @@ class ImageScanner:
 
     def _process_files(self, files: List[Path]) -> None:
         """Process all files in parallel and add to catalog."""
-        # Filter out files already in catalog
-        files_to_process = [f for f in files if not self.catalog.has_image_by_path(f)]
-        self.files_skipped = len(files) - len(files_to_process)
-
-        if not files_to_process:
-            logger.info("All files already in catalog")
-            return
-
-        logger.info(
-            f"Processing {len(files_to_process)} files with {self.workers} workers"
+        # Track processing operation
+        process_ctx = (
+            self.perf_tracker.track_operation("process_files", items=len(files))
+            if self.perf_tracker
+            else nullcontext()
         )
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-        ) as progress:
-            task = progress.add_task("Processing files...", total=len(files_to_process))
+        with process_ctx:
+            # Filter out files already in catalog
+            files_to_process = [
+                f for f in files if not self.catalog.has_image_by_path(f)
+            ]
+            self.files_skipped = len(files) - len(files_to_process)
 
-            # Use multiprocessing pool to process files in parallel
-            with mp.Pool(processes=self.workers) as pool:
-                # Process files in chunks for better progress updates
-                chunk_size = max(1, len(files_to_process) // (self.workers * 4))
+            if not files_to_process:
+                logger.info("All files already in catalog")
+                return
 
-                for i, result in enumerate(
-                    pool.imap_unordered(
-                        _process_file_worker, files_to_process, chunk_size
-                    )
-                ):
-                    if result is not None:
-                        image, file_size = result
+            logger.info(
+                f"Processing {len(files_to_process)} files with {self.workers} workers"
+            )
 
-                        # Check if already in catalog (by checksum - for duplicates)
-                        if not self.catalog.get_image(image.checksum):
-                            # Add to catalog
-                            self.catalog.add_image(image)
-                            self.files_added += 1
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+            ) as progress:
+                task = progress.add_task(
+                    "Processing files...", total=len(files_to_process)
+                )
 
-                            # Update statistics
-                            if image.file_type == FileType.IMAGE:
-                                self.stats.total_images += 1
-                            elif image.file_type == FileType.VIDEO:
-                                self.stats.total_videos += 1
+                # Use multiprocessing pool to process files in parallel
+                with mp.Pool(processes=self.workers) as pool:
+                    # Process files in chunks for better progress updates
+                    chunk_size = max(1, len(files_to_process) // (self.workers * 4))
 
-                            self.stats.total_size_bytes += file_size
+                    for i, result in enumerate(
+                        pool.imap_unordered(
+                            _process_file_worker, files_to_process, chunk_size
+                        )
+                    ):
+                        if result is not None:
+                            image, file_size = result
 
-                            if not image.dates.selected_date:
-                                self.stats.no_date += 1
-                        else:
-                            self.files_skipped += 1
+                            # Track file format
+                            if self.perf_tracker and image.metadata:
+                                format_str = image.metadata.format or "unknown"
+                                # Track per-file processing time (approximate)
+                                avg_time = 0.1  # Placeholder, can't track individual in multiprocessing
+                                self.perf_tracker.record_file_format(
+                                    format_str, file_size, avg_time
+                                )
 
-                    # Checkpoint every 100 files
-                    if (i + 1) % 100 == 0:
-                        # Update statistics before checkpoint
-                        self.catalog.update_statistics(self.stats)
+                            # Check if already in catalog (by checksum - for duplicates)
+                            if not self.catalog.get_image(image.checksum):
+                                # Add to catalog
+                                self.catalog.add_image(image)
+                                self.files_added += 1
 
-                        # Update state
-                        state = self.catalog.get_state()
-                        state.images_processed = i + 1
-                        state.progress_percentage = (
-                            (i + 1) / len(files_to_process)
-                        ) * 100
-                        self.catalog.update_state(state)
+                                # Update statistics
+                                if image.file_type == FileType.IMAGE:
+                                    self.stats.total_images += 1
+                                elif image.file_type == FileType.VIDEO:
+                                    self.stats.total_videos += 1
 
-                        # Save checkpoint
-                        self.catalog.checkpoint()
+                                self.stats.total_size_bytes += file_size
 
-                    progress.advance(task)
+                                if not image.dates.selected_date:
+                                    self.stats.no_date += 1
+                            else:
+                                self.files_skipped += 1
 
-        # Final checkpoint
-        self.catalog.checkpoint(force=True)
+                        # Checkpoint every 100 files
+                        if (i + 1) % 100 == 0:
+                            # Update statistics before checkpoint
+                            self.catalog.update_statistics(self.stats)
+
+                            # Update state
+                            state = self.catalog.get_state()
+                            state.images_processed = i + 1
+                            state.progress_percentage = (
+                                (i + 1) / len(files_to_process)
+                            ) * 100
+                            self.catalog.update_state(state)
+
+                            # Track checkpoint operation
+                            checkpoint_ctx = (
+                                self.perf_tracker.track_operation("checkpoint")
+                                if self.perf_tracker
+                                else nullcontext()
+                            )
+                            with checkpoint_ctx:
+                                self.catalog.checkpoint()
+
+                        progress.advance(task)
+
+            # Final checkpoint
+            final_checkpoint_ctx = (
+                self.perf_tracker.track_operation("final_checkpoint")
+                if self.perf_tracker
+                else nullcontext()
+            )
+            with final_checkpoint_ctx:
+                self.catalog.checkpoint(force=True)

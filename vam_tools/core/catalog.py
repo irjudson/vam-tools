@@ -603,3 +603,49 @@ class CatalogDatabase:
             items.append(ReviewItem.model_validate(item_data))
 
         return items
+
+    def store_performance_statistics(self, stats_data: Dict) -> None:
+        """
+        Store performance statistics in the catalog.
+
+        Args:
+            stats_data: Performance statistics data (from AnalysisStatistics.model_dump())
+        """
+        if self._data is None:
+            logger.warning("Cannot store performance statistics: catalog not loaded")
+            return
+
+        # Ensure performance_statistics section exists
+        if "performance_statistics" not in self._data:
+            self._data["performance_statistics"] = {
+                "last_run": None,
+                "history": [],
+                "total_runs": 0,
+                "total_files_analyzed": 0,
+                "total_time_seconds": 0.0,
+                "average_throughput": 0.0,
+            }
+
+        # Update with new statistics
+        perf_section = self._data["performance_statistics"]
+        perf_section["last_run"] = stats_data.get("last_run")
+        perf_section["history"] = stats_data.get("history", [])
+        perf_section["total_runs"] = stats_data.get("total_runs", 0)
+        perf_section["total_files_analyzed"] = stats_data.get("total_files_analyzed", 0)
+        perf_section["total_time_seconds"] = stats_data.get("total_time_seconds", 0.0)
+        perf_section["average_throughput"] = stats_data.get("average_throughput", 0.0)
+
+        logger.info("Stored performance statistics in catalog")
+
+    def get_performance_statistics(self) -> Optional[Dict]:
+        """
+        Get performance statistics from the catalog.
+
+        Returns:
+            Performance statistics data or None if not available
+        """
+        if self._data is None:
+            logger.warning("Cannot get performance statistics: catalog not loaded")
+            return None
+
+        return self._data.get("performance_statistics")

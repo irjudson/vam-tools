@@ -9,6 +9,7 @@ Identifies duplicate and similar images using:
 
 import logging
 from collections import defaultdict
+from contextlib import nullcontext
 from typing import Dict, List, Optional, Set
 
 from rich.progress import (
@@ -20,6 +21,7 @@ from rich.progress import (
 )
 
 from ..core.catalog import CatalogDatabase
+from ..core.performance_stats import PerformanceTracker
 from ..core.types import DuplicateGroup, ImageRecord, SimilarityMetrics
 from .perceptual_hash import (
     HashMethod,
@@ -44,6 +46,7 @@ class DuplicateDetector:
         use_gpu: bool = False,
         gpu_batch_size: Optional[int] = None,
         use_faiss: bool = False,
+        perf_tracker: Optional[PerformanceTracker] = None,
     ):
         """
         Initialize duplicate detector.
@@ -56,6 +59,7 @@ class DuplicateDetector:
             use_gpu: Enable GPU acceleration for hash computation
             gpu_batch_size: Batch size for GPU processing (None = auto)
             use_faiss: Enable FAISS for fast similarity search
+            perf_tracker: Optional performance tracker for collecting metrics
         """
         self.catalog = catalog
         self.similarity_threshold = similarity_threshold
@@ -69,6 +73,7 @@ class DuplicateDetector:
         self.gpu_batch_size = gpu_batch_size
         self.use_faiss = use_faiss
         self.duplicate_groups: List[DuplicateGroup] = []
+        self.perf_tracker = perf_tracker
 
     def detect_duplicates(self, recompute_hashes: bool = False) -> List[DuplicateGroup]:
         """
@@ -89,26 +94,68 @@ class DuplicateDetector:
         """
         logger.info("Starting duplicate detection")
 
-        # Step 1: Compute perceptual hashes
-        self._compute_perceptual_hashes(recompute_hashes)
+        # Track overall duplicate detection
+        detect_ctx = (
+            self.perf_tracker.track_operation("duplicate_detection")
+            if self.perf_tracker
+            else nullcontext()
+        )
 
-        # Step 2: Find exact duplicates (same checksum)
-        exact_groups = self._find_exact_duplicates()
-        logger.info(f"Found {len(exact_groups)} exact duplicate groups")
+        with detect_ctx:
+            # Step 1: Compute perceptual hashes
+            compute_ctx = (
+                self.perf_tracker.track_operation("compute_hashes")
+                if self.perf_tracker
+                else nullcontext()
+            )
+            with compute_ctx:
+                self._compute_perceptual_hashes(recompute_hashes)
 
-        # Step 3: Find similar images (perceptual hash similarity)
-        similar_groups = self._find_similar_images()
-        logger.info(f"Found {len(similar_groups)} similar image groups")
+            # Step 2: Find exact duplicates (same checksum)
+            exact_ctx = (
+                self.perf_tracker.track_operation("find_exact_duplicates")
+                if self.perf_tracker
+                else nullcontext()
+            )
+            with exact_ctx:
+                exact_groups = self._find_exact_duplicates()
+            logger.info(f"Found {len(exact_groups)} exact duplicate groups")
 
-        # Step 4: Merge and deduplicate groups
-        all_groups = self._merge_duplicate_groups(exact_groups, similar_groups)
-        logger.info(f"Total {len(all_groups)} duplicate groups after merging")
+            # Step 3: Find similar images (perceptual hash similarity)
+            similar_ctx = (
+                self.perf_tracker.track_operation(
+                    "find_similar_images", items=len(self.catalog.list_images())
+                )
+                if self.perf_tracker
+                else nullcontext()
+            )
+            with similar_ctx:
+                similar_groups = self._find_similar_images()
+            logger.info(f"Found {len(similar_groups)} similar image groups")
 
-        # Step 5: Score quality and select primary for each group
-        self._score_and_select_primary(all_groups)
+            # Step 4: Merge and deduplicate groups
+            merge_ctx = (
+                self.perf_tracker.track_operation("merge_groups")
+                if self.perf_tracker
+                else nullcontext()
+            )
+            with merge_ctx:
+                all_groups = self._merge_duplicate_groups(exact_groups, similar_groups)
+            logger.info(f"Total {len(all_groups)} duplicate groups after merging")
 
-        self.duplicate_groups = all_groups
-        return all_groups
+            # Step 5: Score quality and select primary for each group
+            score_ctx = (
+                self.perf_tracker.track_operation(
+                    "score_quality", items=len(all_groups)
+                )
+                if self.perf_tracker
+                else nullcontext()
+            )
+            with score_ctx:
+                self._score_and_select_primary(all_groups)
+
+            self.duplicate_groups = all_groups
+            return all_groups
 
     def _compute_perceptual_hashes(self, force: bool = False) -> None:
         """
@@ -186,7 +233,9 @@ class DuplicateDetector:
                             image.metadata.perceptual_hash_whash = hashes["whash"]
                         self.catalog.update_image(image)
                     else:
-                        logger.warning(f"Failed to compute hash for {image.source_path}")
+                        logger.warning(
+                            f"Failed to compute hash for {image.source_path}"
+                        )
                     progress.advance(task)
 
         else:
@@ -219,7 +268,9 @@ class DuplicateDetector:
                         # Save to catalog
                         self.catalog.update_image(image)
                     else:
-                        logger.warning(f"Failed to compute hash for {image.source_path}")
+                        logger.warning(
+                            f"Failed to compute hash for {image.source_path}"
+                        )
 
                     progress.advance(task)
 
@@ -382,16 +433,21 @@ class DuplicateDetector:
         image_map = {}  # Map image ID to image record
 
         for img in hashed_images:
-            if primary_method == HashMethod.DHASH and img.metadata.perceptual_hash_dhash:
+            if (
+                primary_method == HashMethod.DHASH
+                and img.metadata.perceptual_hash_dhash
+            ):
                 hashes[img.id] = img.metadata.perceptual_hash_dhash
                 image_map[img.id] = img
             elif (
-                primary_method == HashMethod.AHASH and img.metadata.perceptual_hash_ahash
+                primary_method == HashMethod.AHASH
+                and img.metadata.perceptual_hash_ahash
             ):
                 hashes[img.id] = img.metadata.perceptual_hash_ahash
                 image_map[img.id] = img
             elif (
-                primary_method == HashMethod.WHASH and img.metadata.perceptual_hash_whash
+                primary_method == HashMethod.WHASH
+                and img.metadata.perceptual_hash_whash
             ):
                 hashes[img.id] = img.metadata.perceptual_hash_whash
                 image_map[img.id] = img
