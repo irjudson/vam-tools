@@ -180,11 +180,16 @@ class FileOrganizer:
             Exception if operation fails
         """
         # Get target path
-        target_path = self.strategy.get_target_path(self.output_directory, image)
+        target_path_optional = self.strategy.get_target_path(
+            self.output_directory, image
+        )
 
-        if not target_path:
+        if not target_path_optional:
             logger.debug(f"Skipping {image.source_path}: no date")
             return False
+
+        # Type narrowed: target_path is Path, not Optional[Path]
+        target_path: Path = target_path_optional
 
         # Check if target already exists
         if target_path.exists():
@@ -193,7 +198,14 @@ class FileOrganizer:
                 return False
             else:
                 # Resolve naming conflict
-                target_path = self.strategy.resolve_naming_conflict(target_path, image)
+                resolved_path = self.strategy.resolve_naming_conflict(
+                    target_path, image
+                )
+                if not resolved_path:
+                    raise ValueError(
+                        f"Could not resolve naming conflict for {target_path}"
+                    )
+                target_path = resolved_path
 
         # Log operation
         operation_id = str(uuid.uuid4())
