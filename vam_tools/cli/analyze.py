@@ -8,6 +8,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Dict
 
 import click
 from rich.console import Console
@@ -17,13 +18,12 @@ from rich.table import Table
 from vam_tools.analysis.perceptual_hash import HashMethod
 from vam_tools.analysis.scanner import ImageScanner
 from vam_tools.core.catalog import CatalogDatabase
-from vam_tools.core.performance_stats import (
-    PerformanceTracker,
-)
+from vam_tools.core.performance_stats import PerformanceTracker
 from vam_tools.core.types import Statistics
 from vam_tools.shared import format_bytes
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -245,18 +245,33 @@ def analyze(
                         "\n[yellow]Scanning for new/changed files...[/yellow]"
                     )
 
-            # Create performance tracker with WebSocket broadcast callback
-            # This enables real-time performance updates in the web UI
-            try:
-                from ..web.api import sync_broadcast_performance_update
+            # Create performance tracker with catalog-writing callback
+            # This enables real-time performance updates via polling
+            def performance_update_callback(stats_data: Dict) -> None:
+                """Write performance stats to catalog for polling endpoint."""
+                try:
+                    # Get existing stats or create new structure
+                    analysis_stats = db.get_performance_statistics() or {
+                        "last_run": None,
+                        "history": [],
+                        "total_runs": 0,
+                        "total_files_analyzed": 0,
+                        "total_time_seconds": 0.0,
+                        "average_throughput": 0.0,
+                    }
+                    # Update last_run with current metrics
+                    analysis_stats["last_run"] = stats_data
+                    db.store_performance_statistics(analysis_stats)
+                    # Save to disk so polling can read it
+                    db.save(create_backup=False)
+                except Exception as e:
+                    # Don't break analysis if performance tracking fails
+                    logger.debug(f"Failed to write performance stats: {e}")
 
-                perf_tracker = PerformanceTracker(
-                    update_callback=sync_broadcast_performance_update,
-                    update_interval=1.0,  # Broadcast updates every 1 second
-                )
-            except ImportError:
-                # Web API not available, use tracker without callback
-                perf_tracker = PerformanceTracker()
+            perf_tracker = PerformanceTracker(
+                update_callback=performance_update_callback,
+                update_interval=5.0,  # Write to catalog every 5 seconds
+            )
 
             # Run scanner
             if workers:
