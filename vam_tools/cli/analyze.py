@@ -113,7 +113,7 @@ def setup_logging(verbose: bool = False) -> None:
 @click.option(
     "--use-faiss",
     is_flag=True,
-    help="Use FAISS for fast similarity search (100-300x faster for large catalogs)",
+    help="Force enable FAISS for fast similarity search (auto-detects by default)",
 )
 @click.option(
     "--no-thumbnails",
@@ -370,8 +370,7 @@ def analyze(
                     console.print("[green]GPU acceleration enabled[/green]")
                     if gpu_batch_size:
                         console.print(f"[dim]GPU batch size: {gpu_batch_size}[/dim]")
-                if use_faiss:
-                    console.print("[green]FAISS fast similarity search enabled[/green]")
+                # Note: FAISS is now auto-enabled if available, no need to print unless explicitly requested
                 console.print()
 
                 detector = DuplicateDetector(

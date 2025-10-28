@@ -51,6 +51,12 @@ class FastSimilaritySearcher:
                     self.use_gpu = False
             else:
                 self.use_gpu = False
+                # Optimize FAISS-CPU for multi-core systems
+                import multiprocessing
+
+                num_threads = multiprocessing.cpu_count()
+                faiss.omp_set_num_threads(num_threads)
+                logger.info(f"FAISS-CPU configured to use {num_threads} threads")
 
         except ImportError:
             logger.warning("FAISS not available, similarity search will be slow")
