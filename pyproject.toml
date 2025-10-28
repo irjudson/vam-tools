@@ -84,6 +84,7 @@ gpu-all = [
 vam-analyze = "vam_tools.cli.analyze:analyze"
 vam-organize = "vam_tools.cli.organize:organize"
 vam-web = "vam_tools.cli.web:web"
+vam-generate-thumbnails = "vam_tools.cli.generate_thumbnails:generate"
 
 [project.urls]
 Homepage = "https://github.com/irjudson/lightroom-tools"
