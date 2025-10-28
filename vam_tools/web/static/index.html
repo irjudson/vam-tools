@@ -306,6 +306,78 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+
+        /* Performance Charts Carousel */
+        .performance-charts-container {
+            position: relative;
+            overflow: hidden;
+            padding: 0 2.5rem;
+        }
+
+        .charts-wrapper {
+            display: flex;
+            transition: transform 0.3s ease-in-out;
+        }
+
+        .chart-slide {
+            min-width: 100%;
+            flex-shrink: 0;
+            padding: 0.5rem;
+        }
+
+        .chart-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #334155;
+            border: 1px solid #475569;
+            border-radius: 50%;
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: #e2e8f0;
+            cursor: pointer;
+            z-index: 10;
+            transition: all 0.2s;
+        }
+
+        .chart-nav:hover:not(:disabled) {
+            background: #475569;
+            border-color: #64748b;
+        }
+
+        .chart-nav-left {
+            left: 0;
+        }
+
+        .chart-nav-right {
+            right: 0;
+        }
+
+        .chart-indicator {
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+            border: 1px solid #475569;
+            background: #334155;
+            cursor: pointer;
+            transition: all 0.2s;
+            padding: 0;
+        }
+
+        .chart-indicator.active {
+            background: #60a5fa;
+            border-color: #60a5fa;
+            width: 1.5rem;
+            border-radius: 0.25rem;
+        }
+
+        .chart-indicator:hover {
+            border-color: #60a5fa;
+        }
     </style>
 </head>
 <body>
@@ -412,82 +484,89 @@
                     <div class="subvalue">Total size</div>
                 </div>
 
-                <!-- Performance Statistics Card -->
+                <!-- Performance Charts Card -->
                 <div v-if="performanceStats" class="stat-card" style="grid-column: span 2;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                        <h3>⚡ Performance</h3>
-                        <span v-if="performanceStats.status === 'running'" style="color: #10b981; font-size: 0.75rem;">🟢 Running</span>
-                        <span v-else-if="performanceStats.status === 'idle'" style="color: #60a5fa; font-size: 0.75rem;">⚪ Idle</span>
-                        <span v-else style="color: #64748b; font-size: 0.75rem;">⚪ No Data</span>
-                    </div>
-                    <div v-if="performanceStats.status === 'running' || performanceStats.status === 'idle'" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; font-size: 0.75rem;">
-                        <!-- Row 1: Main metrics -->
-                        <div>
-                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Duration</div>
-                            <div style="color: #60a5fa; font-weight: 600;">{{ (performanceStats.data.total_duration_seconds || 0).toFixed(1) }}s</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Files Analyzed</div>
-                            <div style="color: #60a5fa; font-weight: 600;">{{ (performanceStats.data.total_files_analyzed || 0).toLocaleString() }}</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Throughput</div>
-                            <div style="color: #60a5fa; font-weight: 600;">{{ (performanceStats.data.files_per_second || 0).toFixed(1) }} f/s</div>
-                        </div>
-                        <!-- Row 2: Processing stats -->
-                        <div>
-                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Data Processed</div>
-                            <div style="color: #60a5fa; font-weight: 600;">{{ ((performanceStats.data.bytes_processed || 0) / (1024**3)).toFixed(2) }} GB</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Memory Peak</div>
-                            <div style="color: #60a5fa; font-weight: 600;">{{ (performanceStats.data.peak_memory_mb || 0).toFixed(0) }} MB</div>
-                        </div>
-                        <div>
-                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">GPU</div>
-                            <div style="color: #60a5fa; font-weight: 600;">
-                                {{ performanceStats.data.gpu_utilized ? '✅ ' + (performanceStats.data.gpu_device || 'Yes') : '❌ CPU Only' }}
-                            </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3>⚡ Performance Monitor</h3>
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <span v-if="performanceStats.status === 'running'" style="color: #10b981; font-size: 0.75rem;">🟢 Live</span>
+                            <span v-else-if="performanceStats.status === 'idle'" style="color: #60a5fa; font-size: 0.75rem;">⚪ Idle</span>
+                            <span v-else style="color: #64748b; font-size: 0.75rem;">⚪ No Data</span>
+                            <span v-if="performanceStats.data && performanceStats.data.started_at" style="color: #94a3b8; font-size: 0.7rem;">
+                                {{ formatTimestamp(performanceStats.data.started_at) }}
+                            </span>
                         </div>
                     </div>
-                    <!-- Hash stats (compact) -->
-                    <div v-if="performanceStats.data && performanceStats.data.hashing" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #334155; font-size: 0.75rem;">
-                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;">
-                            <div>
-                                <span style="color: #94a3b8;">Hashes:</span>
-                                <span style="color: #10b981; font-weight: 600; margin-left: 0.25rem;">{{ performanceStats.data.hashing.total_hashes_computed || 0 }}</span>
+
+                    <div v-if="performanceStats.status === 'running' || performanceStats.status === 'idle'">
+                        <!-- Charts carousel -->
+                        <div class="performance-charts-container">
+                            <button @click="prevChart" class="chart-nav chart-nav-left" :disabled="currentChartIndex === 0">‹</button>
+
+                            <div class="charts-wrapper" :style="{ transform: `translateX(-${currentChartIndex * 100}%)` }">
+                                <!-- Chart 1: Throughput -->
+                                <div class="chart-slide">
+                                    <div style="text-align: center; margin-bottom: 0.5rem;">
+                                        <h4 style="font-size: 0.875rem; color: #94a3b8; font-weight: 600;">Throughput</h4>
+                                        <div style="font-size: 1.75rem; color: #60a5fa; font-weight: 700;">
+                                            {{ (performanceStats.data.files_per_second || 0).toFixed(1) }}
+                                            <span style="font-size: 1rem; color: #94a3b8;">files/s</span>
+                                        </div>
+                                    </div>
+                                    <canvas ref="throughputChart" style="max-height: 180px;"></canvas>
+                                </div>
+
+                                <!-- Chart 2: Progress -->
+                                <div class="chart-slide">
+                                    <div style="text-align: center; margin-bottom: 0.5rem;">
+                                        <h4 style="font-size: 0.875rem; color: #94a3b8; font-weight: 600;">Progress</h4>
+                                        <div style="font-size: 1.75rem; color: #10b981; font-weight: 700;">
+                                            {{ (performanceStats.data.total_files_analyzed || 0).toLocaleString() }}
+                                            <span style="font-size: 1rem; color: #94a3b8;">files</span>
+                                        </div>
+                                    </div>
+                                    <canvas ref="progressChart" style="max-height: 180px;"></canvas>
+                                </div>
+
+                                <!-- Chart 3: Memory -->
+                                <div class="chart-slide">
+                                    <div style="text-align: center; margin-bottom: 0.5rem;">
+                                        <h4 style="font-size: 0.875rem; color: #94a3b8; font-weight: 600;">Memory Usage</h4>
+                                        <div style="font-size: 1.75rem; color: #f59e0b; font-weight: 700;">
+                                            {{ (performanceStats.data.peak_memory_mb || 0).toFixed(0) }}
+                                            <span style="font-size: 1rem; color: #94a3b8;">MB</span>
+                                        </div>
+                                    </div>
+                                    <canvas ref="memoryChart" style="max-height: 180px;"></canvas>
+                                </div>
+
+                                <!-- Chart 4: Operations Breakdown -->
+                                <div class="chart-slide" v-if="performanceStats.data && performanceStats.data.operations">
+                                    <div style="text-align: center; margin-bottom: 0.5rem;">
+                                        <h4 style="font-size: 0.875rem; color: #94a3b8; font-weight: 600;">Operations</h4>
+                                    </div>
+                                    <canvas ref="operationsChart" style="max-height: 180px;"></canvas>
+                                </div>
                             </div>
-                            <div>
-                                <span style="color: #94a3b8;">GPU:</span>
-                                <span style="color: #8b5cf6; font-weight: 600; margin-left: 0.25rem;">{{ performanceStats.data.hashing.gpu_hashes || 0 }}</span>
-                            </div>
-                            <div>
-                                <span style="color: #94a3b8;">CPU:</span>
-                                <span style="color: #f59e0b; font-weight: 600; margin-left: 0.25rem;">{{ performanceStats.data.hashing.cpu_hashes || 0 }}</span>
-                            </div>
-                            <div>
-                                <span style="color: #94a3b8;">Failed:</span>
-                                <span style="color: #ef4444; font-weight: 600; margin-left: 0.25rem;">{{ performanceStats.data.hashing.failed_hashes || 0 }}</span>
-                            </div>
+
+                            <button @click="nextChart" class="chart-nav chart-nav-right" :disabled="currentChartIndex >= maxChartIndex">›</button>
+                        </div>
+
+                        <!-- Chart indicators -->
+                        <div style="display: flex; justify-content: center; gap: 0.5rem; margin-top: 1rem;">
+                            <button
+                                v-for="i in chartCount"
+                                :key="i"
+                                @click="currentChartIndex = i - 1"
+                                :class="{ active: currentChartIndex === i - 1 }"
+                                class="chart-indicator">
+                            </button>
                         </div>
                     </div>
-                    <!-- Top operations (if available) -->
-                    <div v-if="performanceStats.data && performanceStats.data.operations && Object.keys(performanceStats.data.operations).length > 0" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #334155; font-size: 0.7rem;">
-                        <div style="color: #94a3b8; margin-bottom: 0.5rem; font-weight: 600;">Top Operations:</div>
-                        <div v-for="(opData, opName) in getTopOperations(performanceStats.data.operations, 3)" :key="opName" style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
-                            <span style="color: #e2e8f0;">{{ opName }}</span>
-                            <span style="color: #60a5fa;">{{ opData.total_time_seconds.toFixed(2) }}s</span>
-                        </div>
-                    </div>
-                    <!-- Bottlenecks (if any) -->
-                    <div v-if="performanceStats.data && performanceStats.data.bottlenecks && performanceStats.data.bottlenecks.length > 0" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #334155; font-size: 0.7rem;">
-                        <div style="color: #fbbf24; margin-bottom: 0.5rem; font-weight: 600;">⚠ Bottlenecks:</div>
-                        <div v-for="bottleneck in performanceStats.data.bottlenecks" :key="bottleneck" style="color: #e2e8f0; margin-bottom: 0.25rem;">
-                            • {{ bottleneck }}
-                        </div>
-                    </div>
-                    <div v-else-if="performanceStats.status === 'no_data'" style="color: #64748b; font-size: 0.875rem; text-align: center; padding: 1rem;">
-                        No performance data available yet. Run an analysis to see statistics.
+
+                    <div v-else-if="performanceStats.status === 'no_data'" style="color: #64748b; font-size: 0.875rem; text-align: center; padding: 2rem;">
+                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">📊</div>
+                        No performance data available yet. Run an analysis to see live statistics.
                     </div>
                 </div>
             </div>
@@ -700,13 +779,33 @@
                     ws: null,
                     performancePollingInterval: null,
                     performancePollingActive: false,
+                    // Performance charts carousel
+                    currentChartIndex: 0,
+                    chartCount: 4,
+                    // Performance history for time-series charts
+                    performanceHistory: {
+                        timestamps: [],
+                        throughput: [],
+                        files: [],
+                        memory: [],
+                    },
                 };
+            },
+            computed: {
+                maxChartIndex() {
+                    return this.chartCount - 1;
+                },
             },
             created() {
                 // Initialize chart instances as non-reactive properties
                 this._fileTypeChart = null;
                 this._sizeChart = null;
                 this._issuesChart = null;
+                // Performance chart instances
+                this._throughputChart = null;
+                this._progressChart = null;
+                this._memoryChart = null;
+                this._operationsChart = null;
             },
             methods: {
                 async loadCatalogInfo() {
@@ -1140,10 +1239,240 @@
                         const response = await axios.get('/api/performance/current');
                         this.performanceStats = response.data;
                         console.log('Loaded performance stats:', this.performanceStats);
+
+                        // Update charts if data is available
+                        if (this.performanceStats.data) {
+                            this.updatePerformanceHistory();
+                            await this.$nextTick();
+                            this.updatePerformanceCharts();
+                        }
                     } catch (error) {
                         console.error('Error loading performance stats:', error);
                         // Set no_data state if error
                         this.performanceStats = { status: 'no_data' };
+                    }
+                },
+                updatePerformanceHistory() {
+                    const data = this.performanceStats.data;
+                    if (!data) return;
+
+                    const now = new Date().toLocaleTimeString();
+                    const maxPoints = 20; // Keep last 20 data points
+
+                    // Add new data point
+                    this.performanceHistory.timestamps.push(now);
+                    this.performanceHistory.throughput.push(data.files_per_second || 0);
+                    this.performanceHistory.files.push(data.total_files_analyzed || 0);
+                    this.performanceHistory.memory.push(data.peak_memory_mb || 0);
+
+                    // Trim to max points
+                    if (this.performanceHistory.timestamps.length > maxPoints) {
+                        this.performanceHistory.timestamps.shift();
+                        this.performanceHistory.throughput.shift();
+                        this.performanceHistory.files.shift();
+                        this.performanceHistory.memory.shift();
+                    }
+                },
+                updatePerformanceCharts() {
+                    this.updateThroughputChart();
+                    this.updateProgressChart();
+                    this.updateMemoryChart();
+                    this.updateOperationsChart();
+                },
+                updateThroughputChart() {
+                    const canvas = this.$refs.throughputChart;
+                    if (!canvas) return;
+
+                    const ctx = canvas.getContext('2d');
+                    if (!this._throughputChart) {
+                        this._throughputChart = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: this.performanceHistory.timestamps,
+                                datasets: [{
+                                    label: 'Files/sec',
+                                    data: this.performanceHistory.throughput,
+                                    borderColor: '#60a5fa',
+                                    backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                                    fill: true,
+                                    tension: 0.4,
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        grid: { color: '#334155' },
+                                        ticks: { color: '#94a3b8' }
+                                    },
+                                    x: {
+                                        grid: { color: '#334155' },
+                                        ticks: { color: '#94a3b8', maxRotation: 0 }
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        this._throughputChart.data.labels = this.performanceHistory.timestamps;
+                        this._throughputChart.data.datasets[0].data = this.performanceHistory.throughput;
+                        this._throughputChart.update('none');
+                    }
+                },
+                updateProgressChart() {
+                    const canvas = this.$refs.progressChart;
+                    if (!canvas) return;
+
+                    const ctx = canvas.getContext('2d');
+                    if (!this._progressChart) {
+                        this._progressChart = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: this.performanceHistory.timestamps,
+                                datasets: [{
+                                    label: 'Files',
+                                    data: this.performanceHistory.files,
+                                    borderColor: '#10b981',
+                                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                    fill: true,
+                                    tension: 0.4,
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        grid: { color: '#334155' },
+                                        ticks: { color: '#94a3b8' }
+                                    },
+                                    x: {
+                                        grid: { color: '#334155' },
+                                        ticks: { color: '#94a3b8', maxRotation: 0 }
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        this._progressChart.data.labels = this.performanceHistory.timestamps;
+                        this._progressChart.data.datasets[0].data = this.performanceHistory.files;
+                        this._progressChart.update('none');
+                    }
+                },
+                updateMemoryChart() {
+                    const canvas = this.$refs.memoryChart;
+                    if (!canvas) return;
+
+                    const ctx = canvas.getContext('2d');
+                    if (!this._memoryChart) {
+                        this._memoryChart = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: this.performanceHistory.timestamps,
+                                datasets: [{
+                                    label: 'Memory (MB)',
+                                    data: this.performanceHistory.memory,
+                                    borderColor: '#f59e0b',
+                                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                                    fill: true,
+                                    tension: 0.4,
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        grid: { color: '#334155' },
+                                        ticks: { color: '#94a3b8' }
+                                    },
+                                    x: {
+                                        grid: { color: '#334155' },
+                                        ticks: { color: '#94a3b8', maxRotation: 0 }
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        this._memoryChart.data.labels = this.performanceHistory.timestamps;
+                        this._memoryChart.data.datasets[0].data = this.performanceHistory.memory;
+                        this._memoryChart.update('none');
+                    }
+                },
+                updateOperationsChart() {
+                    const canvas = this.$refs.operationsChart;
+                    if (!canvas || !this.performanceStats.data?.operations) return;
+
+                    const ops = this.performanceStats.data.operations;
+                    const labels = Object.keys(ops);
+                    const data = labels.map(key => ops[key].total_time_seconds || 0);
+
+                    const ctx = canvas.getContext('2d');
+                    if (!this._operationsChart) {
+                        this._operationsChart = new Chart(ctx, {
+                            type: 'bar',
+                            data: {
+                                labels: labels,
+                                datasets: [{
+                                    label: 'Time (s)',
+                                    data: data,
+                                    backgroundColor: ['#60a5fa', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'],
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        grid: { color: '#334155' },
+                                        ticks: { color: '#94a3b8' }
+                                    },
+                                    x: {
+                                        grid: { display: false },
+                                        ticks: { color: '#94a3b8' }
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        this._operationsChart.data.labels = labels;
+                        this._operationsChart.data.datasets[0].data = data;
+                        this._operationsChart.update('none');
+                    }
+                },
+                prevChart() {
+                    if (this.currentChartIndex > 0) {
+                        this.currentChartIndex--;
+                    }
+                },
+                nextChart() {
+                    if (this.currentChartIndex < this.maxChartIndex) {
+                        this.currentChartIndex++;
+                    }
+                },
+                formatTimestamp(timestamp) {
+                    if (!timestamp) return '';
+                    try {
+                        const date = new Date(timestamp);
+                        return date.toLocaleString();
+                    } catch (e) {
+                        return timestamp;
                     }
                 },
                 getTopOperations(operations, limit = 3) {
