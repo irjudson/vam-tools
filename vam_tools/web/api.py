@@ -329,7 +329,9 @@ async def get_image_counts() -> ImageCountResponse:
     total_count = len(images)
     images_count = sum(1 for img in images if img.file_type.value == "image")
     videos_count = sum(1 for img in images if img.file_type.value == "video")
-    no_date_count = sum(1 for img in images if not (img.dates and img.dates.selected_date))
+    no_date_count = sum(
+        1 for img in images if not (img.dates and img.dates.selected_date)
+    )
     suspicious_count = sum(1 for img in images if img.dates and img.dates.suspicious)
 
     return ImageCountResponse(
@@ -560,6 +562,42 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
         file_path,
         headers={
             "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+        },
+    )
+
+
+@app.get("/api/images/{image_id}/thumbnail", response_model=None)
+async def get_image_thumbnail(image_id: str) -> Union[FileResponse, StreamingResponse]:
+    """
+    Serve thumbnail for an image.
+
+    Returns the pre-generated thumbnail if available, otherwise falls back
+    to serving the full image. Thumbnails are much faster to load for grid views.
+    """
+    catalog = get_catalog()
+    image = catalog.get_image(image_id)
+
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Try to serve thumbnail if it exists
+    if image.thumbnail_path:
+        thumbnail_path = _catalog_path / image.thumbnail_path
+        if thumbnail_path.exists():
+            return FileResponse(
+                thumbnail_path,
+                media_type="image/jpeg",
+                headers={
+                    "Cache-Control": "public, max-age=86400",  # Cache for 24 hours
+                },
+            )
+
+    # Fallback: thumbnail doesn't exist, redirect to full image endpoint
+    # (This handles edge cases where thumbnails weren't generated)
+    return FileResponse(
+        image.source_path,
+        headers={
+            "Cache-Control": "public, max-age=3600",
         },
     )
 
