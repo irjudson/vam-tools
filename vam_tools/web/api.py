@@ -327,12 +327,14 @@ async def get_image_counts() -> ImageCountResponse:
 
     # Count by type
     total_count = len(images)
-    images_count = sum(1 for img in images if img.file_type.value == "image")
-    videos_count = sum(1 for img in images if img.file_type.value == "video")
-    no_date_count = sum(
-        1 for img in images if not (img.dates and img.dates.selected_date)
+    images_count = len([img for img in images if img.file_type.value == "image"])
+    videos_count = len([img for img in images if img.file_type.value == "video"])
+    no_date_count = len(
+        [img for img in images if not (img.dates and img.dates.selected_date)]
     )
-    suspicious_count = sum(1 for img in images if img.dates and img.dates.suspicious)
+    suspicious_count = len(
+        [img for img in images if img.dates and img.dates.suspicious]
+    )
 
     return ImageCountResponse(
         total=total_count,
@@ -581,7 +583,7 @@ async def get_image_thumbnail(image_id: str) -> Union[FileResponse, StreamingRes
         raise HTTPException(status_code=404, detail="Image not found")
 
     # Try to serve thumbnail if it exists
-    if image.thumbnail_path:
+    if image.thumbnail_path and _catalog_path is not None:
         thumbnail_path = _catalog_path / image.thumbnail_path
         if thumbnail_path.exists():
             return FileResponse(

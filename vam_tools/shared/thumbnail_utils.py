@@ -49,6 +49,7 @@ def generate_thumbnail(
             return False
 
         # Try to open the image
+        img: Optional[Image.Image] = None
         try:
             img = Image.open(source_path)
         except Exception as e:
