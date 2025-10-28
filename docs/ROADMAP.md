@@ -19,7 +19,6 @@ This document outlines planned features and improvements for VAM Tools, organize
 - Reduced CPU/disk load on repeated views
 - Better experience with network drives
 
-**Estimated Effort**: 2-3 days
 
 ---
 
@@ -46,7 +45,6 @@ This document outlines planned features and improvements for VAM Tools, organize
 - Better organization and discovery
 - Automated album creation by tag
 
-**Estimated Effort**: 1-2 weeks
 
 ---
 
@@ -69,7 +67,6 @@ This document outlines planned features and improvements for VAM Tools, organize
 - Clear space efficiently
 - Understand quality scoring decisions
 
-**Estimated Effort**: 1 week
 
 ---
 
@@ -91,7 +88,6 @@ This document outlines planned features and improvements for VAM Tools, organize
 - Better IDE support and documentation
 - Reduced bugs from complexity
 
-**Estimated Effort**: Ongoing (1-2 days initially)
 
 ---
 
@@ -110,7 +106,6 @@ This document outlines planned features and improvements for VAM Tools, organize
 - Faster catalog opening
 - Lower memory usage (memory-mapped indices)
 
-**Estimated Effort**: 2-3 days
 
 ---
 
@@ -132,7 +127,6 @@ This document outlines planned features and improvements for VAM Tools, organize
 - Discover forgotten photos
 - Quality-based selection for prints/sharing
 
-**Estimated Effort**: 1 week
 
 ---
 
@@ -152,71 +146,11 @@ This document outlines planned features and improvements for VAM Tools, organize
 - Correct multiple files at once
 - Safe operations with rollback
 
-**Estimated Effort**: 1 week
-
----
-
-### Export Functionality
-
-**Goal**: Export catalog data for external use
-
-**Features**:
-- Export catalog to CSV/JSON
-- Export duplicate reports (which files, savings, quality scores)
-- Export statistics and analytics
-- Customizable export format
-- Integration with other tools (Lightroom, etc.)
-
-**Benefits**:
-- Analyze data in Excel/other tools
-- Share findings with others
-- Backup catalog in portable format
-
-**Estimated Effort**: 3-4 days
 
 ---
 
 ## Low Priority / Future Ideas
 
-### Cloud Integration
-
-**Goal**: Sync with cloud photo services
-
-**Features**:
-- Google Photos sync (download/upload)
-- iCloud Photos sync
-- Dropbox/OneDrive integration
-- Two-way sync with conflict resolution
-- Selective sync (specific albums/dates)
-
-**Benefits**:
-- Central management across services
-- Backup to cloud
-- Access from anywhere
-
-**Estimated Effort**: 2-3 weeks (complex authentication and API work)
-
----
-
-### Mobile App
-
-**Goal**: Browse catalog from mobile devices
-
-**Features**:
-- React Native mobile viewer (iOS and Android)
-- Remote catalog access over network
-- Photo upload from mobile to catalog
-- Basic editing (rotate, crop)
-- Offline mode with sync
-
-**Benefits**:
-- Browse photos on the go
-- Quick uploads from phone
-- Share with family remotely
-
-**Estimated Effort**: 3-4 weeks
-
----
 
 ### Advanced Analytics
 
@@ -240,23 +174,21 @@ This document outlines planned features and improvements for VAM Tools, organize
 
 ---
 
-### Plugin System
+### Export Functionality
 
-**Goal**: Extensibility for custom workflows
+**Goal**: Export catalog data for external use
 
 **Features**:
-- Custom metadata extractors (new file formats)
-- Custom duplicate detection algorithms
-- Custom quality scorers (prioritize specific criteria)
-- Event hooks for automation (on file added, on duplicate found)
-- Plugin marketplace/registry
+- Export catalog to CSV/JSON
+- Export duplicate reports (which files, savings, quality scores)
+- Export statistics and analytics
+- Customizable export format
+- Integration with other tools (Lightroom, etc.)
 
 **Benefits**:
-- Customize for specific needs
-- Community contributions
-- Integration with other tools
-
-**Estimated Effort**: 2 weeks (architecture work)
+- Analyze data in Excel/other tools
+- Share findings with others
+- Backup catalog in portable format
 
 ---
 
@@ -279,6 +211,27 @@ This document outlines planned features and improvements for VAM Tools, organize
 **Estimated Effort**: Ongoing (continuous optimization)
 
 ---
+
+### Cloud Integration
+
+**Goal**: Sync with cloud photo services
+
+**Features**:
+- Google Photos sync (download/upload)
+- iCloud Photos sync
+- Dropbox/OneDrive integration
+- Two-way sync with conflict resolution
+- Selective sync (specific albums/dates)
+
+**Benefits**:
+- Central management across services
+- Backup to cloud
+- Access from anywhere
+
+
+---
+
+
 
 ## Documentation Improvements
 
