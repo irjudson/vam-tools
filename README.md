@@ -359,6 +359,12 @@ vam-tools/
 
 ### Medium Priority
 
+- [ ] **Code Quality Improvements**
+  - Review and resolve ignored flake8 warnings (docstrings, complexity)
+  - Add comprehensive docstrings to all modules and functions
+  - Reduce code complexity in flagged functions
+  - Clean up test warnings (deprecations, multiprocessing)
+
 - [ ] **FAISS Index Persistence**
   - Save/load FAISS indices to disk
   - Incremental index updates for new images
