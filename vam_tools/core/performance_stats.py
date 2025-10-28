@@ -8,7 +8,7 @@ import logging
 import time
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Generator, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -221,7 +221,7 @@ class PerformanceTracker:
     @contextmanager
     def track_operation(
         self, operation_name: str, items: int = 1, record_error: bool = False
-    ):
+    ) -> Generator[None, None, None]:
         """Context manager to track operation timing."""
         start_time = time.time()
         error_occurred = False

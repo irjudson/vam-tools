@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class VerificationResult:
     """Result of file verification."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.is_valid = True
         self.is_corrupt = False
         self.methods_tried: List[str] = []
@@ -225,7 +225,7 @@ def _verify_raw_file(file_path: Path, result: VerificationResult) -> None:
 
     # Method 2: Try rawpy
     try:
-        import rawpy
+        import rawpy  # type: ignore[import-not-found]
 
         with rawpy.imread(str(file_path)) as raw:
             # Try to access basic properties
