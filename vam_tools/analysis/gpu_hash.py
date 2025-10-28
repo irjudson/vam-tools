@@ -4,6 +4,7 @@ GPU-accelerated perceptual hash computation.
 Provides batch processing of perceptual hashes using PyTorch CUDA acceleration.
 Falls back gracefully to CPU if GPU is not available.
 """
+
 # mypy: disable-error-code="assignment,no-any-return,misc,list-item,return-value,unused-ignore,name-defined"
 
 import logging
@@ -201,9 +202,7 @@ class GPUHashProcessor:
         low_freq = fft_abs[:, : images.shape[2] // 2, : images.shape[3] // 2]
 
         # Compare to median
-        medians = low_freq.reshape(low_freq.shape[0], -1).median(dim=1, keepdim=True)[
-            0
-        ]
+        medians = low_freq.reshape(low_freq.shape[0], -1).median(dim=1, keepdim=True)[0]
         medians = medians.view(-1, 1, 1)
 
         bits = (low_freq > medians).reshape(low_freq.shape[0], -1)[:, :64]
@@ -268,9 +267,7 @@ class GPUHashProcessor:
 
         return results
 
-    def process_images(
-        self, image_paths: List[Path]
-    ) -> List[Dict[str, Optional[str]]]:
+    def process_images(self, image_paths: List[Path]) -> List[Dict[str, Optional[str]]]:
         """
         Process all images in batches.
 

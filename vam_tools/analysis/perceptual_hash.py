@@ -10,7 +10,9 @@ Each algorithm finds visually similar images even if they differ in size,
 format, compression, or have been edited.
 """
 
+import io
 import logging
+import subprocess
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -31,6 +33,110 @@ class HashMethod(str, Enum):
     ALL = "all"  # Compute all methods
 
 
+def _load_image_for_hashing(image_path: Path) -> Optional[Image.Image]:
+    """
+    Load an image in a format-aware way for hash computation.
+
+    For RAW files, converts the full RAW data (not just preview) to ensure
+    accurate duplicate detection and quality assessment.
+
+    Args:
+        image_path: Path to the image file
+
+    Returns:
+        PIL Image object, or None if unable to load
+    """
+    file_ext = image_path.suffix.lower()
+
+    # RAW formats need full conversion
+    raw_formats = {
+        ".arw",
+        ".cr2",
+        ".cr3",
+        ".nef",
+        ".dng",
+        ".orf",
+        ".rw2",
+        ".pef",
+        ".sr2",
+        ".raf",
+        ".raw",
+    }
+
+    # HEIC/TIFF can be converted with Pillow
+    pillow_convertible = {".heic", ".heif", ".tif", ".tiff"}
+
+    try:
+        # Handle RAW files - convert full RAW data (not preview)
+        if file_ext in raw_formats:
+            # Try rawpy first (Python library for LibRaw)
+            try:
+                import rawpy
+
+                with rawpy.imread(str(image_path)) as raw:
+                    # Convert to RGB using default settings
+                    # This processes the actual RAW data, not the preview
+                    rgb = raw.postprocess(
+                        use_camera_wb=True,  # Use camera white balance
+                        half_size=True,  # Faster processing, still high quality
+                        no_auto_bright=True,  # Don't auto-adjust brightness
+                        output_bps=8,  # 8-bit output
+                    )
+                    return Image.fromarray(rgb)
+
+            except ImportError:
+                # rawpy not available, try dcraw
+                logger.debug("rawpy not available, trying dcraw for RAW conversion")
+                try:
+                    # Use dcraw to convert RAW to PPM format
+                    result = subprocess.run(
+                        [
+                            "dcraw",
+                            "-c",  # Write to stdout
+                            "-w",  # Use camera white balance
+                            "-h",  # Half-size (faster, still good quality)
+                            "-q",
+                            "0",  # Highest quality interpolation
+                            str(image_path),
+                        ],
+                        capture_output=True,
+                        timeout=30,  # RAW conversion can take longer
+                    )
+
+                    if result.returncode == 0 and len(result.stdout) > 0:
+                        return Image.open(io.BytesIO(result.stdout))
+
+                    logger.warning(f"dcraw failed for {image_path}")
+                    return None
+
+                except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                    logger.warning(
+                        f"RAW conversion failed for {image_path}: {e}. "
+                        "Install rawpy or dcraw for RAW support."
+                    )
+                    return None
+
+            except Exception as e:
+                logger.error(f"Error converting RAW file {image_path}: {e}")
+                return None
+
+        # Handle HEIC/TIFF with Pillow conversion
+        elif file_ext in pillow_convertible:
+            img = Image.open(image_path)
+            # Convert to RGB if needed
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            return img
+
+        # Standard formats (JPEG, PNG, GIF, WebP)
+        else:
+            return Image.open(image_path)
+
+    except Exception as e:
+        logger.error(f"Error loading image {image_path} for hashing: {e}")
+        return None
+
+
 def dhash(image_path: Path, hash_size: int = 8) -> Optional[str]:
     """
     Calculate difference hash (dHash) for an image.
@@ -46,8 +152,13 @@ def dhash(image_path: Path, hash_size: int = 8) -> Optional[str]:
         Hexadecimal string representation of the hash, or None on error
     """
     try:
-        # Load and convert to grayscale
-        img = Image.open(image_path).convert("L")
+        # Load image (handles RAW/HEIC/TIFF conversion)
+        img = _load_image_for_hashing(image_path)
+        if img is None:
+            return None
+
+        # Convert to grayscale
+        img = img.convert("L")
 
         # Resize to hash_size+1 x hash_size
         # We need +1 width to compute horizontal gradients
@@ -88,8 +199,13 @@ def ahash(image_path: Path, hash_size: int = 8) -> Optional[str]:
         Hexadecimal string representation of the hash, or None on error
     """
     try:
-        # Load and convert to grayscale
-        img = Image.open(image_path).convert("L")
+        # Load image (handles RAW/HEIC/TIFF conversion)
+        img = _load_image_for_hashing(image_path)
+        if img is None:
+            return None
+
+        # Convert to grayscale
+        img = img.convert("L")
 
         # Resize to hash_size x hash_size
         img = img.resize((hash_size, hash_size), Image.Resampling.LANCZOS)
@@ -133,8 +249,13 @@ def whash(image_path: Path, hash_size: int = 8, mode: str = "haar") -> Optional[
         Hexadecimal string representation of the hash, or None on error
     """
     try:
-        # Load and convert to grayscale
-        img = Image.open(image_path).convert("L")
+        # Load image (handles RAW/HEIC/TIFF conversion)
+        img = _load_image_for_hashing(image_path)
+        if img is None:
+            return None
+
+        # Convert to grayscale
+        img = img.convert("L")
 
         # Resize to hash_size x hash_size
         img = img.resize((hash_size, hash_size), Image.Resampling.LANCZOS)
@@ -447,9 +568,7 @@ def compute_hashes_batch(
 
             processor = GPUHashProcessor(batch_size=batch_size, enable_gpu=True)
             if processor.use_gpu:
-                logger.info(
-                    f"Using GPU batch processing for {len(image_paths)} images"
-                )
+                logger.info(f"Using GPU batch processing for {len(image_paths)} images")
                 return processor.process_images(image_paths)  # type: ignore[return-value]
             else:
                 logger.info("GPU not available, using CPU batch processing")

@@ -4,6 +4,7 @@ Fast similarity search using FAISS.
 Provides efficient approximate nearest neighbor search for finding similar
 perceptual hashes in large collections.
 """
+
 # mypy: disable-error-code="no-any-return,attr-defined,unreachable"
 
 import logging
@@ -76,9 +77,7 @@ class FastSimilaritySearcher:
 
         return binary
 
-    def build_index(
-        self, hashes: Dict[str, str], method: str = "dhash"
-    ) -> None:
+    def build_index(self, hashes: Dict[str, str], method: str = "dhash") -> None:
         """
         Build FAISS index from hash dictionary.
 

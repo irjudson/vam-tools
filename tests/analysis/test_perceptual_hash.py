@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 
 from vam_tools.analysis.perceptual_hash import (
+    _load_image_for_hashing,
     ahash,
     are_similar,
     combined_hash,
@@ -572,3 +573,267 @@ class TestGetRecommendedThreshold:
 
         threshold = get_recommended_threshold(HashMethod.WHASH)
         assert threshold == 4
+
+
+class TestLoadImageForHashing:
+    """Tests for _load_image_for_hashing helper function."""
+
+    def test_load_standard_jpeg(self, tmp_path: Path) -> None:
+        """Test loading a standard JPEG file."""
+        img_path = tmp_path / "test.jpg"
+        Image.new("RGB", (100, 100), color="red").save(img_path)
+
+        result = _load_image_for_hashing(img_path)
+
+        assert result is not None
+        assert isinstance(result, Image.Image)
+        assert result.size == (100, 100)
+
+    def test_load_standard_png(self, tmp_path: Path) -> None:
+        """Test loading a standard PNG file."""
+        img_path = tmp_path / "test.png"
+        Image.new("RGB", (100, 100), color="blue").save(img_path)
+
+        result = _load_image_for_hashing(img_path)
+
+        assert result is not None
+        assert isinstance(result, Image.Image)
+        assert result.size == (100, 100)
+
+    def test_load_heic_conversion(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test HEIC file conversion to RGB."""
+        img_path = tmp_path / "test.heic"
+
+        # Mock PIL.Image.open to return a test image
+        original_open = Image.open
+
+        def mock_open(path):
+            if str(path).endswith(".heic"):
+                # Create a test image in CMYK mode to test conversion
+                img = Image.new("CMYK", (100, 100), color=(100, 100, 100, 0))
+                return img
+            return original_open(path)
+
+        monkeypatch.setattr("PIL.Image.open", mock_open)
+
+        result = _load_image_for_hashing(img_path)
+
+        assert result is not None
+        assert isinstance(result, Image.Image)
+        # Should be converted to RGB
+        assert result.mode == "RGB"
+
+    def test_load_tiff_conversion(self, tmp_path: Path) -> None:
+        """Test TIFF file loading and potential conversion."""
+        img_path = tmp_path / "test.tiff"
+        # Create TIFF with RGBA mode to test conversion
+        Image.new("RGBA", (100, 100), color=(255, 0, 0, 255)).save(img_path)
+
+        result = _load_image_for_hashing(img_path)
+
+        assert result is not None
+        assert isinstance(result, Image.Image)
+        # Should be converted to RGB
+        assert result.mode == "RGB"
+
+    def test_load_raw_with_rawpy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test RAW file loading using rawpy."""
+        import sys
+        from unittest.mock import MagicMock
+
+        import numpy as np
+
+        img_path = tmp_path / "test.cr2"
+        # Create a dummy file
+        img_path.write_bytes(b"fake raw data")
+
+        # Mock rawpy module
+        mock_raw = MagicMock()
+        mock_rgb_array = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        mock_raw.postprocess.return_value = mock_rgb_array
+
+        mock_rawpy = MagicMock()
+        mock_rawpy.imread.return_value.__enter__ = lambda self: mock_raw
+        mock_rawpy.imread.return_value.__exit__ = lambda self, *args: None
+
+        # Mock the module in sys.modules
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "rawpy", mock_rawpy)
+            result = _load_image_for_hashing(img_path)
+
+        assert result is not None
+        assert isinstance(result, Image.Image)
+        # Should call rawpy.imread
+        mock_rawpy.imread.assert_called_once_with(str(img_path))
+        # Should call postprocess with correct parameters
+        mock_raw.postprocess.assert_called_once()
+        call_kwargs = mock_raw.postprocess.call_args.kwargs
+        assert call_kwargs["use_camera_wb"] is True
+        assert call_kwargs["half_size"] is True
+        assert call_kwargs["no_auto_bright"] is True
+        assert call_kwargs["output_bps"] == 8
+
+    def test_load_raw_fallback_to_dcraw(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test RAW file loading falls back to dcraw when rawpy unavailable."""
+        import sys
+        from unittest.mock import MagicMock
+
+        img_path = tmp_path / "test.nef"
+        img_path.write_bytes(b"fake raw data")
+
+        # Create a fake JPEG output from dcraw
+        fake_jpeg = tmp_path / "fake_output.jpg"
+        Image.new("RGB", (100, 100), color="green").save(fake_jpeg)
+        fake_jpeg_bytes = fake_jpeg.read_bytes()
+
+        # Mock subprocess.run to return fake JPEG
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = fake_jpeg_bytes
+
+        # Remove rawpy from sys.modules if present to trigger ImportError
+        original_rawpy = sys.modules.pop("rawpy", None)
+
+        # Mock subprocess
+        import subprocess
+
+        original_run = subprocess.run
+
+        try:
+            subprocess.run = MagicMock(return_value=mock_result)
+            result = _load_image_for_hashing(img_path)
+
+            assert result is not None
+            assert isinstance(result, Image.Image)
+            # Should have called dcraw
+            subprocess.run.assert_called_once()
+            call_args = subprocess.run.call_args.args[0]
+            assert "dcraw" in call_args
+            assert str(img_path) in call_args
+        finally:
+            # Restore original state
+            subprocess.run = original_run
+            if original_rawpy is not None:
+                sys.modules["rawpy"] = original_rawpy
+
+    def test_load_raw_both_methods_fail(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test RAW file loading returns None when both rawpy and dcraw fail."""
+        import sys
+        from unittest.mock import MagicMock
+
+        img_path = tmp_path / "test.arw"
+        img_path.write_bytes(b"fake raw data")
+
+        # Mock subprocess.run to fail
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = b""
+
+        # Remove rawpy from sys.modules if present to trigger ImportError
+        original_rawpy = sys.modules.pop("rawpy", None)
+
+        # Mock subprocess
+        import subprocess
+
+        original_run = subprocess.run
+
+        try:
+            subprocess.run = MagicMock(return_value=mock_result)
+            result = _load_image_for_hashing(img_path)
+            assert result is None
+        finally:
+            # Restore original state
+            subprocess.run = original_run
+            if original_rawpy is not None:
+                sys.modules["rawpy"] = original_rawpy
+
+    def test_load_raw_exception_handling(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test RAW file loading handles exceptions gracefully."""
+        import sys
+        from unittest.mock import MagicMock
+
+        img_path = tmp_path / "test.dng"
+        img_path.write_bytes(b"fake raw data")
+
+        # Mock rawpy to raise exception
+        mock_rawpy = MagicMock()
+        mock_rawpy.imread.side_effect = Exception("Corrupt RAW file")
+
+        # Mock the module in sys.modules
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "rawpy", mock_rawpy)
+            result = _load_image_for_hashing(img_path)
+
+        assert result is None
+
+    def test_load_nonexistent_file(self, tmp_path: Path) -> None:
+        """Test loading a non-existent file returns None."""
+        img_path = tmp_path / "nonexistent.jpg"
+
+        result = _load_image_for_hashing(img_path)
+
+        assert result is None
+
+    def test_load_corrupted_file(self, tmp_path: Path) -> None:
+        """Test loading a corrupted image file returns None."""
+        img_path = tmp_path / "corrupted.jpg"
+        # Write random bytes that aren't a valid image
+        img_path.write_bytes(b"not a real image file at all")
+
+        result = _load_image_for_hashing(img_path)
+
+        assert result is None
+
+    def test_hash_functions_use_loader(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that hash functions properly use the image loader."""
+        import sys
+        from unittest.mock import MagicMock
+
+        import numpy as np
+
+        img_path = tmp_path / "test.cr2"
+        img_path.write_bytes(b"fake raw data")
+
+        # Mock rawpy to return a test image
+        mock_raw = MagicMock()
+        mock_rgb_array = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+        mock_raw.postprocess.return_value = mock_rgb_array
+
+        mock_rawpy = MagicMock()
+        mock_rawpy.imread.return_value.__enter__ = lambda self: mock_raw
+        mock_rawpy.imread.return_value.__exit__ = lambda self, *args: None
+
+        # Mock the module in sys.modules
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "rawpy", mock_rawpy)
+
+            # Test dhash
+            hash_d = dhash(img_path)
+            assert hash_d is not None
+
+            # Test ahash
+            hash_a = ahash(img_path)
+            assert hash_a is not None
+
+            # Test whash
+            hash_w = whash(img_path)
+            assert hash_w is not None
+
+            # Test combined_hash
+            hashes = combined_hash(img_path)
+            assert hashes is not None
+            assert "dhash" in hashes
+            assert "ahash" in hashes
+            assert "whash" in hashes

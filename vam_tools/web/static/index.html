@@ -334,6 +334,52 @@
 
                 <!-- Statistics Dashboard -->
                 <div class="stats-grid">
+                <!-- Dashboard Statistics Cards -->
+                <div v-if="dashboardStats" class="stat-card">
+                    <h3>Duplicates</h3>
+                    <div class="value">{{ dashboardStats.duplicates.total_groups.toLocaleString() }}</div>
+                    <div class="subvalue">Duplicate groups</div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #334155;">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
+                            <span style="color: #fbbf24;">⚠</span> {{ dashboardStats.duplicates.needs_review.toLocaleString() }} need review
+                        </div>
+                        <div style="font-size: 0.875rem; color: #94a3b8;">
+                            💾 {{ dashboardStats.duplicates.potential_space_savings_gb.toFixed(1) }} GB savings
+                        </div>
+                    </div>
+                </div>
+                <div v-if="dashboardStats" class="stat-card">
+                    <h3>Review Queue</h3>
+                    <div class="value">{{ dashboardStats.review.total_needing_review.toLocaleString() }}</div>
+                    <div class="subvalue">Files needing review</div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #334155;">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
+                            📅 {{ dashboardStats.review.no_date.toLocaleString() }} no date
+                        </div>
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
+                            ⚠ {{ dashboardStats.review.suspicious_dates.toLocaleString() }} suspicious
+                        </div>
+                        <div style="font-size: 0.875rem; color: #94a3b8;">
+                            🔍 {{ dashboardStats.review.low_confidence.toLocaleString() }} low confidence
+                        </div>
+                    </div>
+                </div>
+                <div v-if="dashboardStats" class="stat-card">
+                    <h3>Hash Coverage</h3>
+                    <div class="value">{{ dashboardStats.hashes.coverage_percent }}%</div>
+                    <div class="subvalue">Files with perceptual hashes</div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #334155;">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
+                            dHash: {{ dashboardStats.hashes.dhash_percent }}%
+                        </div>
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
+                            aHash: {{ dashboardStats.hashes.ahash_percent }}%
+                        </div>
+                        <div style="font-size: 0.875rem; color: #94a3b8;">
+                            wHash: {{ dashboardStats.hashes.whash_percent }}%
+                        </div>
+                    </div>
+                </div>
                 <div class="stat-card">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <h3>File Types</h3>
@@ -365,6 +411,85 @@
                     <div class="value" style="font-size: 1.5rem; margin-top: 0.5rem;">{{ formatBytes(catalogInfo.statistics?.total_size_bytes || 0) }}</div>
                     <div class="subvalue">Total size</div>
                 </div>
+
+                <!-- Performance Statistics Card -->
+                <div v-if="performanceStats" class="stat-card" style="grid-column: span 2;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h3>⚡ Performance</h3>
+                        <span v-if="performanceStats.status === 'running'" style="color: #10b981; font-size: 0.75rem;">🟢 Running</span>
+                        <span v-else-if="performanceStats.status === 'idle'" style="color: #60a5fa; font-size: 0.75rem;">⚪ Idle</span>
+                        <span v-else style="color: #64748b; font-size: 0.75rem;">⚪ No Data</span>
+                    </div>
+                    <div v-if="performanceStats.status === 'running' || performanceStats.status === 'idle'" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; font-size: 0.75rem;">
+                        <!-- Row 1: Main metrics -->
+                        <div>
+                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Duration</div>
+                            <div style="color: #60a5fa; font-weight: 600;">{{ (performanceStats.data.total_duration_seconds || 0).toFixed(1) }}s</div>
+                        </div>
+                        <div>
+                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Files Analyzed</div>
+                            <div style="color: #60a5fa; font-weight: 600;">{{ (performanceStats.data.total_files_analyzed || 0).toLocaleString() }}</div>
+                        </div>
+                        <div>
+                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Throughput</div>
+                            <div style="color: #60a5fa; font-weight: 600;">{{ (performanceStats.data.files_per_second || 0).toFixed(1) }} f/s</div>
+                        </div>
+                        <!-- Row 2: Processing stats -->
+                        <div>
+                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Data Processed</div>
+                            <div style="color: #60a5fa; font-weight: 600;">{{ ((performanceStats.data.bytes_processed || 0) / (1024**3)).toFixed(2) }} GB</div>
+                        </div>
+                        <div>
+                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">Memory Peak</div>
+                            <div style="color: #60a5fa; font-weight: 600;">{{ (performanceStats.data.peak_memory_mb || 0).toFixed(0) }} MB</div>
+                        </div>
+                        <div>
+                            <div style="color: #94a3b8; margin-bottom: 0.25rem;">GPU</div>
+                            <div style="color: #60a5fa; font-weight: 600;">
+                                {{ performanceStats.data.gpu_utilized ? '✅ ' + (performanceStats.data.gpu_device || 'Yes') : '❌ CPU Only' }}
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Hash stats (compact) -->
+                    <div v-if="performanceStats.data && performanceStats.data.hashing" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #334155; font-size: 0.75rem;">
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;">
+                            <div>
+                                <span style="color: #94a3b8;">Hashes:</span>
+                                <span style="color: #10b981; font-weight: 600; margin-left: 0.25rem;">{{ performanceStats.data.hashing.total_hashes_computed || 0 }}</span>
+                            </div>
+                            <div>
+                                <span style="color: #94a3b8;">GPU:</span>
+                                <span style="color: #8b5cf6; font-weight: 600; margin-left: 0.25rem;">{{ performanceStats.data.hashing.gpu_hashes || 0 }}</span>
+                            </div>
+                            <div>
+                                <span style="color: #94a3b8;">CPU:</span>
+                                <span style="color: #f59e0b; font-weight: 600; margin-left: 0.25rem;">{{ performanceStats.data.hashing.cpu_hashes || 0 }}</span>
+                            </div>
+                            <div>
+                                <span style="color: #94a3b8;">Failed:</span>
+                                <span style="color: #ef4444; font-weight: 600; margin-left: 0.25rem;">{{ performanceStats.data.hashing.failed_hashes || 0 }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Top operations (if available) -->
+                    <div v-if="performanceStats.data && performanceStats.data.operations && Object.keys(performanceStats.data.operations).length > 0" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #334155; font-size: 0.7rem;">
+                        <div style="color: #94a3b8; margin-bottom: 0.5rem; font-weight: 600;">Top Operations:</div>
+                        <div v-for="(opData, opName) in getTopOperations(performanceStats.data.operations, 3)" :key="opName" style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                            <span style="color: #e2e8f0;">{{ opName }}</span>
+                            <span style="color: #60a5fa;">{{ opData.total_time_seconds.toFixed(2) }}s</span>
+                        </div>
+                    </div>
+                    <!-- Bottlenecks (if any) -->
+                    <div v-if="performanceStats.data && performanceStats.data.bottlenecks && performanceStats.data.bottlenecks.length > 0" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #334155; font-size: 0.7rem;">
+                        <div style="color: #fbbf24; margin-bottom: 0.5rem; font-weight: 600;">⚠ Bottlenecks:</div>
+                        <div v-for="bottleneck in performanceStats.data.bottlenecks" :key="bottleneck" style="color: #e2e8f0; margin-bottom: 0.25rem;">
+                            • {{ bottleneck }}
+                        </div>
+                    </div>
+                    <div v-else-if="performanceStats.status === 'no_data'" style="color: #64748b; font-size: 0.875rem; text-align: center; padding: 1rem;">
+                        No performance data available yet. Run an analysis to see statistics.
+                    </div>
+                </div>
             </div>
 
             <!-- Controls -->
@@ -381,6 +506,13 @@
                     <option value="date">Sort by Date</option>
                     <option value="path">Sort by Path</option>
                     <option value="size">Sort by Size</option>
+                </select>
+
+                <select v-model.number="pageSize" @change="loadImages">
+                    <option :value="10">Show 10</option>
+                    <option :value="20">Show 20</option>
+                    <option :value="50">Show 50</option>
+                    <option :value="100">Show 100</option>
                 </select>
 
                 <button @click="toggleScrollMode" :style="scrollMode ? '' : 'background: #8b5cf6;'">
@@ -542,12 +674,13 @@
                     loading: true,
                     catalogInfo: {},
                     statistics: {},
+                    dashboardStats: null,
                     images: [],
                     selectedImage: null,
                     filterType: '',
                     sortBy: 'date',
                     currentPage: 0,
-                    pageSize: 50,
+                    pageSize: 20,
                     autoRefresh: false,
                     refreshInterval: 10, // seconds
                     refreshCountdown: 10,
@@ -561,6 +694,12 @@
                     hasMore: true,
                     // Chart view settings (charts themselves stored as non-reactive instance properties)
                     fileTypeView: 'category', // 'category' or 'extension'
+                    // Performance statistics
+                    performanceStats: null,
+                    wsConnected: false,
+                    ws: null,
+                    performancePollingInterval: null,
+                    performancePollingActive: false,
                 };
             },
             created() {
@@ -590,6 +729,15 @@
                         this.updateCharts();
                     } catch (error) {
                         console.error('Error loading statistics:', error);
+                    }
+                },
+                async loadDashboardStats() {
+                    try {
+                        const response = await axios.get('/api/dashboard/stats');
+                        this.dashboardStats = response.data;
+                        console.log('Loaded dashboard stats:', this.dashboardStats);
+                    } catch (error) {
+                        console.error('Error loading dashboard stats:', error);
                     }
                 },
                 createCharts() {
@@ -890,6 +1038,8 @@
                 async refresh() {
                     await this.loadCatalogInfo();
                     await this.loadStatistics();
+                    await this.loadDashboardStats();
+                    await this.loadPerformanceStats();
                     await this.loadImages();
                 },
                 toggleAutoRefresh() {
@@ -985,12 +1135,129 @@
                         this.toggleAutoRefresh();
                     }
                 },
+                async loadPerformanceStats() {
+                    try {
+                        const response = await axios.get('/api/performance/current');
+                        this.performanceStats = response.data;
+                        console.log('Loaded performance stats:', this.performanceStats);
+                    } catch (error) {
+                        console.error('Error loading performance stats:', error);
+                        // Set no_data state if error
+                        this.performanceStats = { status: 'no_data' };
+                    }
+                },
+                getTopOperations(operations, limit = 3) {
+                    // Convert operations object to array, sort by total_time_seconds, return top N
+                    if (!operations) return {};
+                    const sortedOps = Object.entries(operations)
+                        .sort(([, a], [, b]) => (b.total_time_seconds || 0) - (a.total_time_seconds || 0))
+                        .slice(0, limit);
+                    return Object.fromEntries(sortedOps);
+                },
+                startPerformancePolling() {
+                    // Start polling every 1 second
+                    this.performancePollingActive = true;
+                    this.performancePollingInterval = setInterval(async () => {
+                        if (this.performancePollingActive) {
+                            await this.loadPerformanceStats();
+                        }
+                    }, 1000); // Poll every 1 second
+                    console.log('Started performance polling (1s interval)');
+                },
+                stopPerformancePolling() {
+                    this.performancePollingActive = false;
+                    if (this.performancePollingInterval) {
+                        clearInterval(this.performancePollingInterval);
+                        this.performancePollingInterval = null;
+                    }
+                    console.log('Stopped performance polling');
+                },
+                connectPerformanceWebSocket() {
+                    // Only connect if WebSocket is supported
+                    if (!window.WebSocket) {
+                        console.log('WebSocket not supported');
+                        return;
+                    }
+
+                    // Determine WebSocket URL based on current location
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${protocol}//${window.location.host}/ws/performance`;
+
+                    try {
+                        this.ws = new WebSocket(wsUrl);
+
+                        this.ws.onopen = () => {
+                            console.log('WebSocket connected to performance updates');
+                            this.wsConnected = true;
+
+                            // Send ping every 30 seconds to keep connection alive
+                            this.wsPingInterval = setInterval(() => {
+                                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                                    this.ws.send('ping');
+                                }
+                            }, 30000);
+                        };
+
+                        this.ws.onmessage = (event) => {
+                            try {
+                                const message = JSON.parse(event.data);
+                                console.log('Received performance update:', message);
+
+                                if (message.type === 'performance_update') {
+                                    // Update performance stats with real-time data
+                                    this.performanceStats = message.data;
+                                } else if (message.type === 'pong') {
+                                    // Pong received, connection is alive
+                                    console.log('Pong received');
+                                }
+                            } catch (error) {
+                                console.error('Error parsing WebSocket message:', error);
+                            }
+                        };
+
+                        this.ws.onerror = (error) => {
+                            console.error('WebSocket error:', error);
+                            this.wsConnected = false;
+                        };
+
+                        this.ws.onclose = () => {
+                            console.log('WebSocket disconnected');
+                            this.wsConnected = false;
+
+                            // Clear ping interval
+                            if (this.wsPingInterval) {
+                                clearInterval(this.wsPingInterval);
+                                this.wsPingInterval = null;
+                            }
+
+                            // Attempt to reconnect after 5 seconds
+                            setTimeout(() => {
+                                console.log('Attempting to reconnect WebSocket...');
+                                this.connectPerformanceWebSocket();
+                            }, 5000);
+                        };
+                    } catch (error) {
+                        console.error('Error connecting to WebSocket:', error);
+                        this.wsConnected = false;
+                    }
+                },
             },
             beforeUnmount() {
                 // Clean up timers and event listeners
                 this.stopAutoRefresh();
+                this.stopPerformancePolling();
                 window.removeEventListener('scroll', this.handleScroll);
                 window.removeEventListener('keydown', this.handleKeyboard);
+
+                // Clean up WebSocket (keep for backwards compatibility)
+                if (this.wsPingInterval) {
+                    clearInterval(this.wsPingInterval);
+                    this.wsPingInterval = null;
+                }
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
 
                 // Destroy charts
                 if (this._fileTypeChart) this._fileTypeChart.destroy();
@@ -1006,6 +1273,8 @@
                     setTimeout(() => {
                         this.createCharts();
                         this.loadStatistics();
+                        this.loadDashboardStats();
+                        this.loadPerformanceStats();
                     }, 100);
                 });
 
@@ -1016,6 +1285,12 @@
 
                 // Add keyboard listener
                 window.addEventListener('keydown', this.handleKeyboard);
+
+                // Start polling for real-time performance updates
+                this.startPerformancePolling();
+
+                // Keep WebSocket connection for backwards compatibility (not used for polling)
+                // this.connectPerformanceWebSocket();
             },
         }).mount('#app');
     </script>

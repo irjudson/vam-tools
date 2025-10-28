@@ -4,6 +4,7 @@ Performance and accuracy tests for perceptual hashing algorithms.
 These tests verify that the hash algorithms correctly identify similar and different
 images, and measure the performance of each method.
 """
+
 # mypy: disable-error-code="arg-type,no-untyped-def,operator"
 
 import time
@@ -162,7 +163,9 @@ class TestHashAccuracy:
 
         distance = hamming_distance(hash_orig, hash_diff)
         # Should be clearly different
-        assert distance > 15, f"Cannot distinguish different images: distance={distance}"
+        assert (
+            distance > 15
+        ), f"Cannot distinguish different images: distance={distance}"
 
     def test_whash_most_robust_to_transforms(self, test_images: dict) -> None:
         """wHash should be most robust to image transformations."""
@@ -191,25 +194,16 @@ class TestHashPerformance:
 
     def test_dhash_performance(self, test_images: dict, benchmark) -> None:
         """Benchmark dHash computation speed."""
-        if not hasattr(pytest, "benchmark"):
-            pytest.skip("pytest-benchmark not installed")
-
         result = benchmark(dhash, test_images["original"])
         assert result is not None
 
     def test_ahash_performance(self, test_images: dict, benchmark) -> None:
         """Benchmark aHash computation speed."""
-        if not hasattr(pytest, "benchmark"):
-            pytest.skip("pytest-benchmark not installed")
-
         result = benchmark(ahash, test_images["original"])
         assert result is not None
 
     def test_whash_performance(self, test_images: dict, benchmark) -> None:
         """Benchmark wHash computation speed."""
-        if not hasattr(pytest, "benchmark"):
-            pytest.skip("pytest-benchmark not installed")
-
         result = benchmark(whash, test_images["original"])
         assert result is not None
 
@@ -298,7 +292,9 @@ class TestHashMethodComparison:
         ]
 
         for method in ["dhash", "ahash", "whash"]:
-            hash_func = dhash if method == "dhash" else (ahash if method == "ahash" else whash)
+            hash_func = (
+                dhash if method == "dhash" else (ahash if method == "ahash" else whash)
+            )
 
             for img1, img2 in similar_pairs:
                 hash1 = hash_func(test_images[img1])

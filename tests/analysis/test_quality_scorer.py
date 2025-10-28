@@ -398,3 +398,94 @@ class TestSelectBest:
         best_id, _ = select_best(images)
 
         assert best_id == "complete"  # More metadata wins
+
+
+class TestEdgeCases:
+    """Test edge cases in quality scoring."""
+
+    def test_very_low_resolution_scoring(self) -> None:
+        """Test scoring for very low resolution images (< 1 megapixel)."""
+        # 640x480 = 0.3 megapixels
+        metadata = ImageMetadata(
+            format="JPEG",
+            width=640,
+            height=480,
+            size_bytes=100 * 1024,  # 100 KB
+        )
+
+        score = calculate_quality_score(metadata, FileType.IMAGE)
+
+        # Should still get a valid score (low, but valid)
+        assert 0 <= score.resolution_score <= 40
+        assert score.overall > 0
+
+    def test_tiff_file_size_scoring_large(self) -> None:
+        """Test TIFF file size scoring for large files."""
+        metadata = ImageMetadata(
+            format="TIFF",
+            width=8000,
+            height=6000,
+            size_bytes=35 * 1024 * 1024,  # 35 MB - large TIFF
+        )
+
+        score = calculate_quality_score(metadata, FileType.IMAGE)
+
+        # Large TIFF should get high file size score
+        assert score.size_score >= 95
+
+    def test_tiff_file_size_scoring_medium(self) -> None:
+        """Test TIFF file size scoring for medium files."""
+        metadata = ImageMetadata(
+            format="TIFF",
+            width=4000,
+            height=3000,
+            size_bytes=15 * 1024 * 1024,  # 15 MB - medium TIFF
+        )
+
+        score = calculate_quality_score(metadata, FileType.IMAGE)
+
+        # Medium TIFF should get good file size score
+        assert 80 <= score.size_score < 100
+
+    def test_tiff_file_size_scoring_small(self) -> None:
+        """Test TIFF file size scoring for small files."""
+        metadata = ImageMetadata(
+            format="TIFF",
+            width=2000,
+            height=1500,
+            size_bytes=5 * 1024 * 1024,  # 5 MB - small TIFF
+        )
+
+        score = calculate_quality_score(metadata, FileType.IMAGE)
+
+        # Small TIFF should get lower file size score
+        assert score.size_score < 80
+
+    def test_very_small_compressed_file(self) -> None:
+        """Test scoring for very small compressed files."""
+        metadata = ImageMetadata(
+            format="JPEG",
+            width=800,
+            height=600,
+            size_bytes=100 * 1024,  # 100 KB - very small
+        )
+
+        score = calculate_quality_score(metadata, FileType.IMAGE)
+
+        # Very small file should get low file size score
+        assert score.size_score < 40
+
+    def test_metadata_completeness_with_no_fields(self) -> None:
+        """Test metadata completeness scoring when no optional fields present."""
+        metadata = ImageMetadata(
+            format="JPEG",
+            width=1920,
+            height=1080,
+            size_bytes=2 * 1024 * 1024,
+            # No camera/lens metadata
+        )
+
+        score = calculate_quality_score(metadata, FileType.IMAGE)
+
+        # Should get very low metadata score
+        assert score.metadata_score < 20
