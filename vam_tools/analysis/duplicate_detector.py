@@ -26,6 +26,7 @@ from ..core.catalog import CatalogDatabase
 from ..core.performance_stats import PerformanceTracker
 from ..core.types import (
     DuplicateGroup,
+    FileType,
     ImageRecord,
     ProblematicFile,
     ProblematicFileCategory,
@@ -38,6 +39,7 @@ from .perceptual_hash import (
     similarity_score,
 )
 from .quality_scorer import calculate_quality_score, select_best
+from .video_hash import compute_video_hashes
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,25 @@ def _compute_hash_worker(
         return (idx, hashes)
     except Exception as e:
         logger.error(f"Error computing hash for {image_path}: {e}")
+        return (idx, None)
+
+
+def _compute_video_hash_worker(args: Tuple[int, Path]) -> Tuple[int, Optional[Dict]]:
+    """
+    Worker function for parallel video hash computation.
+
+    Args:
+        args: Tuple of (index, video_path)
+
+    Returns:
+        Tuple of (index, hashes_dict) - index to match back to video
+    """
+    idx, video_path = args
+    try:
+        hashes = compute_video_hashes(video_path)
+        return (idx, hashes)
+    except Exception as e:
+        logger.error(f"Error computing video hash for {video_path}: {e}")
         return (idx, None)
 
 
@@ -206,44 +227,67 @@ class DuplicateDetector:
 
     def _compute_perceptual_hashes(self, force: bool = False) -> None:
         """
-        Compute perceptual hashes for all images in catalog.
+        Compute perceptual hashes for all images and videos in catalog.
 
         Args:
             force: Force recomputation even if hash exists
         """
-        images = self.catalog.list_images()
+        all_files = self.catalog.list_images()
         images_to_process = []
+        videos_to_process = []
 
-        for image in images:
-            # Check if we need to compute hash
-            # Need to recompute if any of the requested hash methods are missing
-            needs_compute = force
-            if not force:
-                for method in self.hash_methods:
-                    if (
-                        method == HashMethod.DHASH
-                        and not image.metadata.perceptual_hash_dhash
-                    ):
-                        needs_compute = True
-                    elif (
-                        method == HashMethod.AHASH
-                        and not image.metadata.perceptual_hash_ahash
-                    ):
-                        needs_compute = True
-                    elif (
-                        method == HashMethod.WHASH
-                        and not image.metadata.perceptual_hash_whash
-                    ):
-                        needs_compute = True
+        for file_record in all_files:
+            # Separate images and videos
+            if file_record.file_type == FileType.VIDEO:
+                # For videos, only check if dhash exists (videos use single hash)
+                needs_compute = force or not file_record.metadata.perceptual_hash_dhash
+                if needs_compute:
+                    videos_to_process.append(file_record)
+            else:
+                # For images, check if any of the requested hash methods are missing
+                needs_compute = force
+                if not force:
+                    for method in self.hash_methods:
+                        if (
+                            method == HashMethod.DHASH
+                            and not file_record.metadata.perceptual_hash_dhash
+                        ):
+                            needs_compute = True
+                        elif (
+                            method == HashMethod.AHASH
+                            and not file_record.metadata.perceptual_hash_ahash
+                        ):
+                            needs_compute = True
+                        elif (
+                            method == HashMethod.WHASH
+                            and not file_record.metadata.perceptual_hash_whash
+                        ):
+                            needs_compute = True
 
-            if needs_compute:
-                images_to_process.append(image)
+                if needs_compute:
+                    images_to_process.append(file_record)
 
-        if not images_to_process:
-            logger.info("All images already have perceptual hashes")
+        if not images_to_process and not videos_to_process:
+            logger.info("All files already have perceptual hashes")
             return
 
-        logger.info(f"Computing perceptual hashes for {len(images_to_process)} images")
+        # Process images first
+        if images_to_process:
+            logger.info(
+                f"Computing perceptual hashes for {len(images_to_process)} images"
+            )
+            self._compute_image_hashes(images_to_process)
+
+        # Process videos
+        if videos_to_process:
+            logger.info(
+                f"Computing perceptual hashes for {len(videos_to_process)} videos"
+            )
+            self._compute_video_hashes(videos_to_process)
+
+    def _compute_image_hashes(self, images_to_process: List[ImageRecord]) -> None:
+        """Compute perceptual hashes for images."""
+        logger.info(f"Computing image hashes for {len(images_to_process)} images")
 
         # Use GPU batch processing if enabled
         if self.use_gpu:
@@ -346,7 +390,70 @@ class DuplicateDetector:
 
         # Save catalog after hash computation
         self.catalog.save()
-        logger.info("Perceptual hash computation complete")
+        logger.info("Image hash computation complete")
+
+    def _compute_video_hashes(self, videos_to_process: List[ImageRecord]) -> None:
+        """Compute perceptual hashes for videos using videohash library."""
+        logger.info(f"Computing video hashes for {len(videos_to_process)} videos")
+
+        # Videos don't support GPU acceleration (yet), use CPU multiprocessing
+        num_workers = mp.cpu_count()
+        logger.info(f"Computing video hashes with {num_workers} CPU workers")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
+        ) as progress:
+            task = progress.add_task(
+                f"Computing video hashes ({num_workers} workers)...",
+                total=len(videos_to_process),
+            )
+
+            # Prepare arguments for worker pool with indices
+            worker_args = [
+                (idx, video.source_path) for idx, video in enumerate(videos_to_process)
+            ]
+
+            # Process in parallel using multiprocessing pool
+            with mp.Pool(processes=num_workers) as pool:
+                # Use imap_unordered for better performance
+                chunk_size = max(1, len(videos_to_process) // (num_workers * 4))
+
+                for idx, hashes in pool.imap_unordered(
+                    _compute_video_hash_worker, worker_args, chunk_size
+                ):
+                    video = videos_to_process[idx]
+
+                    if hashes and hashes.get("dhash"):
+                        # Store video hash in dhash field for compatibility
+                        video.metadata.perceptual_hash_dhash = hashes["dhash"]
+                        # Clear other hash fields (videos only have one hash type)
+                        video.metadata.perceptual_hash_ahash = None
+                        video.metadata.perceptual_hash_whash = None
+                        # Save to catalog
+                        self.catalog.update_image(video)
+                    else:
+                        logger.warning(
+                            f"Failed to compute video hash for {video.source_path}"
+                        )
+                        # Track as problematic file
+                        problematic = ProblematicFile(
+                            id=video.id,
+                            source_path=video.source_path,
+                            category=ProblematicFileCategory.HASH_COMPUTATION_FAILED,
+                            error_message="Failed to compute video perceptual hash (requires FFmpeg)",
+                            file_type=video.file_type,
+                        )
+                        self.problematic_files.append(problematic)
+
+                    progress.advance(task)
+
+        # Save catalog after hash computation
+        self.catalog.save()
+        logger.info("Video hash computation complete")
 
     def _find_exact_duplicates(self) -> List[DuplicateGroup]:
         """
