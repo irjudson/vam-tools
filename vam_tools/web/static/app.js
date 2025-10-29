@@ -24,6 +24,12 @@ const getFileName = (path) => {
 const OverviewView = {
     template: `
         <div>
+            <h2 style="margin-bottom: 1rem; color: #60a5fa;">📊 Catalog Overview</h2>
+
+            <div v-if="!dashboardStats" style="padding: 2rem; background: #1e293b; border: 1px solid #f59e0b; border-radius: 0.5rem; color: #f59e0b; margin-bottom: 2rem;">
+                ⚠️ Loading dashboard data... (catalogInfo: {{ catalogInfo ? 'loaded' : 'missing' }}, dashboardStats: {{ dashboardStats ? 'loaded' : 'missing' }})
+            </div>
+
             <div style="margin-bottom: 2rem; padding: 1.5rem; background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;">
                 <h3 style="font-size: 1.25rem; color: #60a5fa; margin-bottom: 1rem;">Quick Actions</h3>
                 <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
