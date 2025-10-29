@@ -216,32 +216,6 @@ async def root() -> Union[HTMLResponse, Dict[str, Any]]:
     return {"message": "VAM Tools Catalog API", "version": "2.0.0"}
 
 
-@app.get("/duplicates.html", response_model=None)
-async def duplicates_page() -> HTMLResponse:
-    """Serve the duplicates page."""
-    static_dir = Path(__file__).parent / "static"
-    duplicates_file = static_dir / "duplicates.html"
-
-    if duplicates_file.exists():
-        with open(duplicates_file, "r") as f:
-            return HTMLResponse(content=f.read())
-
-    raise HTTPException(status_code=404, detail="Duplicates page not found")
-
-
-@app.get("/review.html", response_model=None)
-async def review_page() -> HTMLResponse:
-    """Serve the review page."""
-    static_dir = Path(__file__).parent / "static"
-    review_file = static_dir / "review.html"
-
-    if review_file.exists():
-        with open(review_file, "r") as f:
-            return HTMLResponse(content=f.read())
-
-    raise HTTPException(status_code=404, detail="Review page not found")
-
-
 @app.get("/api")
 async def api_root() -> Dict[str, Any]:
     """API root endpoint."""
