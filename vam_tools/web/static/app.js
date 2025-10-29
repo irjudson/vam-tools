@@ -1012,8 +1012,8 @@ const ReviewView = {
 const router = createRouter({
     history: createWebHashHistory(),
     routes: [
-        { path: '/', component: OverviewView, props: true },
-        { path: '/files', component: AllFilesView, props: true },
+        { path: '/', component: OverviewView },
+        { path: '/files', component: AllFilesView },
         { path: '/duplicates', component: DuplicatesView },
         { path: '/review', component: ReviewView }
     ]
