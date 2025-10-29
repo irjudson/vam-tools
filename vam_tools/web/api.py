@@ -131,6 +131,7 @@ class CatalogStats(BaseModel):
     total_size_bytes: int
     no_date: int
     suspicious_dates: int = 0
+    problematic_files: int = 0
 
 
 class CatalogInfo(BaseModel):
@@ -152,6 +153,20 @@ class ImageCountResponse(BaseModel):
     videos: int
     no_date: int
     suspicious: int
+    problematic: int
+
+
+class ProblematicFileSummary(BaseModel):
+    """Summary of a problematic file."""
+
+    id: str
+    source_path: str
+    category: str
+    error_message: Optional[str]
+    detected_at: str
+    file_type: Optional[str]
+    retries: int
+    resolved: bool
 
 
 def init_catalog(catalog_path: Path) -> None:
@@ -232,6 +247,7 @@ async def get_catalog_info() -> CatalogInfo:
             total_size_bytes=stats.total_size_bytes,
             no_date=stats.no_date,
             suspicious_dates=suspicious_count,
+            problematic_files=stats.problematic_files,
         ),
     )
 
@@ -336,13 +352,60 @@ async def get_image_counts() -> ImageCountResponse:
         [img for img in images if img.dates and img.dates.suspicious]
     )
 
+    # Count problematic files
+    problematic_count = len(catalog.get_problematic_files())
+
     return ImageCountResponse(
         total=total_count,
         images=images_count,
         videos=videos_count,
         no_date=no_date_count,
         suspicious=suspicious_count,
+        problematic=problematic_count,
     )
+
+
+@app.get("/api/problematic", response_model=List[ProblematicFileSummary])
+async def list_problematic_files(
+    category: Optional[str] = Query(None),
+    resolved: bool = Query(False),
+) -> List[ProblematicFileSummary]:
+    """
+    Get list of problematic files.
+
+    - category: Filter by category (hash_computation_failed, corrupted_file, etc.)
+    - resolved: Include resolved files (default: False)
+    """
+    catalog = get_catalog()
+
+    # Convert category string to enum if provided
+    from vam_tools.core.types import ProblematicFileCategory
+
+    category_filter = None
+    if category:
+        try:
+            category_filter = ProblematicFileCategory(category)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
+
+    files = catalog.get_problematic_files(category=category_filter, resolved=resolved)
+
+    summaries = []
+    for file in files:
+        summaries.append(
+            ProblematicFileSummary(
+                id=file.id,
+                source_path=str(file.source_path),
+                category=file.category.value,
+                error_message=file.error_message,
+                detected_at=file.detected_at.isoformat(),
+                file_type=file.file_type.value if file.file_type else None,
+                retries=file.retries,
+                resolved=file.resolved,
+            )
+        )
+
+    return summaries
 
 
 @app.get("/api/images/{image_id}", response_model=ImageDetail)

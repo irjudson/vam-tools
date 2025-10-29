@@ -21,6 +21,8 @@ from .types import (
     CatalogState,
     DuplicateGroup,
     ImageRecord,
+    ProblematicFile,
+    ProblematicFileCategory,
     ReviewItem,
     Statistics,
 )
@@ -151,6 +153,7 @@ class CatalogDatabase:
             "images": {},
             "duplicate_groups": {},
             "burst_groups": {},
+            "problematic_files": {},
             "review_queue": [],
             "transactions": {"current": None, "history": []},
         }
@@ -338,6 +341,8 @@ class CatalogDatabase:
             self._data["duplicate_groups"] = {}
         if "burst_groups" not in self._data:
             self._data["burst_groups"] = {}
+        if "problematic_files" not in self._data:
+            self._data["problematic_files"] = {}
         if "review_queue" not in self._data:
             self._data["review_queue"] = []
         if "transactions" not in self._data:
@@ -585,6 +590,59 @@ class CatalogDatabase:
         group_data = self._data.get("duplicate_groups", {}).get(group_id)
         if group_data:
             return DuplicateGroup.model_validate(group_data)
+        return None
+
+    def add_problematic_file(self, problematic: ProblematicFile) -> None:
+        """Add a problematic file record."""
+        if self._data:
+            self._data["problematic_files"][problematic.id] = problematic.model_dump(
+                mode="json"
+            )
+
+    def save_problematic_files(self, files: List[ProblematicFile]) -> None:
+        """Save multiple problematic files at once."""
+        if self._data:
+            for file in files:
+                self._data["problematic_files"][file.id] = file.model_dump(mode="json")
+
+    def get_problematic_files(
+        self, category: Optional[ProblematicFileCategory] = None, resolved: bool = False
+    ) -> List[ProblematicFile]:
+        """
+        Get problematic files.
+
+        Args:
+            category: Filter by specific category (None = all categories)
+            resolved: Include resolved files (default: False)
+
+        Returns:
+            List of problematic files matching criteria
+        """
+        if not self._data:
+            return []
+
+        files = []
+        for file_data in self._data.get("problematic_files", {}).values():
+            file = ProblematicFile.model_validate(file_data)
+
+            # Apply filters
+            if not resolved and file.resolved:
+                continue
+            if category and file.category != category:
+                continue
+
+            files.append(file)
+
+        return files
+
+    def get_problematic_file(self, file_id: str) -> Optional[ProblematicFile]:
+        """Get a specific problematic file by ID."""
+        if not self._data:
+            return None
+
+        file_data = self._data.get("problematic_files", {}).get(file_id)
+        if file_data:
+            return ProblematicFile.model_validate(file_data)
         return None
 
     def add_burst_group(self, group: BurstGroup) -> None:
