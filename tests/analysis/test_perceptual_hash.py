@@ -681,8 +681,8 @@ class TestLoadImageForHashing:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test RAW file loading falls back to dcraw when rawpy unavailable."""
-        import sys
-        from unittest.mock import MagicMock
+        import builtins
+        from unittest.mock import MagicMock, patch
 
         img_path = tmp_path / "test.nef"
         img_path.write_bytes(b"fake raw data")
@@ -697,30 +697,25 @@ class TestLoadImageForHashing:
         mock_result.returncode = 0
         mock_result.stdout = fake_jpeg_bytes
 
-        # Remove rawpy from sys.modules if present to trigger ImportError
-        original_rawpy = sys.modules.pop("rawpy", None)
+        # Mock builtins.__import__ to raise ImportError for rawpy
+        original_import = builtins.__import__
 
-        # Mock subprocess
-        import subprocess
+        def mock_import(name, *args, **kwargs):
+            if name == "rawpy":
+                raise ImportError("rawpy not available")
+            return original_import(name, *args, **kwargs)
 
-        original_run = subprocess.run
+        with patch("builtins.__import__", side_effect=mock_import):
+            with patch("subprocess.run", return_value=mock_result) as mock_subprocess:
+                result = _load_image_for_hashing(img_path)
 
-        try:
-            subprocess.run = MagicMock(return_value=mock_result)
-            result = _load_image_for_hashing(img_path)
-
-            assert result is not None
-            assert isinstance(result, Image.Image)
-            # Should have called dcraw
-            subprocess.run.assert_called_once()
-            call_args = subprocess.run.call_args.args[0]
-            assert "dcraw" in call_args
-            assert str(img_path) in call_args
-        finally:
-            # Restore original state
-            subprocess.run = original_run
-            if original_rawpy is not None:
-                sys.modules["rawpy"] = original_rawpy
+                assert result is not None
+                assert isinstance(result, Image.Image)
+                # Should have called dcraw
+                mock_subprocess.assert_called_once()
+                call_args = mock_subprocess.call_args.args[0]
+                assert "dcraw" in call_args
+                assert str(img_path) in call_args
 
     def test_load_raw_both_methods_fail(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
