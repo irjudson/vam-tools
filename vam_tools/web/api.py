@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
@@ -47,6 +48,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],  # Restrict to needed methods
     allow_headers=["*"],
 )
+
+# Mount static files directory
+static_dir = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Global catalog instance
 _catalog: Optional[CatalogDatabase] = None
