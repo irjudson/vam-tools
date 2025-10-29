@@ -73,13 +73,13 @@ def setup_logging(verbose: bool = False) -> None:
 @click.option(
     "--detect-duplicates",
     is_flag=True,
-    help="Detect duplicate and similar images after scanning",
+    help="Detect duplicate and similar images/videos after scanning",
 )
 @click.option(
     "--similarity-threshold",
     type=int,
     default=5,
-    help="Hamming distance threshold for similar images (default: 5, lower is more strict)",
+    help="Hamming distance threshold for similarity (default: 5, lower is more strict)",
 )
 @click.option(
     "--hash-methods",
