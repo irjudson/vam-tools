@@ -24,12 +24,7 @@ const getFileName = (path) => {
 const OverviewView = {
     template: `
         <div>
-            <h2>📊 Catalog Overview</h2>
-            <p style="color: #94a3b8; margin-bottom: 2rem;">
-                View your catalog statistics and performance metrics. Use the navigation above to explore your files, find duplicates, or review issues.
-            </p>
-
-            <div style="margin-top: 2rem; padding: 1.5rem; background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;">
+            <div style="margin-bottom: 2rem; padding: 1.5rem; background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;">
                 <h3 style="font-size: 1.25rem; color: #60a5fa; margin-bottom: 1rem;">Quick Actions</h3>
                 <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
                     <router-link to="/files" style="padding: 0.75rem 1.5rem; background: #60a5fa; color: white; border: none; border-radius: 0.375rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block;">
@@ -44,28 +39,86 @@ const OverviewView = {
                 </div>
             </div>
 
-            <div v-if="dashboardStats" style="margin-top: 2rem;">
-                <h3 style="margin-bottom: 1rem;">Catalog Statistics</h3>
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <h3>Total Files</h3>
-                        <div class="value">{{ totalFiles.toLocaleString() }}</div>
-                        <div class="subvalue">{{ formatBytes(catalogInfo.statistics?.total_size_bytes || 0) }}</div>
+            <div v-if="dashboardStats" class="stats-grid">
+                <!-- Overview Card -->
+                <div class="stat-card">
+                    <h3>Overview</h3>
+                    <div class="value">{{ totalFiles.toLocaleString() }}</div>
+                    <div class="subvalue">Total files</div>
+                    <div class="value" style="font-size: 1.5rem; margin-top: 0.5rem;">{{ formatBytes(catalogInfo.statistics?.total_size_bytes || 0) }}</div>
+                    <div class="subvalue">Total size</div>
+                </div>
+
+                <!-- Duplicates Card with breakdown -->
+                <div class="stat-card">
+                    <h3>Duplicates</h3>
+                    <div class="value">{{ dashboardStats.duplicates.total_groups.toLocaleString() }}</div>
+                    <div class="subvalue">Duplicate groups</div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #334155;">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
+                            {{ dashboardStats.duplicates.total_duplicate_images.toLocaleString() }} total duplicate images
+                        </div>
+                        <div style="font-size: 0.875rem; color: #10b981;">
+                            {{ dashboardStats.duplicates.potential_space_savings_gb.toFixed(1) }} GB potential savings
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <h3>Duplicates</h3>
-                        <div class="value">{{ dashboardStats.duplicates.total_groups.toLocaleString() }}</div>
-                        <div class="subvalue">{{ dashboardStats.duplicates.potential_space_savings_gb.toFixed(1) }} GB savings</div>
+                </div>
+
+                <!-- Review Queue Card with breakdown -->
+                <div class="stat-card">
+                    <h3>Review Queue</h3>
+                    <div class="value">{{ dashboardStats.review.total_needing_review.toLocaleString() }}</div>
+                    <div class="subvalue">Files needing review</div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #334155;">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
+                            {{ dashboardStats.review.date_conflicts.toLocaleString() }} date conflicts
+                        </div>
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
+                            {{ dashboardStats.review.no_dates.toLocaleString() }} no dates
+                        </div>
+                        <div style="font-size: 0.875rem; color: #94a3b8;">
+                            {{ dashboardStats.review.suspicious_dates.toLocaleString() }} suspicious dates
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <h3>Review Queue</h3>
-                        <div class="value">{{ dashboardStats.review.total_needing_review.toLocaleString() }}</div>
-                        <div class="subvalue">Files needing review</div>
+                </div>
+
+                <!-- Hash Coverage Card with breakdown -->
+                <div class="stat-card">
+                    <h3>Hash Coverage</h3>
+                    <div class="value">{{ dashboardStats.hashes.coverage_percent }}%</div>
+                    <div class="subvalue">Files with perceptual hashes</div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #334155;">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
+                            {{ dashboardStats.hashes.total_hashed.toLocaleString() }} hashed
+                        </div>
+                        <div style="font-size: 0.875rem; color: #ef4444;">
+                            {{ dashboardStats.hashes.failed_hashes.toLocaleString() }} failed
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <h3>Hash Coverage</h3>
-                        <div class="value">{{ dashboardStats.hashes.coverage_percent }}%</div>
-                        <div class="subvalue">Files with perceptual hashes</div>
+                </div>
+
+                <!-- File Types Card -->
+                <div class="stat-card">
+                    <h3>File Types</h3>
+                    <div style="margin-top: 0.5rem;">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">
+                            <strong style="color: #60a5fa;">{{ catalogInfo.statistics?.total_images.toLocaleString() || 0 }}</strong> Images
+                        </div>
+                        <div style="font-size: 0.875rem; color: #94a3b8;">
+                            <strong style="color: #60a5fa;">{{ catalogInfo.statistics?.total_videos.toLocaleString() || 0 }}</strong> Videos
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Storage Card -->
+                <div class="stat-card">
+                    <h3>Storage</h3>
+                    <div class="value">{{ formatBytes(catalogInfo.statistics?.total_size_bytes || 0) }}</div>
+                    <div class="subvalue">Used space</div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #334155;">
+                        <div style="font-size: 0.875rem; color: #10b981;">
+                            {{ dashboardStats.duplicates.potential_space_savings_gb.toFixed(1) }} GB reclaimable
+                        </div>
                     </div>
                 </div>
             </div>
@@ -82,7 +135,7 @@ const OverviewView = {
     }
 };
 
-// All Files Component
+// All Files Component with Enhanced Grid
 const AllFilesView = {
     template: `
         <div>
@@ -101,11 +154,17 @@ const AllFilesView = {
                     <option value="size">Sort by Size</option>
                 </select>
 
+                <select v-model="gridDensity">
+                    <option value="compact">🔲 Compact</option>
+                    <option value="comfortable">▢ Comfortable</option>
+                    <option value="spacious">□ Spacious</option>
+                </select>
+
                 <select v-model.number="pageSize" @change="loadImages">
-                    <option :value="10">Show 10</option>
                     <option :value="20">Show 20</option>
                     <option :value="50">Show 50</option>
                     <option :value="100">Show 100</option>
+                    <option :value="200">Show 200</option>
                 </select>
 
                 <button @click="toggleScrollMode" :style="scrollMode ? '' : 'background: #8b5cf6;'">
@@ -128,9 +187,9 @@ const AllFilesView = {
                 </h2>
             </div>
 
-            <div class="image-grid">
-                <div v-for="image in images" :key="image.id" class="image-card" @click="showDetail(image)">
-                    <div class="image-thumbnail">
+            <div class="image-grid" :class="'grid-' + gridDensity">
+                <div v-for="(image, index) in images" :key="image.id" class="image-card" @click="openLightbox(index)">
+                    <div class="image-thumbnail" :class="'thumbnail-' + gridDensity">
                         <img :src="'/api/images/' + image.id + '/thumbnail'"
                              :alt="image.source_path"
                              loading="lazy">
@@ -141,18 +200,18 @@ const AllFilesView = {
                         </div>
                         <div class="image-meta">
                             <span>{{ image.format }}</span>
-                            <span v-if="image.resolution">{{ image.resolution[0] }}x{{ image.resolution[1] }}</span>
+                            <span v-if="image.resolution">{{ image.resolution[0] }}×{{ image.resolution[1] }}</span>
                             <span>{{ formatBytes(image.size_bytes) }}</span>
                         </div>
                         <div>
                             <span class="badge badge-info" v-if="image.selected_date">
-                                {{ formatDate(image.selected_date) }}
+                                {{ formatDateShort(image.selected_date) }}
                             </span>
                             <span class="badge badge-error" v-if="!image.selected_date">
                                 No Date
                             </span>
                             <span class="badge badge-warning" v-if="image.suspicious">
-                                Suspicious Date
+                                Suspicious
                             </span>
                         </div>
                     </div>
@@ -183,41 +242,51 @@ const AllFilesView = {
                 </button>
             </div>
 
-            <div v-if="selectedImage" class="modal" @click="selectedImage = null">
-                <div class="modal-content" @click.stop>
-                    <span class="close-button" @click="selectedImage = null">&times;</span>
-                    <h2>{{ getFileName(selectedImage.source_path) }}</h2>
+            <!-- Enhanced Lightbox -->
+            <div v-if="lightboxIndex !== null" class="modal" @click="closeLightbox" @keydown.esc="closeLightbox" @keydown.left="prevImage" @keydown.right="nextImage">
+                <div class="modal-content lightbox-content" @click.stop>
+                    <span class="close-button" @click="closeLightbox">&times;</span>
 
-                    <img :src="'/api/images/' + selectedImage.id + '/file'"
-                         class="modal-image"
-                         :alt="selectedImage.source_path">
+                    <div class="lightbox-nav">
+                        <button @click.stop="prevImage" :disabled="lightboxIndex === 0" class="nav-button">
+                            ‹
+                        </button>
+                        <button @click.stop="nextImage" :disabled="lightboxIndex === images.length - 1" class="nav-button">
+                            ›
+                        </button>
+                    </div>
 
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <strong>Path:</strong><br>
-                            {{ selectedImage.source_path }}
+                    <div class="lightbox-image-container">
+                        <img :src="'/api/images/' + currentLightboxImage.id + '/file'"
+                             :alt="currentLightboxImage.source_path"
+                             class="lightbox-image">
+                    </div>
+
+                    <div class="lightbox-info">
+                        <h3>{{ getFileName(currentLightboxImage.source_path) }}</h3>
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <strong>Path:</strong><br>
+                                {{ currentLightboxImage.source_path }}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Format:</strong> {{ currentLightboxImage.format }}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Resolution:</strong>
+                                <span v-if="currentLightboxImage.resolution">
+                                    {{ currentLightboxImage.resolution[0] }} × {{ currentLightboxImage.resolution[1] }}
+                                </span>
+                            </div>
+                            <div class="detail-item">
+                                <strong>Size:</strong> {{ formatBytes(currentLightboxImage.size_bytes) }}
+                            </div>
+                            <div class="detail-item">
+                                <strong>Date:</strong> {{ currentLightboxImage.selected_date ? formatDate(currentLightboxImage.selected_date) : 'None' }}
+                            </div>
                         </div>
-                        <div class="detail-item">
-                            <strong>Format:</strong><br>
-                            {{ selectedImage.format }}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Resolution:</strong><br>
-                            <span v-if="selectedImage.resolution">
-                                {{ selectedImage.resolution[0] }} x {{ selectedImage.resolution[1] }}
-                            </span>
-                        </div>
-                        <div class="detail-item">
-                            <strong>Size:</strong><br>
-                            {{ formatBytes(selectedImage.size_bytes) }}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Selected Date:</strong><br>
-                            {{ selectedImage.selected_date ? formatDate(selectedImage.selected_date) : 'None' }}
-                        </div>
-                        <div class="detail-item">
-                            <strong>Date Source:</strong><br>
-                            {{ selectedImage.date_source || 'N/A' }}
+                        <div style="margin-top: 1rem; color: #64748b; font-size: 0.875rem;">
+                            {{ lightboxIndex + 1 }} of {{ images.length }} • Use arrow keys to navigate
                         </div>
                     </div>
                 </div>
@@ -228,22 +297,33 @@ const AllFilesView = {
     data() {
         return {
             images: [],
-            selectedImage: null,
+            lightboxIndex: null,
             filterType: '',
             sortBy: 'date',
             currentPage: 0,
-            pageSize: 20,
+            pageSize: 50,
             scrollMode: true,
+            gridDensity: 'comfortable',
             loadedCount: 0,
             totalCount: 0,
             isLoadingMore: false,
             hasMore: true,
         };
     },
+    computed: {
+        currentLightboxImage() {
+            return this.images[this.lightboxIndex];
+        }
+    },
     methods: {
         formatBytes,
         formatDate,
         getFileName,
+        formatDateShort(dateStr) {
+            if (!dateStr) return 'No date';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString();
+        },
         async loadImages() {
             try {
                 const params = {
@@ -305,8 +385,28 @@ const AllFilesView = {
             this.currentPage = 0;
             this.loadImages();
         },
-        async showDetail(image) {
-            this.selectedImage = image;
+        openLightbox(index) {
+            this.lightboxIndex = index;
+            document.addEventListener('keydown', this.handleKeydown);
+        },
+        closeLightbox() {
+            this.lightboxIndex = null;
+            document.removeEventListener('keydown', this.handleKeydown);
+        },
+        prevImage() {
+            if (this.lightboxIndex > 0) {
+                this.lightboxIndex--;
+            }
+        },
+        nextImage() {
+            if (this.lightboxIndex < this.images.length - 1) {
+                this.lightboxIndex++;
+            }
+        },
+        handleKeydown(e) {
+            if (e.key === 'Escape') this.closeLightbox();
+            if (e.key === 'ArrowLeft') this.prevImage();
+            if (e.key === 'ArrowRight') this.nextImage();
         },
         async refresh() {
             this.$emit('refresh-data');
@@ -326,9 +426,12 @@ const AllFilesView = {
     async mounted() {
         await this.loadImages();
     },
+    beforeUnmount() {
+        document.removeEventListener('keydown', this.handleKeydown);
+    },
 };
 
-// Duplicates Component
+// Duplicates Component (unchanged)
 const DuplicatesView = {
     template: `
         <div>
@@ -411,7 +514,7 @@ const DuplicatesView = {
                                 <div class="detail-row">
                                     <span>Resolution:</span>
                                     <strong v-if="imageDetails[imageId].resolution">
-                                        {{ imageDetails[imageId].resolution[0] }}x{{ imageDetails[imageId].resolution[1] }}
+                                        {{ imageDetails[imageId].resolution[0] }}×{{ imageDetails[imageId].resolution[1] }}
                                     </strong>
                                     <strong v-else>N/A</strong>
                                 </div>
@@ -453,7 +556,7 @@ const DuplicatesView = {
                                 <div class="detail-row">
                                     <span>Resolution:</span>
                                     <strong v-if="imageDetails[imageId].resolution">
-                                        {{ imageDetails[imageId].resolution[0] }}x{{ imageDetails[imageId].resolution[1] }}
+                                        {{ imageDetails[imageId].resolution[0] }}×{{ imageDetails[imageId].resolution[1] }}
                                     </strong>
                                 </div>
                                 <div class="detail-row">
@@ -552,7 +655,7 @@ const DuplicatesView = {
     },
 };
 
-// Review Component
+// Review Component (unchanged from before)
 const ReviewView = {
     template: `
         <div>
