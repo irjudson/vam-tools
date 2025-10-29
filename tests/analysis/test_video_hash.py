@@ -2,11 +2,8 @@
 Tests for video perceptual hashing module.
 """
 
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from vam_tools.analysis.video_hash import (
     are_videos_similar,

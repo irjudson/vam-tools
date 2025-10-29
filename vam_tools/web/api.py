@@ -18,6 +18,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from ..core.catalog import CatalogDatabase
+from ..shared.preview_cache import PreviewCache
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 _catalog: Optional[CatalogDatabase] = None
 _catalog_path: Optional[Path] = None
 _catalog_mtime: Optional[float] = None  # Track last modification time
+_preview_cache: Optional[PreviewCache] = None
 
 
 # WebSocket connection manager for real-time updates
@@ -176,7 +178,7 @@ class ProblematicFileSummary(BaseModel):
 
 def init_catalog(catalog_path: Path) -> None:
     """Initialize the catalog for API access."""
-    global _catalog, _catalog_path, _catalog_mtime
+    global _catalog, _catalog_path, _catalog_mtime, _preview_cache
     _catalog_path = catalog_path
     _catalog = CatalogDatabase(catalog_path)
     _catalog.load()
@@ -185,6 +187,14 @@ def init_catalog(catalog_path: Path) -> None:
     db_file = catalog_path / "catalog.json"
     if db_file.exists():
         _catalog_mtime = db_file.stat().st_mtime
+
+    # Initialize preview cache
+    _preview_cache = PreviewCache(catalog_path)
+    cache_stats = _preview_cache.get_cache_stats()
+    logger.info(
+        f"Preview cache initialized: {cache_stats['num_previews']} previews, "
+        f"{cache_stats['total_size_gb']:.2f} GB / {cache_stats['max_size_gb']:.2f} GB"
+    )
 
     logger.info(f"Catalog loaded from {catalog_path}")
 
@@ -206,6 +216,13 @@ def get_catalog() -> CatalogDatabase:
             _catalog_mtime = current_mtime
 
     return _catalog
+
+
+def get_preview_cache() -> PreviewCache:
+    """Get the preview cache instance."""
+    if _preview_cache is None:
+        raise HTTPException(status_code=500, detail="Preview cache not initialized")
+    return _preview_cache
 
 
 @app.get("/", response_model=None)
@@ -500,6 +517,7 @@ async def get_image_detail(image_id: str) -> ImageDetail:
 async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse]:
     """Serve the actual image file for preview."""
     catalog = get_catalog()
+    preview_cache = get_preview_cache()
     image = catalog.get_image(image_id)
 
     if not image:
@@ -530,6 +548,24 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
     # HEIC/TIFF can be converted with Pillow
     pillow_convertible = [".heic", ".heif", ".tif", ".tiff"]
 
+    # Check if this file needs extraction/conversion (RAW or HEIC/TIFF)
+    needs_extraction = file_ext in raw_formats or file_ext in pillow_convertible
+
+    # If file needs extraction, check cache first
+    if needs_extraction:
+        cached_preview_path = preview_cache.get_preview_path(image_id)
+        if cached_preview_path and cached_preview_path.exists():
+            # Serve cached preview (fast!)
+            logger.debug(f"Serving cached preview for {image_id}")
+            return FileResponse(
+                cached_preview_path,
+                media_type="image/jpeg",
+                headers={
+                    "Content-Disposition": f"inline; filename={file_path.stem}_preview.jpg",
+                    "Cache-Control": "public, max-age=3600",
+                },
+            )
+
     # Handle RAW files - extract embedded JPEG preview using ExifTool
     if file_ext in raw_formats:
         try:
@@ -543,7 +579,10 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
             )
 
             if result.returncode == 0 and len(result.stdout) > 0:
-                # Successfully extracted preview
+                # Successfully extracted preview - store in cache
+                preview_cache.store_preview(image_id, result.stdout)
+                logger.debug(f"Extracted and cached RAW preview for {image_id}")
+
                 buffer = io.BytesIO(result.stdout)
                 return StreamingResponse(
                     buffer,
@@ -562,6 +601,12 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
                 )
 
                 if result.returncode == 0 and len(result.stdout) > 0:
+                    # Successfully extracted preview - store in cache
+                    preview_cache.store_preview(image_id, result.stdout)
+                    logger.debug(
+                        f"Extracted and cached RAW preview (JpgFromRaw) for {image_id}"
+                    )
+
                     buffer = io.BytesIO(result.stdout)
                     return StreamingResponse(
                         buffer,
@@ -610,6 +655,16 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
                 # Save to bytes buffer as JPEG
                 buffer = io.BytesIO()
                 img.save(buffer, format="JPEG", quality=85)
+                buffer.seek(0)
+
+                # Store in cache
+                preview_bytes = buffer.getvalue()
+                preview_cache.store_preview(image_id, preview_bytes)
+                logger.debug(
+                    f"Converted and cached {file_ext.upper()} preview for {image_id}"
+                )
+
+                # Reset buffer for streaming
                 buffer.seek(0)
 
                 return StreamingResponse(
