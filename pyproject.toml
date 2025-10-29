@@ -38,6 +38,7 @@ dependencies = [
     "uvicorn[standard]>=0.24.0,<1.0.0",
     "pydantic>=2.0.0,<3.0.0",
     "PyWavelets>=1.4.0,<2.0.0",
+    "videohash>=3.0.0,<4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -163,6 +164,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "pyopencl.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "videohash.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
