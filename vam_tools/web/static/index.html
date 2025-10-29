@@ -641,20 +641,20 @@
                         📁 All Files
                         <span class="tab-badge" v-if="catalogInfo.total_images">{{ catalogInfo.total_images.toLocaleString() }}</span>
                     </button>
-                    <button
+                    <a
+                        href="/duplicates.html"
                         class="tab-button"
-                        :class="{ active: activeTab === 'duplicates' }"
-                        @click="switchTab('duplicates')">
+                        style="text-decoration: none;">
                         🔍 Duplicates
                         <span class="tab-badge" v-if="dashboardStats && dashboardStats.duplicates">{{ dashboardStats.duplicates.total_groups.toLocaleString() }}</span>
-                    </button>
-                    <button
+                    </a>
+                    <a
+                        href="/review.html"
                         class="tab-button"
-                        :class="{ active: activeTab === 'issues' }"
-                        @click="switchTab('issues')">
+                        style="text-decoration: none;">
                         ⚠️ Issues
                         <span class="tab-badge" v-if="dashboardStats && dashboardStats.review">{{ dashboardStats.review.total_needing_review.toLocaleString() }}</span>
-                    </button>
+                    </a>
                 </nav>
             </div>
 
@@ -664,21 +664,20 @@
                 <div class="tab-panel" :class="{ active: activeTab === 'overview' }">
                     <h2>📊 Catalog Overview</h2>
                     <p style="color: #94a3b8; margin-bottom: 2rem;">
-                        View your catalog statistics, performance metrics, and quick access to key features above.
-                        Switch to other tabs to browse files, review duplicates, or fix issues.
+                        View your catalog statistics and performance metrics above. Use the quick links below to browse files, find duplicates, or review issues.
                     </p>
                     <div style="margin-top: 2rem; padding: 1.5rem; background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;">
                         <h3 style="font-size: 1.25rem; color: #60a5fa; margin-bottom: 1rem;">Quick Links</h3>
                         <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
                             <button @click="switchTab('allFiles')" style="padding: 0.75rem 1.5rem; background: #60a5fa; color: white; border: none; border-radius: 0.375rem; font-weight: 600; cursor: pointer;">
-                                Browse All Files →
+                                📁 Browse All Files →
                             </button>
-                            <button @click="switchTab('duplicates')" style="padding: 0.75rem 1.5rem; background: #8b5cf6; color: white; border: none; border-radius: 0.375rem; font-weight: 600; cursor: pointer;">
-                                Find Duplicates →
-                            </button>
-                            <button @click="switchTab('issues')" style="padding: 0.75rem 1.5rem; background: #f59e0b; color: white; border: none; border-radius: 0.375rem; font-weight: 600; cursor: pointer;">
-                                Review Issues →
-                            </button>
+                            <a href="/duplicates.html" style="padding: 0.75rem 1.5rem; background: #8b5cf6; color: white; border: none; border-radius: 0.375rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block;">
+                                🔍 Find Duplicates →
+                            </a>
+                            <a href="/review.html" style="padding: 0.75rem 1.5rem; background: #f59e0b; color: white; border: none; border-radius: 0.375rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block;">
+                                ⚠️ Review Issues →
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -808,46 +807,6 @@
         </div>
                 </div>
                 <!-- End All Files Tab -->
-
-                <!-- Duplicates Tab -->
-                <div class="tab-panel" :class="{ active: activeTab === 'duplicates' }">
-                    <h2>🔍 Duplicates</h2>
-                    <p style="color: #94a3b8; margin-bottom: 2rem;">
-                        Duplicate detection interface will be integrated here in a future update.
-                    </p>
-                    <div style="padding: 1.5rem; background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;">
-                        <h3 style="font-size: 1.25rem; color: #8b5cf6; margin-bottom: 1rem;">Current Options</h3>
-                        <p style="color: #94a3b8; margin-bottom: 1rem;">
-                            For now, you can view duplicates using the dedicated duplicates page:
-                        </p>
-                        <a href="/duplicates.html"
-                           style="display: inline-block; padding: 0.75rem 1.5rem; background: #8b5cf6; color: white; text-decoration: none; border-radius: 0.375rem; font-weight: 600;">
-                            Open Duplicates Page →
-                        </a>
-                    </div>
-                </div>
-                <!-- End Duplicates Tab -->
-
-                <!-- Issues Tab -->
-                <div class="tab-panel" :class="{ active: activeTab === 'issues' }">
-                    <h2>⚠️ Issues</h2>
-                    <p style="color: #94a3b8; margin-bottom: 2rem;">
-                        Issue review interface will be integrated here in a future update.
-                    </p>
-                    <div style="padding: 1.5rem; background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;">
-                        <h3 style="font-size: 1.25rem; color: #f59e0b; margin-bottom: 1rem;">Coming Soon</h3>
-                        <p style="color: #94a3b8;">
-                            This tab will provide:
-                        </p>
-                        <ul style="color: #94a3b8; margin: 1rem 0; padding-left: 2rem;">
-                            <li>Files with missing dates</li>
-                            <li>Suspicious date detections</li>
-                            <li>Files needing review</li>
-                            <li>Quick fix actions</li>
-                        </ul>
-                    </div>
-                </div>
-                <!-- End Issues Tab -->
             </div>
             <!-- End Tab Panels Content Area -->
 
