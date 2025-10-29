@@ -80,7 +80,7 @@ const OverviewView = {
                             {{ dashboardStats.review.date_conflicts.toLocaleString() }} date conflicts
                         </div>
                         <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
-                            {{ dashboardStats.review.no_dates.toLocaleString() }} no dates
+                            {{ dashboardStats.review.no_date.toLocaleString() }} no dates
                         </div>
                         <div style="font-size: 0.875rem; color: #94a3b8;">
                             {{ dashboardStats.review.suspicious_dates.toLocaleString() }} suspicious dates
@@ -95,10 +95,10 @@ const OverviewView = {
                     <div class="subvalue">Files with perceptual hashes</div>
                     <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #334155;">
                         <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.25rem;">
-                            {{ dashboardStats.hashes.total_hashed.toLocaleString() }} hashed
+                            {{ dashboardStats.hashes.images_with_any_hash.toLocaleString() }} hashed
                         </div>
                         <div style="font-size: 0.875rem; color: #ef4444;">
-                            {{ dashboardStats.hashes.failed_hashes.toLocaleString() }} failed
+                            {{ (totalFiles - dashboardStats.hashes.images_with_any_hash).toLocaleString() }} failed
                         </div>
                     </div>
                 </div>
