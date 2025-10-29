@@ -82,6 +82,17 @@ class ReviewType(Enum):
     MANUAL_SELECTION = "manual_selection"
 
 
+class ProblematicFileCategory(Enum):
+    """Category of problematic file."""
+
+    HASH_COMPUTATION_FAILED = "hash_computation_failed"
+    CORRUPTED_FILE = "corrupted_file"
+    UNSUPPORTED_FORMAT = "unsupported_format"
+    MISSING_DEPENDENCIES = "missing_dependencies"
+    PERMISSION_DENIED = "permission_denied"
+    OTHER = "other"
+
+
 class ReviewPriority(Enum):
     """Priority level for review items."""
 
@@ -248,6 +259,19 @@ class BurstGroup(BaseModel):
     user_override: Optional[str] = None
 
 
+class ProblematicFile(BaseModel):
+    """Record of a file that had processing issues."""
+
+    id: str  # Image ID (checksum)
+    source_path: Path
+    category: ProblematicFileCategory
+    error_message: Optional[str] = None
+    detected_at: datetime = Field(default_factory=datetime.now)
+    file_type: Optional[FileType] = None
+    retries: int = 0
+    resolved: bool = False
+
+
 class ReviewItem(BaseModel):
     """Item in the review queue."""
 
@@ -309,6 +333,7 @@ class Statistics(BaseModel):
     burst_groups: int = 0
     burst_images: int = 0
     unique_images: int = 0
+    problematic_files: int = 0
 
 
 class CatalogState(BaseModel):

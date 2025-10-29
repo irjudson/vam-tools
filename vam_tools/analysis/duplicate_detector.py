@@ -24,7 +24,13 @@ from rich.progress import (
 
 from ..core.catalog import CatalogDatabase
 from ..core.performance_stats import PerformanceTracker
-from ..core.types import DuplicateGroup, ImageRecord, SimilarityMetrics
+from ..core.types import (
+    DuplicateGroup,
+    ImageRecord,
+    ProblematicFile,
+    ProblematicFileCategory,
+    SimilarityMetrics,
+)
 from .perceptual_hash import (
     HashMethod,
     combined_hash,
@@ -114,6 +120,7 @@ class DuplicateDetector:
 
         self.duplicate_groups: List[DuplicateGroup] = []
         self.perf_tracker = perf_tracker
+        self.problematic_files: List[ProblematicFile] = []
 
     def detect_duplicates(self, recompute_hashes: bool = False) -> List[DuplicateGroup]:
         """
@@ -325,6 +332,15 @@ class DuplicateDetector:
                             logger.warning(
                                 f"Failed to compute hash for {image.source_path}"
                             )
+                            # Track as problematic file
+                            problematic = ProblematicFile(
+                                id=image.id,
+                                source_path=image.source_path,
+                                category=ProblematicFileCategory.HASH_COMPUTATION_FAILED,
+                                error_message="Failed to compute perceptual hash",
+                                file_type=image.file_type,
+                            )
+                            self.problematic_files.append(problematic)
 
                         progress.advance(task)
 
@@ -842,6 +858,15 @@ class DuplicateDetector:
         logger.info(f"Saving {len(self.duplicate_groups)} duplicate groups to catalog")
         self.catalog.save_duplicate_groups(self.duplicate_groups)
         logger.info("Duplicate groups saved")
+
+    def save_problematic_files(self) -> None:
+        """Save problematic files to catalog."""
+        if self.problematic_files:
+            logger.info(
+                f"Saving {len(self.problematic_files)} problematic files to catalog"
+            )
+            self.catalog.save_problematic_files(self.problematic_files)
+            logger.info("Problematic files saved")
 
     def get_statistics(self) -> Dict[str, int]:
         """

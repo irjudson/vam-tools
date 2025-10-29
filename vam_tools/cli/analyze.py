@@ -389,6 +389,7 @@ def analyze(
 
                 # Save to catalog
                 detector.save_duplicate_groups()
+                detector.save_problematic_files()
 
                 # Store intermediate performance stats after duplicate detection
                 metrics = perf_tracker.metrics
@@ -405,6 +406,11 @@ def analyze(
                 analysis_stats["last_run"] = metrics.model_dump(mode="json")
                 db.store_performance_statistics(analysis_stats)
                 db.save()
+
+                # Update statistics with problematic files count
+                stats = db.get_statistics()
+                stats.problematic_files = len(detector.problematic_files)
+                db.update_statistics(stats)
 
                 # Display duplicate detection results
                 console.print("\n[green]✓ Duplicate detection complete![/green]\n")
@@ -426,6 +432,24 @@ def analyze(
                     console.print(
                         f"  • [yellow]{dup_stats['groups_needing_review']:,} groups need manual review[/yellow]"
                     )
+
+                # Display problematic files statistics
+                if detector.problematic_files:
+                    console.print(
+                        f"\n[yellow]⚠ {len(detector.problematic_files):,} files had processing issues[/yellow]"
+                    )
+                    # Count by category
+                    from collections import Counter
+
+                    categories = Counter(
+                        f.category.value for f in detector.problematic_files
+                    )
+                    for category, count in categories.most_common():
+                        console.print(f"  • {category}: {count:,}")
+                    console.print(
+                        "[dim]View these files with: vam-web /path/to/catalog (Problematic Files tab)[/dim]"
+                    )
+
                 console.print()
 
             # Finalize performance tracking
