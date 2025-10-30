@@ -18,6 +18,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from ..core.catalog import CatalogDatabase
+from ..core.types import ImageRecord
 from ..shared.preview_cache import PreviewCache
 
 logger = logging.getLogger(__name__)
@@ -1008,6 +1009,9 @@ async def list_duplicate_groups(
 
     Returns:
         List of duplicate group summaries
+
+    Optimized to only fetch group stats once computed, avoiding repeated
+    image lookups for pagination.
     """
     catalog = get_catalog()
     groups = catalog.get_duplicate_groups()
@@ -1016,15 +1020,30 @@ async def list_duplicate_groups(
     if needs_review_only:
         groups = [g for g in groups if g.needs_review]
 
-    # Paginate
+    # Paginate BEFORE computing stats (only compute for displayed groups)
     groups = groups[skip : skip + limit]
 
-    # Convert to summaries
+    # Build image lookup map (fetch only needed images)
+    all_image_ids = set()
+    for group in groups:
+        all_image_ids.update(group.images)
+
+    image_map = {}
+    for img_id in all_image_ids:
+        img = catalog.get_image(img_id)
+        if img:
+            image_map[img_id] = img
+
+    # Convert to summaries (using cached image lookup)
     summaries = []
     for group in groups:
-        # Get images for this group
-        images_optional = [catalog.get_image(img_id) for img_id in group.images]
-        images = [img for img in images_optional if img is not None]  # Filter out None
+        # Get images for this group from map
+        images_maybe: List[Optional[ImageRecord]] = [
+            image_map.get(img_id) for img_id in group.images
+        ]
+        images: List[ImageRecord] = [
+            img for img in images_maybe if img is not None
+        ]  # Filter out None
 
         # Calculate stats
         sizes: List[int] = [
@@ -1156,36 +1175,42 @@ async def get_review_queue(
     Get review queue items.
 
     Returns items that need manual review, optionally filtered by type.
+
+    Optimized to O(n) complexity by building lookup maps upfront.
     """
     catalog = get_catalog()
     images = catalog.list_images()
 
     review_items = []
 
+    # Build lookup map for date conflicts (only if needed)
+    image_to_conflict_group: Dict[str, str] = {}
+    if filter_type in [None, "date_conflict"]:
+        groups = catalog.get_duplicate_groups()
+        for group in groups:
+            if group.date_conflict:
+                for image_id in group.images:
+                    image_to_conflict_group[image_id] = group.id
+
+    # Single pass through images
     for image in images:
-        # Check for date conflicts (in duplicate groups)
+        # Check for date conflicts (using pre-built map)
         if filter_type in [None, "date_conflict"]:
-            # Find if image is in a duplicate group with date conflicts
-            groups = catalog.get_duplicate_groups()
-            for group in groups:
-                if image.id in group.images and group.date_conflict:
-                    review_items.append(
-                        {
-                            "id": image.id,
-                            "type": "date_conflict",
-                            "source_path": str(image.source_path),
-                            "current_date": (
-                                image.dates.selected_date.isoformat()
-                                if image.dates and image.dates.selected_date
-                                else None
-                            ),
-                            "confidence": (
-                                image.dates.confidence if image.dates else 0
-                            ),
-                            "group_id": group.id,
-                        }
-                    )
-                    break  # Only add once per image
+            if image.id in image_to_conflict_group:
+                review_items.append(
+                    {
+                        "id": image.id,
+                        "type": "date_conflict",
+                        "source_path": str(image.source_path),
+                        "current_date": (
+                            image.dates.selected_date.isoformat()
+                            if image.dates and image.dates.selected_date
+                            else None
+                        ),
+                        "confidence": (image.dates.confidence if image.dates else 0),
+                        "group_id": image_to_conflict_group[image.id],
+                    }
+                )
 
         # Check for no date
         if filter_type in [None, "no_date"]:
