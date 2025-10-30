@@ -324,24 +324,65 @@ class PerformanceTracker:
         Get current performance statistics as a dictionary.
 
         Returns:
-            Dictionary containing current performance metrics
+            Dictionary containing current performance metrics suitable for real-time updates
         """
+        # Calculate current throughput even while running
+        current_duration = 0.0
+        if self.metrics.started_at:
+            if self.metrics.completed_at:
+                current_duration = (
+                    self.metrics.completed_at - self.metrics.started_at
+                ).total_seconds()
+            else:
+                current_duration = (
+                    datetime.now() - self.metrics.started_at
+                ).total_seconds()
+
+        current_fps = 0.0
+        if current_duration > 0 and self.metrics.total_files_analyzed > 0:
+            current_fps = self.metrics.total_files_analyzed / current_duration
+
         return {
             "run_id": self.metrics.run_id,
             "started_at": (
                 self.metrics.started_at.isoformat() if self.metrics.started_at else None
             ),
+            "completed_at": (
+                self.metrics.completed_at.isoformat()
+                if self.metrics.completed_at
+                else None
+            ),
+            "total_duration_seconds": current_duration,
             "total_files_analyzed": self.metrics.total_files_analyzed,
-            "files_per_second": self.metrics.files_per_second,
+            "files_per_second": current_fps,
             "bytes_processed": self.metrics.bytes_processed,
+            "bytes_per_second": self.metrics.bytes_per_second,
+            "peak_memory_mb": self.metrics.peak_memory_mb,
+            "total_errors": self.metrics.total_errors,
             "operations": {
                 name: {
-                    "total_time": stats.total_time_seconds,
+                    "operation_name": stats.operation_name,
+                    "total_time_seconds": stats.total_time_seconds,
                     "call_count": stats.call_count,
                     "items_processed": stats.items_processed,
+                    "errors": stats.errors,
+                    "average_time_per_item": stats.average_time_per_item,
                 }
                 for name, stats in self.metrics.operations.items()
             },
+            "hashing": {
+                "dhash_time_seconds": self.metrics.hashing.dhash_time_seconds,
+                "ahash_time_seconds": self.metrics.hashing.ahash_time_seconds,
+                "whash_time_seconds": self.metrics.hashing.whash_time_seconds,
+                "total_hashes_computed": self.metrics.hashing.total_hashes_computed,
+                "gpu_hashes": self.metrics.hashing.gpu_hashes,
+                "cpu_hashes": self.metrics.hashing.cpu_hashes,
+                "failed_hashes": self.metrics.hashing.failed_hashes,
+                "raw_conversions": self.metrics.hashing.raw_conversions,
+                "raw_conversion_time_seconds": self.metrics.hashing.raw_conversion_time_seconds,
+            },
+            "gpu_utilized": self.metrics.gpu_utilized,
+            "gpu_device": self.metrics.gpu_device,
         }
 
     def finalize(self) -> PerformanceMetrics:
