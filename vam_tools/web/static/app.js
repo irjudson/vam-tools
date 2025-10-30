@@ -1186,19 +1186,37 @@ const StatisticsView = {
             try {
                 const response = await axios.get('/api/performance/current');
 
+                // Debug logging
+                console.log('[Statistics] Poll response:', {
+                    status: response.data.status,
+                    hasData: !!response.data.data,
+                    dataKeys: response.data.data ? Object.keys(response.data.data) : [],
+                    totalFiles: response.data.data?.total_files_analyzed,
+                    fps: response.data.data?.files_per_second
+                });
+
                 if (response.data.status === 'running' && response.data.data) {
+                    console.log('[Statistics] Setting running state');
                     this.isAnalysisRunning = true;
                     this.currentStats = response.data.data;
                     this.updateRealtimeData();
                     this.updateRealtimeCharts();
                     this.updateStaticCharts();
                 } else if (response.data.status === 'idle' && response.data.data) {
+                    console.log('[Statistics] Setting idle state');
                     this.isAnalysisRunning = false;
                     this.currentStats = response.data.data;
                     this.updateStaticCharts();
                 } else {
+                    console.log('[Statistics] No data or unknown status');
                     this.isAnalysisRunning = false;
                 }
+
+                console.log('[Statistics] State after update:', {
+                    isRunning: this.isAnalysisRunning,
+                    hasStats: !!this.currentStats,
+                    realtimeDataPoints: this.realtimeData.labels.length
+                });
             } catch (error) {
                 console.error('Error polling performance data:', error);
             }
@@ -1479,11 +1497,23 @@ const StatisticsView = {
     },
 
     async mounted() {
+        console.log('[Statistics] Component mounted');
+
         await this.loadHistoricalData();
+        console.log('[Statistics] Historical data loaded:', this.historicalData.length, 'runs');
 
         // Initialize charts after a short delay to ensure refs are available
         await this.$nextTick();
+        console.log('[Statistics] Refs available:', {
+            filesChart: !!this.$refs.filesChart,
+            throughputChart: !!this.$refs.throughputChart,
+            hashChart: !!this.$refs.hashChart,
+            operationsChart: !!this.$refs.operationsChart,
+            historyChart: !!this.$refs.historyChart
+        });
+
         this.initCharts();
+        console.log('[Statistics] Charts initialized:', Object.keys(this.charts));
 
         // Initial poll
         await this.pollPerformanceData();
@@ -1492,6 +1522,8 @@ const StatisticsView = {
         this.pollInterval = setInterval(() => {
             this.pollPerformanceData();
         }, 1000);
+
+        console.log('[Statistics] Polling started');
     },
 
     beforeUnmount() {
