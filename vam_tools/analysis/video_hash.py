@@ -44,7 +44,7 @@ def compute_video_hash(video_path: Path) -> Optional[str]:
         vh = VideoHash(path=str(video_path))
 
         # Get the hash as a hexadecimal string
-        hash_hex = vh.hash_hex
+        hash_hex: str = str(vh.hash_hex)
 
         logger.debug(f"Computed video hash for {video_path}: {hash_hex}")
         return hash_hex
