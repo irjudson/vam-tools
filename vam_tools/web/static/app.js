@@ -1204,9 +1204,10 @@ const StatisticsView = {
                     // If this is the first time we detected running state, initialize real-time charts
                     if (!wasRunning) {
                         console.log('[Statistics] First detection of running analysis, initializing real-time charts');
-                        this.$nextTick(() => {
+                        // Wait a bit longer for DOM to fully render and lay out
+                        setTimeout(() => {
                             this.initRealtimeCharts();
-                        });
+                        }, 100);
                     }
 
                     this.updateRealtimeData();
@@ -1447,16 +1448,24 @@ const StatisticsView = {
         },
 
         updateRealtimeCharts() {
-            if (this.charts.files) {
-                this.charts.files.data.labels = [...this.realtimeData.labels];
-                this.charts.files.data.datasets[0].data = [...this.realtimeData.filesProcessed];
-                this.charts.files.update('none'); // Fast update without animation
+            try {
+                if (this.charts.files && this.charts.files.canvas) {
+                    this.charts.files.data.labels = [...this.realtimeData.labels];
+                    this.charts.files.data.datasets[0].data = [...this.realtimeData.filesProcessed];
+                    this.charts.files.update('none'); // Fast update without animation
+                }
+            } catch (error) {
+                console.warn('[Statistics] Error updating files chart:', error.message);
             }
 
-            if (this.charts.throughput) {
-                this.charts.throughput.data.labels = [...this.realtimeData.labels];
-                this.charts.throughput.data.datasets[0].data = [...this.realtimeData.throughput];
-                this.charts.throughput.update('none');
+            try {
+                if (this.charts.throughput && this.charts.throughput.canvas) {
+                    this.charts.throughput.data.labels = [...this.realtimeData.labels];
+                    this.charts.throughput.data.datasets[0].data = [...this.realtimeData.throughput];
+                    this.charts.throughput.update('none');
+                }
+            } catch (error) {
+                console.warn('[Statistics] Error updating throughput chart:', error.message);
             }
         },
 
@@ -1464,25 +1473,33 @@ const StatisticsView = {
             if (!this.currentStats) return;
 
             // Update hash chart
-            if (this.charts.hash && this.currentStats.hashing) {
-                const hashData = this.currentStats.hashing;
-                this.charts.hash.data.datasets[0].data = [
-                    hashData.gpu_hashes || 0,
-                    hashData.cpu_hashes || 0,
-                    hashData.failed_hashes || 0
-                ];
-                this.charts.hash.update();
+            try {
+                if (this.charts.hash && this.charts.hash.canvas && this.currentStats.hashing) {
+                    const hashData = this.currentStats.hashing;
+                    this.charts.hash.data.datasets[0].data = [
+                        hashData.gpu_hashes || 0,
+                        hashData.cpu_hashes || 0,
+                        hashData.failed_hashes || 0
+                    ];
+                    this.charts.hash.update();
+                }
+            } catch (error) {
+                console.warn('[Statistics] Error updating hash chart:', error.message);
             }
 
             // Update operations chart
-            if (this.charts.operations && this.currentStats.operations) {
-                const ops = this.currentStats.operations;
-                const labels = Object.keys(ops);
-                const data = labels.map(key => ops[key].total_time_seconds || 0);
+            try {
+                if (this.charts.operations && this.charts.operations.canvas && this.currentStats.operations) {
+                    const ops = this.currentStats.operations;
+                    const labels = Object.keys(ops);
+                    const data = labels.map(key => ops[key].total_time_seconds || 0);
 
-                this.charts.operations.data.labels = labels;
-                this.charts.operations.data.datasets[0].data = data;
-                this.charts.operations.update();
+                    this.charts.operations.data.labels = labels;
+                    this.charts.operations.data.datasets[0].data = data;
+                    this.charts.operations.update();
+                }
+            } catch (error) {
+                console.warn('[Statistics] Error updating operations chart:', error.message);
             }
         },
 
