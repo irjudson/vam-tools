@@ -251,6 +251,15 @@ class ImageScanner:
                                 self.catalog.add_image(image)
                                 self.files_added += 1
 
+                                # Update real-time performance counters
+                                if self.perf_tracker:
+                                    self.perf_tracker.metrics.total_files_analyzed = (
+                                        self.files_added
+                                    )
+                                    self.perf_tracker.metrics.bytes_processed += (
+                                        file_size
+                                    )
+
                                 # Generate thumbnail if enabled
                                 if self.generate_thumbnails:
                                     thumb_path = get_thumbnail_path(
