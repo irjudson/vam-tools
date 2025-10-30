@@ -18,6 +18,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from ..core.catalog import CatalogDatabase
+from ..core.types import ImageRecord
 
 logger = logging.getLogger(__name__)
 
@@ -982,8 +983,12 @@ async def list_duplicate_groups(
     summaries = []
     for group in groups:
         # Get images for this group from map
-        images = [image_map.get(img_id) for img_id in group.images]
-        images = [img for img in images if img is not None]  # Filter out None
+        images_maybe: List[Optional[ImageRecord]] = [
+            image_map.get(img_id) for img_id in group.images
+        ]
+        images: List[ImageRecord] = [
+            img for img in images_maybe if img is not None
+        ]  # Filter out None
 
         # Calculate stats
         sizes: List[int] = [
