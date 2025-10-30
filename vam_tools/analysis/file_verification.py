@@ -225,7 +225,7 @@ def _verify_raw_file(file_path: Path, result: VerificationResult) -> None:
 
     # Method 2: Try rawpy
     try:
-        import rawpy  # type: ignore[import-not-found]
+        import rawpy  # type: ignore[import-untyped]
 
         with rawpy.imread(str(file_path)) as raw:
             # Try to access basic properties
