@@ -290,8 +290,8 @@ class ImageScanner:
                             else:
                                 self.files_skipped += 1
 
-                        # Checkpoint every 100 files
-                        if (i + 1) % 100 == 0:
+                        # Checkpoint every 10 files for more frequent updates
+                        if (i + 1) % 10 == 0:
                             # Update statistics before checkpoint
                             self.catalog.update_statistics(self.stats)
 
