@@ -1014,6 +1014,501 @@ const ReviewView = {
     },
 };
 
+// Statistics view with real-time charts
+const StatisticsView = {
+    template: `
+        <div class="statistics-view">
+            <h2 style="margin-bottom: 2rem;">📈 Analysis Statistics</h2>
+
+            <!-- Real-time status banner -->
+            <div v-if="isAnalysisRunning" class="status-banner" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 1rem; border-radius: 0.5rem; margin-bottom: 2rem; text-align: center;">
+                <div style="font-size: 1.25rem; font-weight: 600; color: white; margin-bottom: 0.25rem;">
+                    ⚡ Analysis in Progress
+                </div>
+                <div style="color: rgba(255,255,255,0.9);">
+                    {{ currentStats.total_files_analyzed || 0 }} files processed at {{ (currentStats.files_per_second || 0).toFixed(2) }} files/sec
+                </div>
+            </div>
+
+            <div v-else-if="hasHistoricalData" class="status-banner" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); padding: 1rem; border-radius: 0.5rem; margin-bottom: 2rem; text-align: center;">
+                <div style="font-size: 1.25rem; font-weight: 600; color: white; margin-bottom: 0.25rem;">
+                    ✅ Analysis Complete
+                </div>
+                <div style="color: rgba(255,255,255,0.9);">
+                    Last run: {{ lastRunSummary }}
+                </div>
+            </div>
+
+            <div v-else class="status-banner" style="background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); padding: 1rem; border-radius: 0.5rem; margin-bottom: 2rem; text-align: center;">
+                <div style="font-size: 1.25rem; font-weight: 600; color: white;">
+                    No Analysis Data
+                </div>
+                <div style="color: rgba(255,255,255,0.9); margin-top: 0.25rem;">
+                    Run an analysis to see performance statistics
+                </div>
+            </div>
+
+            <!-- Real-time charts (only shown when analysis is running) -->
+            <div v-if="isAnalysisRunning" class="stats-grid" style="margin-bottom: 2rem;">
+                <div class="stat-card chart-card">
+                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Files Processed Over Time</h3>
+                    <div style="height: 300px; position: relative;">
+                        <canvas ref="filesChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="stat-card chart-card">
+                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Processing Throughput</h3>
+                    <div style="height: 300px; position: relative;">
+                        <canvas ref="throughputChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Current run breakdown -->
+            <div v-if="currentStats" class="stats-grid" style="margin-bottom: 2rem;">
+                <div class="stat-card chart-card">
+                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Hash Computation Breakdown</h3>
+                    <div style="height: 300px; position: relative;">
+                        <canvas ref="hashChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="stat-card chart-card">
+                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Operation Timing</h3>
+                    <div style="height: 300px; position: relative;">
+                        <canvas ref="operationsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Memory and data stats -->
+            <div v-if="currentStats" class="stats-grid" style="margin-bottom: 2rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                <div class="stat-card">
+                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Data Processed</div>
+                    <div style="font-size: 1.5rem; font-weight: 600; color: #60a5fa;">
+                        {{ formatBytes(currentStats.bytes_processed) }}
+                    </div>
+                    <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
+                        {{ formatBytes(currentStats.bytes_per_second) }}/sec
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Peak Memory</div>
+                    <div style="font-size: 1.5rem; font-weight: 600; color: #8b5cf6;">
+                        {{ (currentStats.peak_memory_mb || 0).toFixed(1) }} MB
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Total Duration</div>
+                    <div style="font-size: 1.5rem; font-weight: 600; color: #10b981;">
+                        {{ formatDuration(currentStats.total_duration_seconds) }}
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Errors</div>
+                    <div style="font-size: 1.5rem; font-weight: 600;" :style="{ color: currentStats.total_errors > 0 ? '#ef4444' : '#10b981' }">
+                        {{ currentStats.total_errors || 0 }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Historical trends -->
+            <div v-if="hasHistoricalData" class="stats-grid">
+                <div class="stat-card chart-card">
+                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Last 10 Runs - Throughput</h3>
+                    <div style="height: 300px; position: relative;">
+                        <canvas ref="historyChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="stat-card chart-card">
+                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Historical Summary</h3>
+                    <div style="padding: 1rem;">
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-size: 0.875rem; color: #94a3b8;">Total Runs</div>
+                            <div style="font-size: 1.5rem; font-weight: 600; color: #60a5fa;">
+                                {{ historicalSummary.total_runs || 0 }}
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-size: 0.875rem; color: #94a3b8;">Total Files Analyzed</div>
+                            <div style="font-size: 1.5rem; font-weight: 600; color: #10b981;">
+                                {{ (historicalSummary.total_files_analyzed || 0).toLocaleString() }}
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.875rem; color: #94a3b8;">Average Throughput</div>
+                            <div style="font-size: 1.5rem; font-weight: 600; color: #8b5cf6;">
+                                {{ (historicalSummary.average_throughput || 0).toFixed(2) }} files/sec
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `,
+
+    data() {
+        return {
+            currentStats: null,
+            historicalData: [],
+            historicalSummary: {},
+            isAnalysisRunning: false,
+            charts: {},
+            pollInterval: null,
+            realtimeData: {
+                labels: [],
+                filesProcessed: [],
+                throughput: []
+            },
+            maxDataPoints: 60 // Keep last 60 seconds of data
+        };
+    },
+
+    computed: {
+        hasHistoricalData() {
+            return this.historicalData && this.historicalData.length > 0;
+        },
+
+        lastRunSummary() {
+            if (!this.hasHistoricalData) return '';
+            const lastRun = this.historicalData[this.historicalData.length - 1];
+            return `${lastRun.total_files_analyzed.toLocaleString()} files at ${lastRun.files_per_second.toFixed(2)} files/sec`;
+        }
+    },
+
+    methods: {
+        async pollPerformanceData() {
+            try {
+                const response = await axios.get('/api/performance/current');
+
+                if (response.data.status === 'running' && response.data.data) {
+                    this.isAnalysisRunning = true;
+                    this.currentStats = response.data.data;
+                    this.updateRealtimeData();
+                    this.updateRealtimeCharts();
+                    this.updateStaticCharts();
+                } else if (response.data.status === 'idle' && response.data.data) {
+                    this.isAnalysisRunning = false;
+                    this.currentStats = response.data.data;
+                    this.updateStaticCharts();
+                } else {
+                    this.isAnalysisRunning = false;
+                }
+            } catch (error) {
+                console.error('Error polling performance data:', error);
+            }
+        },
+
+        async loadHistoricalData() {
+            try {
+                const response = await axios.get('/api/performance/history');
+                this.historicalData = response.data.history || [];
+                this.historicalSummary = {
+                    total_runs: response.data.total_runs || 0,
+                    total_files_analyzed: response.data.total_files_analyzed || 0,
+                    average_throughput: response.data.average_throughput || 0
+                };
+
+                if (this.hasHistoricalData) {
+                    this.updateHistoricalChart();
+                }
+            } catch (error) {
+                console.error('Error loading historical data:', error);
+            }
+        },
+
+        updateRealtimeData() {
+            const now = new Date();
+            const timeLabel = now.toLocaleTimeString();
+
+            // Add new data point
+            this.realtimeData.labels.push(timeLabel);
+            this.realtimeData.filesProcessed.push(this.currentStats.total_files_analyzed || 0);
+            this.realtimeData.throughput.push(this.currentStats.files_per_second || 0);
+
+            // Limit to maxDataPoints
+            if (this.realtimeData.labels.length > this.maxDataPoints) {
+                this.realtimeData.labels.shift();
+                this.realtimeData.filesProcessed.shift();
+                this.realtimeData.throughput.shift();
+            }
+        },
+
+        initCharts() {
+            // Files processed over time (line chart)
+            if (this.$refs.filesChart) {
+                this.charts.files = new Chart(this.$refs.filesChart, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Files Processed',
+                            data: [],
+                            borderColor: '#60a5fa',
+                            backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: { color: '#94a3b8' },
+                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+                            },
+                            x: {
+                                ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 45 },
+                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+
+            // Throughput over time (line chart)
+            if (this.$refs.throughputChart) {
+                this.charts.throughput = new Chart(this.$refs.throughputChart, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Files/Second',
+                            data: [],
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: { color: '#94a3b8' },
+                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+                            },
+                            x: {
+                                ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 45 },
+                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+
+            // Hash computation breakdown (doughnut chart)
+            if (this.$refs.hashChart) {
+                this.charts.hash = new Chart(this.$refs.hashChart, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['GPU Hashes', 'CPU Hashes', 'Failed'],
+                        datasets: [{
+                            data: [0, 0, 0],
+                            backgroundColor: ['#10b981', '#3b82f6', '#ef4444']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { color: '#94a3b8' }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Operation timing (horizontal bar chart)
+            if (this.$refs.operationsChart) {
+                this.charts.operations = new Chart(this.$refs.operationsChart, {
+                    type: 'bar',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Time (seconds)',
+                            data: [],
+                            backgroundColor: '#8b5cf6'
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: { color: '#94a3b8' },
+                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+                            },
+                            y: {
+                                ticks: { color: '#94a3b8' },
+                                grid: { display: false }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+
+            // Historical throughput (bar chart)
+            if (this.$refs.historyChart) {
+                this.charts.history = new Chart(this.$refs.historyChart, {
+                    type: 'bar',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Files/Second',
+                            data: [],
+                            backgroundColor: '#60a5fa'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: { color: '#94a3b8' },
+                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
+                            },
+                            x: {
+                                ticks: { color: '#94a3b8' },
+                                grid: { display: false }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+        },
+
+        updateRealtimeCharts() {
+            if (this.charts.files) {
+                this.charts.files.data.labels = [...this.realtimeData.labels];
+                this.charts.files.data.datasets[0].data = [...this.realtimeData.filesProcessed];
+                this.charts.files.update('none'); // Fast update without animation
+            }
+
+            if (this.charts.throughput) {
+                this.charts.throughput.data.labels = [...this.realtimeData.labels];
+                this.charts.throughput.data.datasets[0].data = [...this.realtimeData.throughput];
+                this.charts.throughput.update('none');
+            }
+        },
+
+        updateStaticCharts() {
+            if (!this.currentStats) return;
+
+            // Update hash chart
+            if (this.charts.hash && this.currentStats.hashing) {
+                const hashData = this.currentStats.hashing;
+                this.charts.hash.data.datasets[0].data = [
+                    hashData.gpu_hashes || 0,
+                    hashData.cpu_hashes || 0,
+                    hashData.failed_hashes || 0
+                ];
+                this.charts.hash.update();
+            }
+
+            // Update operations chart
+            if (this.charts.operations && this.currentStats.operations) {
+                const ops = this.currentStats.operations;
+                const labels = Object.keys(ops);
+                const data = labels.map(key => ops[key].total_time_seconds || 0);
+
+                this.charts.operations.data.labels = labels;
+                this.charts.operations.data.datasets[0].data = data;
+                this.charts.operations.update();
+            }
+        },
+
+        updateHistoricalChart() {
+            if (!this.charts.history || !this.hasHistoricalData) return;
+
+            const labels = this.historicalData.map((run, idx) => `Run ${idx + 1}`);
+            const data = this.historicalData.map(run => run.files_per_second || 0);
+
+            this.charts.history.data.labels = labels;
+            this.charts.history.data.datasets[0].data = data;
+            this.charts.history.update();
+        },
+
+        formatBytes(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        },
+
+        formatDuration(seconds) {
+            if (!seconds || seconds === 0) return '0s';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+
+            const parts = [];
+            if (h > 0) parts.push(`${h}h`);
+            if (m > 0) parts.push(`${m}m`);
+            if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+
+            return parts.join(' ');
+        }
+    },
+
+    async mounted() {
+        await this.loadHistoricalData();
+
+        // Initialize charts after a short delay to ensure refs are available
+        await this.$nextTick();
+        this.initCharts();
+
+        // Initial poll
+        await this.pollPerformanceData();
+
+        // Start polling every second
+        this.pollInterval = setInterval(() => {
+            this.pollPerformanceData();
+        }, 1000);
+    },
+
+    beforeUnmount() {
+        // Clean up interval
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+        }
+
+        // Destroy all charts
+        Object.values(this.charts).forEach(chart => {
+            if (chart) {
+                chart.destroy();
+            }
+        });
+    }
+};
+
 // Router configuration
 const router = createRouter({
     history: createWebHashHistory(),
@@ -1021,7 +1516,8 @@ const router = createRouter({
         { path: '/', component: OverviewView },
         { path: '/files', component: AllFilesView },
         { path: '/duplicates', component: DuplicatesView },
-        { path: '/review', component: ReviewView }
+        { path: '/review', component: ReviewView },
+        { path: '/statistics', component: StatisticsView }
     ]
 });
 
