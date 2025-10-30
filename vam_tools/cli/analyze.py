@@ -120,6 +120,11 @@ def setup_logging(verbose: bool = False) -> None:
     is_flag=True,
     help="Skip thumbnail generation during analysis (can generate later with vam-generate-thumbnails)",
 )
+@click.option(
+    "--extract-previews",
+    is_flag=True,
+    help="Extract and cache previews for RAW/HEIC files after analysis (improves web UI performance)",
+)
 def analyze(
     catalog_path: str,
     source: tuple,
@@ -136,6 +141,7 @@ def analyze(
     gpu_batch_size: int,
     use_faiss: bool,
     no_thumbnails: bool,
+    extract_previews: bool,
 ) -> None:
     """
     Analyze images and build catalog database.
@@ -451,6 +457,32 @@ def analyze(
                     )
 
                 console.print()
+
+            # Run preview extraction if requested
+            if extract_previews:
+                console.print("\n[cyan]Starting preview extraction...[/cyan]\n")
+                console.print(
+                    "[dim]Extracting and caching previews for RAW/HEIC files...[/dim]\n"
+                )
+
+                from vam_tools.analysis.preview_extractor import PreviewExtractor
+
+                extractor = PreviewExtractor(db, workers=workers)
+                extractor.extract_previews(force=False)
+
+                # Show results
+                cache_stats = extractor.preview_cache.get_cache_stats()
+                console.print("\n[green]✓ Preview extraction complete![/green]\n")
+                console.print(
+                    f"[cyan]Preview cache: {cache_stats['num_previews']:,} previews[/cyan]"
+                )
+                console.print(
+                    f"  • {cache_stats['total_size_gb']:.2f} GB / {cache_stats['max_size_gb']:.2f} GB "
+                    f"({cache_stats['usage_percent']:.1f}% full)"
+                )
+                console.print(
+                    "  • [dim]Cached previews will load instantly in web UI[/dim]\n"
+                )
 
             # Finalize performance tracking
             final_metrics = perf_tracker.finalize()
