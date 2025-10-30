@@ -1197,8 +1197,18 @@ const StatisticsView = {
 
                 if (response.data.status === 'running' && response.data.data) {
                     console.log('[Statistics] Setting running state');
+                    const wasRunning = this.isAnalysisRunning;
                     this.isAnalysisRunning = true;
                     this.currentStats = response.data.data;
+
+                    // If this is the first time we detected running state, initialize real-time charts
+                    if (!wasRunning) {
+                        console.log('[Statistics] First detection of running analysis, initializing real-time charts');
+                        this.$nextTick(() => {
+                            this.initRealtimeCharts();
+                        });
+                    }
+
                     this.updateRealtimeData();
                     this.updateRealtimeCharts();
                     this.updateStaticCharts();
@@ -1257,9 +1267,14 @@ const StatisticsView = {
             }
         },
 
-        initCharts() {
+        initRealtimeCharts() {
+            console.log('[Statistics] Initializing real-time charts, refs:', {
+                filesChart: !!this.$refs.filesChart,
+                throughputChart: !!this.$refs.throughputChart
+            });
+
             // Files processed over time (line chart)
-            if (this.$refs.filesChart) {
+            if (this.$refs.filesChart && !this.charts.files) {
                 this.charts.files = new Chart(this.$refs.filesChart, {
                     type: 'line',
                     data: {
@@ -1292,10 +1307,11 @@ const StatisticsView = {
                         }
                     }
                 });
+                console.log('[Statistics] Files chart created');
             }
 
             // Throughput over time (line chart)
-            if (this.$refs.throughputChart) {
+            if (this.$refs.throughputChart && !this.charts.throughput) {
                 this.charts.throughput = new Chart(this.$refs.throughputChart, {
                     type: 'line',
                     data: {
@@ -1328,6 +1344,14 @@ const StatisticsView = {
                         }
                     }
                 });
+                console.log('[Statistics] Throughput chart created');
+            }
+        },
+
+        initCharts() {
+            // Initialize real-time charts if analysis is running
+            if (this.isAnalysisRunning) {
+                this.initRealtimeCharts();
             }
 
             // Hash computation breakdown (doughnut chart)
