@@ -71,7 +71,7 @@ def _load_image_for_hashing(image_path: Path) -> Optional[Image.Image]:
         if file_ext in raw_formats:
             # Try rawpy first (Python library for LibRaw)
             try:
-                import rawpy  # type: ignore[import-not-found]
+                import rawpy  # type: ignore[import-untyped]
 
                 with rawpy.imread(str(image_path)) as raw:
                     # Convert to RGB using default settings
