@@ -1048,19 +1048,49 @@ const StatisticsView = {
                 </div>
             </div>
 
-            <!-- Real-time charts (only shown when analysis is running) -->
-            <div v-if="isAnalysisRunning" class="stats-grid" style="margin-bottom: 2rem;">
-                <div class="stat-card chart-card">
-                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Files Processed Over Time</h3>
-                    <div style="height: 300px; position: relative;">
-                        <canvas ref="filesChart"></canvas>
+            <!-- Real-time stats (only shown when analysis is running) -->
+            <div v-if="isAnalysisRunning">
+                <h3 style="margin-bottom: 1rem; color: #10b981;">⚡ Real-Time Statistics</h3>
+                <div class="stats-grid" style="margin-bottom: 2rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+                    <div class="stat-card">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Files Processed</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #10b981;">
+                            {{ (currentStats.total_files_analyzed || 0).toLocaleString() }}
+                        </div>
+                        <div style="margin-top: 0.75rem; height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden; position: relative;">
+                            <div style="position: absolute; height: 100%; width: 30%; background: linear-gradient(90deg, transparent, #10b981, transparent); animation: pulse 2s ease-in-out infinite;">
+                            </div>
+                        </div>
                     </div>
-                </div>
 
-                <div class="stat-card chart-card">
-                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Processing Throughput</h3>
-                    <div style="height: 300px; position: relative;">
-                        <canvas ref="throughputChart"></canvas>
+                    <div class="stat-card">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Current Speed</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #3b82f6;">
+                            {{ (currentStats.files_per_second || 0).toFixed(1) }}
+                        </div>
+                        <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
+                            files/sec
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Data Throughput</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #8b5cf6;">
+                            {{ formatBytes(currentStats.bytes_per_second) }}
+                        </div>
+                        <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
+                            per second
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Elapsed Time</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #f59e0b;">
+                            {{ formatDuration(currentStats.total_duration_seconds) }}
+                        </div>
+                        <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
+                            {{ getEstimatedRemaining() }}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1158,17 +1188,8 @@ const StatisticsView = {
             historicalData: [],
             historicalSummary: {},
             isAnalysisRunning: false,
-            charts: {},
-            pollInterval: null,
-            realtimeData: {
-                labels: [],
-                filesProcessed: [],
-                throughput: []
-            },
-            maxDataPoints: 60, // Keep last 60 seconds of data
-            chartInitializedAt: null, // Track when charts were created
-            chartUpdateCooldown: 2000, // Don't update charts for 2 seconds after creation
-            isUpdatingCharts: false // Lock to prevent concurrent chart updates
+            charts: {}, // Only for static charts (hash, operations, history)
+            pollInterval: null
         };
     },
 
@@ -1189,62 +1210,17 @@ const StatisticsView = {
             try {
                 const response = await axios.get('/api/performance/current');
 
-                // Debug logging
-                console.log('[Statistics] Poll response:', {
-                    status: response.data.status,
-                    hasData: !!response.data.data,
-                    dataKeys: response.data.data ? Object.keys(response.data.data) : [],
-                    totalFiles: response.data.data?.total_files_analyzed,
-                    fps: response.data.data?.files_per_second
-                });
-
                 if (response.data.status === 'running' && response.data.data) {
-                    console.log('[Statistics] Setting running state');
-                    const wasRunning = this.isAnalysisRunning;
                     this.isAnalysisRunning = true;
                     this.currentStats = response.data.data;
-
-                    // If this is the first time we detected running state, initialize real-time charts
-                    if (!wasRunning) {
-                        console.log('[Statistics] First detection of running analysis, initializing real-time charts');
-                        // Wait for Vue to render the DOM elements
-                        await this.$nextTick();
-                        // Give browser time to layout the canvas elements
-                        await new Promise(resolve => setTimeout(resolve, 150));
-                        this.initRealtimeCharts();
-                        // Mark when charts were created
-                        this.chartInitializedAt = Date.now();
-                        // Add initial data point but don't update charts yet (Chart.js needs time to initialize)
-                        this.updateRealtimeData();
-                    } else {
-                        // Normal update: update data and charts
-                        this.updateRealtimeData();
-                        // Only update charts if they exist AND cooldown period has passed
-                        if (this.charts.files || this.charts.throughput) {
-                            const timeSinceInit = this.chartInitializedAt ? Date.now() - this.chartInitializedAt : Infinity;
-                            if (timeSinceInit > this.chartUpdateCooldown) {
-                                this.updateRealtimeCharts();
-                            } else {
-                                console.log('[Statistics] Skipping chart update during cooldown period');
-                            }
-                        }
-                    }
                     this.updateStaticCharts();
                 } else if (response.data.status === 'idle' && response.data.data) {
-                    console.log('[Statistics] Setting idle state');
                     this.isAnalysisRunning = false;
                     this.currentStats = response.data.data;
                     this.updateStaticCharts();
                 } else {
-                    console.log('[Statistics] No data or unknown status');
                     this.isAnalysisRunning = false;
                 }
-
-                console.log('[Statistics] State after update:', {
-                    isRunning: this.isAnalysisRunning,
-                    hasStats: !!this.currentStats,
-                    realtimeDataPoints: this.realtimeData.labels.length
-                });
             } catch (error) {
                 console.error('Error polling performance data:', error);
             }
@@ -1268,115 +1244,8 @@ const StatisticsView = {
             }
         },
 
-        updateRealtimeData() {
-            const now = new Date();
-            const timeLabel = now.toLocaleTimeString();
-
-            // Add new data point
-            this.realtimeData.labels.push(timeLabel);
-            this.realtimeData.filesProcessed.push(this.currentStats.total_files_analyzed || 0);
-            this.realtimeData.throughput.push(this.currentStats.files_per_second || 0);
-
-            // Limit to maxDataPoints
-            if (this.realtimeData.labels.length > this.maxDataPoints) {
-                this.realtimeData.labels.shift();
-                this.realtimeData.filesProcessed.shift();
-                this.realtimeData.throughput.shift();
-            }
-        },
-
-        initRealtimeCharts() {
-            console.log('[Statistics] Initializing real-time charts, refs:', {
-                filesChart: !!this.$refs.filesChart,
-                throughputChart: !!this.$refs.throughputChart
-            });
-
-            // Guard: Don't try to create charts if refs aren't available
-            if (!this.$refs.filesChart || !this.$refs.throughputChart) {
-                console.warn('[Statistics] Chart refs not available yet, skipping initialization');
-                return;
-            }
-
-            // Files processed over time (line chart)
-            if (this.$refs.filesChart && !this.charts.files) {
-                this.charts.files = new Chart(this.$refs.filesChart, {
-                    type: 'line',
-                    data: {
-                        labels: [],
-                        datasets: [{
-                            label: 'Files Processed',
-                            data: [],
-                            borderColor: '#60a5fa',
-                            backgroundColor: 'rgba(96, 165, 250, 0.1)',
-                            tension: 0.4,
-                            fill: true
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                ticks: { color: '#94a3b8' },
-                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
-                            },
-                            x: {
-                                ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 45 },
-                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
-                            }
-                        },
-                        plugins: {
-                            legend: { display: false }
-                        }
-                    }
-                });
-                console.log('[Statistics] Files chart created');
-            }
-
-            // Throughput over time (line chart)
-            if (this.$refs.throughputChart && !this.charts.throughput) {
-                this.charts.throughput = new Chart(this.$refs.throughputChart, {
-                    type: 'line',
-                    data: {
-                        labels: [],
-                        datasets: [{
-                            label: 'Files/Second',
-                            data: [],
-                            borderColor: '#10b981',
-                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                            tension: 0.4,
-                            fill: true
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                ticks: { color: '#94a3b8' },
-                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
-                            },
-                            x: {
-                                ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 45 },
-                                grid: { color: 'rgba(148, 163, 184, 0.1)' }
-                            }
-                        },
-                        plugins: {
-                            legend: { display: false }
-                        }
-                    }
-                });
-                console.log('[Statistics] Throughput chart created');
-            }
-        },
-
         initCharts() {
-            // Initialize real-time charts if analysis is running
-            if (this.isAnalysisRunning) {
-                this.initRealtimeCharts();
-            }
+            // Static charts only - real-time stats now use simple Vue reactive display
 
             // Hash computation breakdown (doughnut chart)
             if (this.$refs.hashChart) {
@@ -1470,82 +1339,6 @@ const StatisticsView = {
             }
         },
 
-        updateRealtimeCharts() {
-            // Guard: Don't update if charts don't exist
-            if (!this.charts.files && !this.charts.throughput) {
-                return;
-            }
-
-            // Prevent concurrent updates
-            if (this.isUpdatingCharts) {
-                console.log('[Statistics] Skipping chart update - already in progress');
-                return;
-            }
-
-            this.isUpdatingCharts = true;
-
-            try {
-                // Check if chart still exists and hasn't been destroyed
-                if (this.charts.files &&
-                    !this.charts.files.$destroyed &&
-                    this.charts.files.ctx &&
-                    this.charts.files.data &&
-                    this.charts.files.data.datasets &&
-                    this.charts.files.data.datasets[0]) {
-
-                    // Replace arrays with new copies to avoid Vue reactivity issues
-                    this.charts.files.data.labels = [...this.realtimeData.labels];
-                    this.charts.files.data.datasets[0].data = [...this.realtimeData.filesProcessed];
-
-                    // Update chart with 'none' mode to skip animations
-                    this.charts.files.update('none');
-                }
-            } catch (error) {
-                console.warn('[Statistics] Error updating files chart:', error?.message || error);
-                // Chart might be corrupted, destroy and remove reference
-                try {
-                    if (this.charts.files && !this.charts.files.$destroyed) {
-                        this.charts.files.destroy();
-                    }
-                } catch (destroyError) {
-                    // Ignore destroy errors
-                }
-                this.charts.files = null;
-            }
-
-            try {
-                // Check if chart still exists and hasn't been destroyed
-                if (this.charts.throughput &&
-                    !this.charts.throughput.$destroyed &&
-                    this.charts.throughput.ctx &&
-                    this.charts.throughput.data &&
-                    this.charts.throughput.data.datasets &&
-                    this.charts.throughput.data.datasets[0]) {
-
-                    // Replace arrays with new copies to avoid Vue reactivity issues
-                    this.charts.throughput.data.labels = [...this.realtimeData.labels];
-                    this.charts.throughput.data.datasets[0].data = [...this.realtimeData.throughput];
-
-                    // Update chart with 'none' mode to skip animations
-                    this.charts.throughput.update('none');
-                }
-            } catch (error) {
-                console.warn('[Statistics] Error updating throughput chart:', error?.message || error);
-                // Chart might be corrupted, destroy and remove reference
-                try {
-                    if (this.charts.throughput && !this.charts.throughput.$destroyed) {
-                        this.charts.throughput.destroy();
-                    }
-                } catch (destroyError) {
-                    // Ignore destroy errors
-                }
-                this.charts.throughput = null;
-            } finally {
-                // Always release the lock
-                this.isUpdatingCharts = false;
-            }
-        },
-
         updateStaticCharts() {
             if (!this.currentStats) return;
 
@@ -1614,6 +1407,21 @@ const StatisticsView = {
             if (s > 0 || parts.length === 0) parts.push(`${s}s`);
 
             return parts.join(' ');
+        },
+
+        getProgressPercent() {
+            // Progress bar is just visual indication (no total known)
+            // Show a pulsing animation effect by returning 0
+            return 0;
+        },
+
+        getEstimatedRemaining() {
+            // Simple ETA based on current rate
+            if (!this.currentStats || !this.currentStats.files_per_second || this.currentStats.files_per_second === 0) {
+                return '';
+            }
+            // We don't know total files, so just show current rate
+            return `${this.currentStats.files_per_second.toFixed(1)} files/sec`;
         }
     },
 
