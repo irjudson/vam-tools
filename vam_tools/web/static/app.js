@@ -510,7 +510,7 @@ const DuplicatesView = {
                                 </span>
                             </div>
                             <div class="image-preview" @click="viewFullImage(imageId, group.id)">
-                                <img :src="'/api/images/' + imageId + '/file'" :alt="imageId" loading="lazy">
+                                <img :src="'/api/images/' + imageId + '/thumbnail'" :alt="imageId" loading="lazy">
                             </div>
                             <div class="image-details" v-if="imageDetails[imageId]">
                                 <div class="detail-row">
@@ -746,7 +746,7 @@ const ReviewView = {
                          class="review-card"
                          :class="{ selected: isSelected(item.id) }">
                         <div class="review-image" @click="showImageDetail(item)">
-                            <img :src="'/api/images/' + item.id + '/file'"
+                            <img :src="'/api/images/' + item.id + '/thumbnail'"
                                  :alt="item.source_path"
                                  loading="lazy">
                         </div>
