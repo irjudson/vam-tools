@@ -1165,7 +1165,10 @@ const StatisticsView = {
                 filesProcessed: [],
                 throughput: []
             },
-            maxDataPoints: 60 // Keep last 60 seconds of data
+            maxDataPoints: 60, // Keep last 60 seconds of data
+            chartInitializedAt: null, // Track when charts were created
+            chartUpdateCooldown: 2000, // Don't update charts for 2 seconds after creation
+            isUpdatingCharts: false // Lock to prevent concurrent chart updates
         };
     },
 
@@ -1204,14 +1207,28 @@ const StatisticsView = {
                     // If this is the first time we detected running state, initialize real-time charts
                     if (!wasRunning) {
                         console.log('[Statistics] First detection of running analysis, initializing real-time charts');
-                        // Wait a bit longer for DOM to fully render and lay out
-                        setTimeout(() => {
-                            this.initRealtimeCharts();
-                        }, 100);
+                        // Wait for Vue to render the DOM elements
+                        await this.$nextTick();
+                        // Give browser time to layout the canvas elements
+                        await new Promise(resolve => setTimeout(resolve, 150));
+                        this.initRealtimeCharts();
+                        // Mark when charts were created
+                        this.chartInitializedAt = Date.now();
+                        // Add initial data point but don't update charts yet (Chart.js needs time to initialize)
+                        this.updateRealtimeData();
+                    } else {
+                        // Normal update: update data and charts
+                        this.updateRealtimeData();
+                        // Only update charts if they exist AND cooldown period has passed
+                        if (this.charts.files || this.charts.throughput) {
+                            const timeSinceInit = this.chartInitializedAt ? Date.now() - this.chartInitializedAt : Infinity;
+                            if (timeSinceInit > this.chartUpdateCooldown) {
+                                this.updateRealtimeCharts();
+                            } else {
+                                console.log('[Statistics] Skipping chart update during cooldown period');
+                            }
+                        }
                     }
-
-                    this.updateRealtimeData();
-                    this.updateRealtimeCharts();
                     this.updateStaticCharts();
                 } else if (response.data.status === 'idle' && response.data.data) {
                     console.log('[Statistics] Setting idle state');
@@ -1273,6 +1290,12 @@ const StatisticsView = {
                 filesChart: !!this.$refs.filesChart,
                 throughputChart: !!this.$refs.throughputChart
             });
+
+            // Guard: Don't try to create charts if refs aren't available
+            if (!this.$refs.filesChart || !this.$refs.throughputChart) {
+                console.warn('[Statistics] Chart refs not available yet, skipping initialization');
+                return;
+            }
 
             // Files processed over time (line chart)
             if (this.$refs.filesChart && !this.charts.files) {
@@ -1448,28 +1471,79 @@ const StatisticsView = {
         },
 
         updateRealtimeCharts() {
-            // Defer chart updates to next animation frame to avoid conflicts with Vue's reactive updates
-            requestAnimationFrame(() => {
-                try {
-                    if (this.charts.files && this.charts.files.canvas) {
-                        this.charts.files.data.labels = [...this.realtimeData.labels];
-                        this.charts.files.data.datasets[0].data = [...this.realtimeData.filesProcessed];
-                        this.charts.files.update('none'); // Fast update without animation
-                    }
-                } catch (error) {
-                    console.warn('[Statistics] Error updating files chart:', error.message);
-                }
+            // Guard: Don't update if charts don't exist
+            if (!this.charts.files && !this.charts.throughput) {
+                return;
+            }
 
-                try {
-                    if (this.charts.throughput && this.charts.throughput.canvas) {
-                        this.charts.throughput.data.labels = [...this.realtimeData.labels];
-                        this.charts.throughput.data.datasets[0].data = [...this.realtimeData.throughput];
-                        this.charts.throughput.update('none');
-                    }
-                } catch (error) {
-                    console.warn('[Statistics] Error updating throughput chart:', error.message);
+            // Prevent concurrent updates
+            if (this.isUpdatingCharts) {
+                console.log('[Statistics] Skipping chart update - already in progress');
+                return;
+            }
+
+            this.isUpdatingCharts = true;
+
+            try {
+                // Check if chart still exists and hasn't been destroyed
+                if (this.charts.files &&
+                    !this.charts.files.$destroyed &&
+                    this.charts.files.ctx &&
+                    this.charts.files.data &&
+                    this.charts.files.data.datasets &&
+                    this.charts.files.data.datasets[0]) {
+
+                    // Replace arrays with new copies to avoid Vue reactivity issues
+                    this.charts.files.data.labels = [...this.realtimeData.labels];
+                    this.charts.files.data.datasets[0].data = [...this.realtimeData.filesProcessed];
+
+                    // Update chart with 'none' mode to skip animations
+                    this.charts.files.update('none');
                 }
-            });
+            } catch (error) {
+                console.warn('[Statistics] Error updating files chart:', error?.message || error);
+                // Chart might be corrupted, destroy and remove reference
+                try {
+                    if (this.charts.files && !this.charts.files.$destroyed) {
+                        this.charts.files.destroy();
+                    }
+                } catch (destroyError) {
+                    // Ignore destroy errors
+                }
+                this.charts.files = null;
+            }
+
+            try {
+                // Check if chart still exists and hasn't been destroyed
+                if (this.charts.throughput &&
+                    !this.charts.throughput.$destroyed &&
+                    this.charts.throughput.ctx &&
+                    this.charts.throughput.data &&
+                    this.charts.throughput.data.datasets &&
+                    this.charts.throughput.data.datasets[0]) {
+
+                    // Replace arrays with new copies to avoid Vue reactivity issues
+                    this.charts.throughput.data.labels = [...this.realtimeData.labels];
+                    this.charts.throughput.data.datasets[0].data = [...this.realtimeData.throughput];
+
+                    // Update chart with 'none' mode to skip animations
+                    this.charts.throughput.update('none');
+                }
+            } catch (error) {
+                console.warn('[Statistics] Error updating throughput chart:', error?.message || error);
+                // Chart might be corrupted, destroy and remove reference
+                try {
+                    if (this.charts.throughput && !this.charts.throughput.$destroyed) {
+                        this.charts.throughput.destroy();
+                    }
+                } catch (destroyError) {
+                    // Ignore destroy errors
+                }
+                this.charts.throughput = null;
+            } finally {
+                // Always release the lock
+                this.isUpdatingCharts = false;
+            }
         },
 
         updateStaticCharts() {

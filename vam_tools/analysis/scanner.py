@@ -103,6 +103,7 @@ class ImageScanner:
         self.stats = catalog.get_statistics()
         self.files_added = 0
         self.files_skipped = 0
+        self.files_processed = 0  # Track total files processed for performance stats
         self.workers = workers or mp.cpu_count()
         self.perf_tracker = perf_tracker
 
@@ -158,9 +159,9 @@ class ImageScanner:
             # Update final statistics
             self.catalog.update_statistics(self.stats)
 
-            # Track total files and bytes
+            # Track total files and bytes (use files_processed for accurate stats)
             if self.perf_tracker:
-                self.perf_tracker.metrics.total_files_analyzed = self.files_added
+                self.perf_tracker.metrics.total_files_analyzed = self.files_processed
                 self.perf_tracker.metrics.bytes_processed = self.stats.total_size_bytes
 
             # Save catalog with final statistics
@@ -235,6 +236,7 @@ class ImageScanner:
                     ):
                         if result is not None:
                             image, file_size = result
+                            self.files_processed += 1
 
                             # Track file format
                             if self.perf_tracker and image.metadata:
@@ -245,20 +247,20 @@ class ImageScanner:
                                     format_str, file_size, avg_time
                                 )
 
+                            # Update real-time performance counters for ALL processed files
+                            if self.perf_tracker:
+                                self.perf_tracker.metrics.total_files_analyzed = (
+                                    self.files_processed
+                                )
+                                self.perf_tracker.metrics.bytes_processed += (
+                                    file_size
+                                )
+
                             # Check if already in catalog (by checksum - for duplicates)
                             if not self.catalog.get_image(image.checksum):
                                 # Add to catalog
                                 self.catalog.add_image(image)
                                 self.files_added += 1
-
-                                # Update real-time performance counters
-                                if self.perf_tracker:
-                                    self.perf_tracker.metrics.total_files_analyzed = (
-                                        self.files_added
-                                    )
-                                    self.perf_tracker.metrics.bytes_processed += (
-                                        file_size
-                                    )
 
                                 # Generate thumbnail if enabled
                                 if self.generate_thumbnails:
