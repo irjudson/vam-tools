@@ -386,10 +386,14 @@ class MetadataExtractor:
                     return file_ext[1:].upper(), (width, height)
             except ImportError:
                 logger.debug("rawpy not available for RAW metadata extraction")
+                # Fall back to extension-based format detection for RAW files
+                return file_ext[1:].upper(), (0, 0)
             except Exception as e:
                 logger.debug(f"Error reading RAW metadata with rawpy: {e}")
+                # Fall back to extension-based format detection for RAW files
+                return file_ext[1:].upper(), (0, 0)
 
-        # Standard PIL for all other formats (or RAW fallback)
+        # Standard PIL for all other formats
         try:
             with Image.open(file_path) as img:
                 return img.format, img.size

@@ -572,10 +572,13 @@ class TestIncrementalFileDiscovery:
         photos_dir = tmp_path / "photos"
         photos_dir.mkdir()
 
-        # Create more than batch size (100) images
+        # Create more than batch size (100) unique images
+        # Each image has a unique color to ensure different checksums
         for i in range(150):
             img_path = photos_dir / f"test{i}.jpg"
-            Image.new("RGB", (50, 50), color="red").save(img_path)
+            # Use i to create unique RGB colors for each image
+            color = (i % 256, (i * 2) % 256, (i * 3) % 256)
+            Image.new("RGB", (50, 50), color=color).save(img_path)
 
         # Initialize catalog and scan
         catalog_dir = tmp_path / "catalog"
