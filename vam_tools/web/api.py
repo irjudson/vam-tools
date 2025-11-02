@@ -1497,7 +1497,7 @@ async def get_performance_summary() -> Dict[str, Any]:
 
 
 # Cache for tracking last catalog modification time
-_last_catalog_mtime = 0
+_last_catalog_mtime = 0.0
 
 
 @app.get("/api/performance/current")

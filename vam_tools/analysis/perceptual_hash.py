@@ -15,7 +15,7 @@ import logging
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pywt
@@ -45,8 +45,8 @@ class CorruptionSeverity(str, Enum):
 class CorruptionTracker:
     """Tracks corrupted/problematic files during hash computation."""
 
-    def __init__(self):
-        self.corrupted_files: List[Dict[str, any]] = []
+    def __init__(self) -> None:
+        self.corrupted_files: List[Dict[str, Any]] = []
 
     def add(
         self,
@@ -54,7 +54,7 @@ class CorruptionTracker:
         error_message: str,
         severity: CorruptionSeverity,
         operation: str = "hashing",
-    ):
+    ) -> None:
         """Record a corrupted file."""
         self.corrupted_files.append(
             {
@@ -65,12 +65,12 @@ class CorruptionTracker:
             }
         )
 
-    def get_report(self) -> Dict[str, any]:
+    def get_report(self) -> Dict[str, Any]:
         """Generate a corruption report."""
         if not self.corrupted_files:
             return {"total": 0, "by_severity": {}, "files": []}
 
-        by_severity = {}
+        by_severity: Dict[CorruptionSeverity, Dict[str, Any]] = {}
         for severity in CorruptionSeverity:
             files = [f for f in self.corrupted_files if f["severity"] == severity]
             if files:
@@ -82,7 +82,7 @@ class CorruptionTracker:
             "files": self.corrupted_files,
         }
 
-    def save_report(self, output_path: Path):
+    def save_report(self, output_path: Path) -> None:
         """Save corruption report to a JSON file."""
         import json
 
@@ -91,7 +91,7 @@ class CorruptionTracker:
             json.dump(report, f, indent=2)
         logger.info(f"Corruption report saved to {output_path}")
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all tracked corruption records."""
         self.corrupted_files.clear()
 
@@ -726,7 +726,7 @@ def compute_hashes_batch(
 # Public corruption tracking API
 
 
-def get_corruption_report() -> Dict[str, any]:
+def get_corruption_report() -> Dict[str, Any]:
     """
     Get a report of all corrupted/problematic files encountered during hashing.
 
@@ -760,7 +760,7 @@ def get_corruption_report() -> Dict[str, any]:
     return _corruption_tracker.get_report()
 
 
-def save_corruption_report(output_path: Path):
+def save_corruption_report(output_path: Path) -> None:
     """
     Save corruption report to a JSON file.
 
@@ -773,7 +773,7 @@ def save_corruption_report(output_path: Path):
     _corruption_tracker.save_report(output_path)
 
 
-def clear_corruption_tracking():
+def clear_corruption_tracking() -> None:
     """
     Clear all tracked corruption records.
 
@@ -828,9 +828,10 @@ def get_corruption_summary() -> str:
         CorruptionSeverity.SEVERE: "unreadable",
     }
 
+    by_severity: Dict[CorruptionSeverity, Dict[str, Any]] = report["by_severity"]
     for severity, desc in severity_desc.items():
-        if severity in report["by_severity"]:
-            count = report["by_severity"][severity]["count"]
+        if severity in by_severity:
+            count = by_severity[severity]["count"]
             lines.append(f"  - {severity.value.title()} ({desc}): {count} files")
 
     return "\n".join(lines)

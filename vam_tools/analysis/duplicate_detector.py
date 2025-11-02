@@ -12,7 +12,7 @@ import multiprocessing as mp
 from collections import defaultdict
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from rich.progress import (
     BarColumn,
@@ -197,26 +197,20 @@ class DuplicateDetector:
                 logger.info(f"\n{summary}")
 
                 # Add corrupted files to problematic files list
-                for file_info in corruption_report["files"]:
+                corruption_files: List[Dict[str, Any]] = corruption_report["files"]
+                for file_info in corruption_files:
                     file_path = Path(file_info["path"])
                     # Map corruption severity to problematic file category
-                    category_map = {
-                        "minor": ProblematicFileCategory.UNREADABLE_EXIF,  # Minor corruption
-                        "moderate": ProblematicFileCategory.CORRUPTED_FILE,  # Moderate corruption
-                        "severe": ProblematicFileCategory.CORRUPTED_FILE,  # Severe corruption
-                    }
-                    category = category_map.get(
-                        file_info["severity"], ProblematicFileCategory.CORRUPTED_FILE
-                    )
+                    # All corruption gets CORRUPTED_FILE category
+                    category = ProblematicFileCategory.CORRUPTED_FILE
 
                     problematic = ProblematicFile(
-                        path=file_path,
+                        id=file_info.get(
+                            "checksum", "unknown"
+                        ),  # Use checksum if available
+                        source_path=file_path,
                         category=category,
-                        reason=file_info["error"],
-                        details={
-                            "operation": file_info["operation"],
-                            "severity": file_info["severity"],
-                        },
+                        error_message=f"{file_info['error']} (severity: {file_info['severity']})",
                     )
                     self.problematic_files.append(problematic)
 
