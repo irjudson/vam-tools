@@ -4,8 +4,8 @@ A professional collection of Python tools for managing and organizing photo/vide
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-518%20passing-success.svg)](https://github.com/irjudson/vam-tools)
-[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](https://github.com/irjudson/vam-tools)
+[![Tests](https://img.shields.io/badge/tests-580%20passing-success.svg)](https://github.com/irjudson/vam-tools)
+[![Coverage](https://img.shields.io/badge/coverage-78%25-green.svg)](https://github.com/irjudson/vam-tools)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ## Quick Links
@@ -41,21 +41,24 @@ Comprehensive documentation is available in the **[docs](./docs)** directory:
 ## Features
 
 ### Core Functionality
-- **High-Performance Scanning** - Multi-core parallel processing for fast catalog analysis
+- **High-Performance Scanning** - Multi-core parallel processing with incremental file discovery for network filesystems
 - **Comprehensive Metadata Extraction** - Extract dates from EXIF, XMP, filenames, and directory structure
+- **RAW File Support** - Native RAW metadata extraction during scanning (no conversion required)
 - **Duplicate Detection** - Find exact and similar duplicates using checksums and perceptual hashing
 - **Quality Scoring** - Automatically select the best copy among duplicates
+- **Corruption Tracking** - Automatically detect and report corrupted/truncated image files
 - **Date-Based Reorganization** - Reorganize libraries into date-based directory structures
 
 ### Advanced Features
 - **GPU Acceleration** - PyTorch-based GPU acceleration (20-30x faster on compatible GPUs)
-- **Web Interface** - Modern Vue.js web UI with real-time performance monitoring
+- **Web Interface** - Modern Vue.js web UI with progressive phase-based performance monitoring
 - **Real-Time Performance Tracking** - Live throughput, GPU utilization, and bottleneck analysis
 - **FAISS Similarity Search** - GPU-accelerated similarity search for large catalogs
+- **Network Filesystem Optimization** - Incremental file discovery prevents blocking on slow NAS mounts
 - **Beautiful CLI** - Rich terminal interface with progress bars and formatted output
 
 ### Quality & Testing
-- **Fully Tested** - Comprehensive test suite with **518 passing tests** and **84% coverage**
+- **Fully Tested** - Comprehensive test suite with **580 passing tests** and **78% coverage**
 - **Type Safe** - Full type hints throughout the codebase with Pydantic v2
 - **Fast Tests** - Parallel test execution with pytest-xdist (62.5% faster)
 
@@ -283,4 +286,4 @@ VAM Tools builds on excellent open-source projects:
 
 This project was developed using human-AI pair programming with Claude. The collaboration followed established engineering principles to ensure code quality without requiring exhaustive human review. Read more about the **[Development Approach](./docs/DEVELOPMENT_APPROACH.md)**.
 
-**Result**: Production-ready tool built in a single weekend with 518 passing tests and 84% coverage.
+**Result**: Production-ready tool with continuous improvements, 580+ passing tests and 78% coverage.

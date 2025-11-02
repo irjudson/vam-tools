@@ -832,3 +832,212 @@ class TestLoadImageForHashing:
             assert "dhash" in hashes
             assert "ahash" in hashes
             assert "whash" in hashes
+
+
+class TestCorruptionTracking:
+    """Tests for corruption tracking functionality."""
+
+    @pytest.fixture(autouse=True)
+    def reset_corruption_tracker(self):
+        """Reset corruption tracker before each test."""
+        from vam_tools.analysis.perceptual_hash import _corruption_tracker
+
+        _corruption_tracker.corrupted_files = []
+        yield
+        _corruption_tracker.corrupted_files = []
+
+    def test_track_corrupted_file_minor(self, tmp_path: Path) -> None:
+        """Test tracking a file with minor corruption."""
+        from vam_tools.analysis.perceptual_hash import (
+            CorruptionSeverity,
+            _corruption_tracker,
+            get_corruption_report,
+        )
+
+        file_path = tmp_path / "test.jpg"
+        file_path.touch()
+
+        _corruption_tracker.add(file_path, "Truncated JPEG", CorruptionSeverity.MINOR)
+
+        report = get_corruption_report()
+        assert report["total"] == 1
+        assert CorruptionSeverity.MINOR in report["by_severity"]
+        assert report["by_severity"][CorruptionSeverity.MINOR]["count"] == 1
+        assert len(report["files"]) == 1
+        assert report["files"][0]["path"] == str(file_path)
+        assert report["files"][0]["severity"] == "minor"
+
+    def test_track_corrupted_file_moderate(self, tmp_path: Path) -> None:
+        """Test tracking a file with moderate corruption."""
+        from vam_tools.analysis.perceptual_hash import (
+            CorruptionSeverity,
+            _corruption_tracker,
+            get_corruption_report,
+        )
+
+        file_path = tmp_path / "test.cr2"
+        file_path.touch()
+
+        _corruption_tracker.add(
+            file_path, "RAW conversion failed", CorruptionSeverity.MODERATE
+        )
+
+        report = get_corruption_report()
+        assert report["total"] == 1
+        assert CorruptionSeverity.MODERATE in report["by_severity"]
+
+    def test_track_corrupted_file_severe(self, tmp_path: Path) -> None:
+        """Test tracking a file with severe corruption."""
+        from vam_tools.analysis.perceptual_hash import (
+            CorruptionSeverity,
+            _corruption_tracker,
+            get_corruption_report,
+        )
+
+        file_path = tmp_path / "test.jpg"
+        file_path.touch()
+
+        _corruption_tracker.add(
+            file_path, "Cannot identify image file", CorruptionSeverity.SEVERE
+        )
+
+        report = get_corruption_report()
+        assert report["total"] == 1
+        assert CorruptionSeverity.SEVERE in report["by_severity"]
+
+    def test_track_multiple_corrupted_files(self, tmp_path: Path) -> None:
+        """Test tracking multiple corrupted files."""
+        from vam_tools.analysis.perceptual_hash import (
+            CorruptionSeverity,
+            _corruption_tracker,
+            get_corruption_report,
+        )
+
+        # Add 3 minor, 2 moderate, 1 severe
+        for i in range(3):
+            file_path = tmp_path / f"minor_{i}.jpg"
+            file_path.touch()
+            _corruption_tracker.add(file_path, "Minor issue", CorruptionSeverity.MINOR)
+
+        for i in range(2):
+            file_path = tmp_path / f"moderate_{i}.cr2"
+            file_path.touch()
+            _corruption_tracker.add(
+                file_path, "Moderate issue", CorruptionSeverity.MODERATE
+            )
+
+        file_path = tmp_path / "severe.jpg"
+        file_path.touch()
+        _corruption_tracker.add(file_path, "Severe issue", CorruptionSeverity.SEVERE)
+
+        report = get_corruption_report()
+        assert report["total"] == 6
+        assert CorruptionSeverity.MINOR in report["by_severity"]
+        assert CorruptionSeverity.MODERATE in report["by_severity"]
+        assert CorruptionSeverity.SEVERE in report["by_severity"]
+        assert report["by_severity"][CorruptionSeverity.MINOR]["count"] == 3
+        assert report["by_severity"][CorruptionSeverity.MODERATE]["count"] == 2
+        assert report["by_severity"][CorruptionSeverity.SEVERE]["count"] == 1
+        assert len(report["files"]) == 6
+
+    def test_corruption_report_structure(self, tmp_path: Path) -> None:
+        """Test corruption report structure."""
+        from vam_tools.analysis.perceptual_hash import (
+            CorruptionSeverity,
+            _corruption_tracker,
+            get_corruption_report,
+        )
+
+        file_path = tmp_path / "test.jpg"
+        file_path.touch()
+        _corruption_tracker.add(file_path, "Test error", CorruptionSeverity.MINOR)
+
+        report = get_corruption_report()
+
+        # Check structure
+        assert "total" in report
+        assert "by_severity" in report
+        assert "files" in report
+
+        # Check file entry structure
+        file_entry = report["files"][0]
+        assert "path" in file_entry
+        assert "error" in file_entry
+        assert "severity" in file_entry
+
+    def test_save_corruption_report(self, tmp_path: Path) -> None:
+        """Test saving corruption report to JSON file."""
+        import json
+
+        from vam_tools.analysis.perceptual_hash import (
+            CorruptionSeverity,
+            _corruption_tracker,
+            save_corruption_report,
+        )
+
+        file_path = tmp_path / "test.jpg"
+        file_path.touch()
+        _corruption_tracker.add(file_path, "Test error", CorruptionSeverity.MINOR)
+
+        report_path = tmp_path / "corruption_report.json"
+        save_corruption_report(report_path)
+
+        assert report_path.exists()
+
+        # Verify content
+        with open(report_path) as f:
+            saved_report = json.load(f)
+
+        assert saved_report["total"] == 1
+        assert len(saved_report["files"]) == 1
+
+    def test_get_corruption_summary(self, tmp_path: Path) -> None:
+        """Test getting corruption summary text."""
+        from vam_tools.analysis.perceptual_hash import (
+            CorruptionSeverity,
+            _corruption_tracker,
+            get_corruption_summary,
+        )
+
+        # Add some corrupted files
+        for i in range(2):
+            file_path = tmp_path / f"file_{i}.jpg"
+            file_path.touch()
+            _corruption_tracker.add(file_path, "Error", CorruptionSeverity.MINOR)
+
+        summary = get_corruption_summary()
+
+        assert isinstance(summary, str)
+        assert "Corruption Summary" in summary
+        assert "Minor" in summary or "minor" in summary
+        assert "2" in summary  # Count
+
+    def test_empty_corruption_report(self) -> None:
+        """Test corruption report when no files are tracked."""
+        from vam_tools.analysis.perceptual_hash import get_corruption_report
+
+        report = get_corruption_report()
+
+        assert report["total"] == 0
+        assert len(report["files"]) == 0
+
+    def test_truncated_image_handling(self, tmp_path: Path) -> None:
+        """Test that truncated images are properly tracked."""
+        from vam_tools.analysis.perceptual_hash import (
+            _load_image_for_hashing,
+            get_corruption_report,
+        )
+
+        # Create a truncated JPEG (just header, no actual image data)
+        img_path = tmp_path / "truncated.jpg"
+        with open(img_path, "wb") as f:
+            # Write JPEG header but truncate before image data
+            f.write(b"\xff\xd8\xff\xe0\x00\x10JFIF")
+
+        # Try to load the truncated image
+        result = _load_image_for_hashing(img_path)
+
+        # Should return None but track the corruption
+        assert result is None
+        report = get_corruption_report()
+        assert report["total"] >= 1  # At least one corruption tracked
