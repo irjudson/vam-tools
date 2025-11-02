@@ -51,7 +51,7 @@ class TestPerformanceTrackerIntegration:
                     assert "update_callback" in call_args.kwargs
                     assert call_args.kwargs["update_callback"] is not None
                     assert "update_interval" in call_args.kwargs
-                    assert call_args.kwargs["update_interval"] == 5.0
+                    assert call_args.kwargs["update_interval"] == 1.0
 
     def test_performance_tracker_callback_writes_to_catalog(self, tmp_path):
         """Test that the callback writes performance stats to catalog."""

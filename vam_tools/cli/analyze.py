@@ -286,8 +286,11 @@ def analyze(
 
             perf_tracker = PerformanceTracker(
                 update_callback=performance_update_callback,
-                update_interval=5.0,  # Write to catalog every 5 seconds
+                update_interval=1.0,  # Write to catalog every 1 second (matches frontend polling)
             )
+
+            # Write initial performance data so frontend sees "running" state immediately
+            performance_update_callback(perf_tracker.get_current_stats())
 
             # Run scanner
             if workers:

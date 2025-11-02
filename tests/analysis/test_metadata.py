@@ -683,3 +683,178 @@ class TestMetadataExtractor:
                 and dates.selected_date.date() == datetime(1980, 1, 1).date()
             ):
                 assert dates.suspicious is True
+
+
+class TestRAWMetadataExtraction:
+    """Tests for RAW file metadata extraction functionality."""
+
+    def test_get_image_format_with_raw_file(self, tmp_path: Path, monkeypatch) -> None:
+        """Test RAW file format detection using rawpy."""
+        from unittest.mock import MagicMock
+
+        # Create a mock RAW file
+        raw_path = tmp_path / "test.CR2"
+        raw_path.write_bytes(b"fake raw data")
+
+        # Mock rawpy module
+        mock_rawpy = MagicMock()
+        mock_raw_obj = MagicMock()
+        mock_raw_obj.sizes.raw_width = 6000
+        mock_raw_obj.sizes.raw_height = 4000
+        mock_rawpy.imread.return_value.__enter__.return_value = mock_raw_obj
+
+        import sys
+
+        sys.modules["rawpy"] = mock_rawpy
+
+        with MetadataExtractor() as extractor:
+            format_str, dimensions = extractor._get_image_format(raw_path)
+
+            assert format_str == "CR2"
+            assert dimensions == (6000, 4000)
+            mock_rawpy.imread.assert_called_once_with(str(raw_path))
+
+    def test_get_image_format_with_raw_file_no_rawpy(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Test RAW file handling when rawpy is not available."""
+        # Create a mock RAW file
+        raw_path = tmp_path / "test.NEF"
+        raw_path.write_bytes(b"fake raw data")
+
+        # Mock ImportError for rawpy
+        import builtins
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "rawpy":
+                raise ImportError("rawpy not available")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+
+        with MetadataExtractor() as extractor:
+            format_str, dimensions = extractor._get_image_format(raw_path)
+
+            # Should fall back to extension-based detection
+            assert format_str == "NEF"
+            assert dimensions == (0, 0)
+
+    def test_extract_metadata_raw_file(self, tmp_path: Path, monkeypatch) -> None:
+        """Test complete metadata extraction for RAW file."""
+        from unittest.mock import MagicMock
+
+        # Create a mock RAW file
+        raw_path = tmp_path / "IMG_1234.ARW"
+        raw_path.write_bytes(b"fake sony raw data")
+
+        # Mock rawpy
+        mock_rawpy = MagicMock()
+        mock_raw_obj = MagicMock()
+        mock_raw_obj.sizes.raw_width = 7952
+        mock_raw_obj.sizes.raw_height = 5304
+        mock_rawpy.imread.return_value.__enter__.return_value = mock_raw_obj
+
+        import sys
+
+        sys.modules["rawpy"] = mock_rawpy
+
+        with MetadataExtractor() as extractor:
+            metadata = extractor.extract_metadata(raw_path, FileType.IMAGE)
+
+            assert metadata.format == "ARW"
+            assert metadata.width == 7952
+            assert metadata.height == 5304
+            assert metadata.size_bytes == len(b"fake sony raw data")
+
+    def test_raw_format_detection_various_extensions(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Test RAW format detection for various camera manufacturers."""
+        from unittest.mock import MagicMock
+
+        # Mock rawpy
+        mock_rawpy = MagicMock()
+        mock_raw_obj = MagicMock()
+        mock_raw_obj.sizes.raw_width = 6000
+        mock_raw_obj.sizes.raw_height = 4000
+        mock_rawpy.imread.return_value.__enter__.return_value = mock_raw_obj
+
+        import sys
+
+        sys.modules["rawpy"] = mock_rawpy
+
+        raw_extensions = [
+            ".cr2",  # Canon
+            ".cr3",  # Canon
+            ".nef",  # Nikon
+            ".arw",  # Sony
+            ".dng",  # Adobe/Generic
+            ".orf",  # Olympus
+            ".rw2",  # Panasonic
+            ".pef",  # Pentax
+            ".sr2",  # Sony
+            ".raf",  # Fujifilm
+        ]
+
+        with MetadataExtractor() as extractor:
+            for ext in raw_extensions:
+                raw_path = tmp_path / f"test{ext}"
+                raw_path.write_bytes(b"fake raw data")
+
+                format_str, dimensions = extractor._get_image_format(raw_path)
+
+                assert format_str == ext[1:].upper()
+                assert dimensions == (6000, 4000)
+
+    def test_raw_file_error_handling(self, tmp_path: Path, monkeypatch) -> None:
+        """Test error handling when RAW file cannot be read."""
+        from unittest.mock import MagicMock
+
+        # Create a mock RAW file
+        raw_path = tmp_path / "corrupted.CR2"
+        raw_path.write_bytes(b"corrupted data")
+
+        # Mock rawpy to raise an error
+        mock_rawpy = MagicMock()
+        mock_rawpy.imread.side_effect = Exception("Cannot read RAW file")
+
+        import sys
+
+        sys.modules["rawpy"] = mock_rawpy
+
+        with MetadataExtractor() as extractor:
+            format_str, dimensions = extractor._get_image_format(raw_path)
+
+            # Should fall back to extension-based detection on error
+            assert format_str == "CR2"
+            assert dimensions == (0, 0)
+
+    def test_raw_metadata_with_exiftool(self, tmp_path: Path, monkeypatch) -> None:
+        """Test that RAW files still get EXIF data from ExifTool."""
+        from unittest.mock import MagicMock
+
+        # Create a mock RAW file
+        raw_path = tmp_path / "test.NEF"
+        raw_path.write_bytes(b"fake nikon raw data")
+
+        # Mock rawpy for dimensions
+        mock_rawpy = MagicMock()
+        mock_raw_obj = MagicMock()
+        mock_raw_obj.sizes.raw_width = 6000
+        mock_raw_obj.sizes.raw_height = 4000
+        mock_rawpy.imread.return_value.__enter__.return_value = mock_raw_obj
+
+        import sys
+
+        sys.modules["rawpy"] = mock_rawpy
+
+        with MetadataExtractor() as extractor:
+            # The extractor should extract both format info and EXIF data
+            metadata = extractor.extract_metadata(raw_path, FileType.IMAGE)
+
+            # Should have format from rawpy
+            assert metadata.format == "NEF"
+            assert metadata.width == 6000
+            assert metadata.height == 4000

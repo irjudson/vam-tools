@@ -354,7 +354,46 @@ class MetadataExtractor:
     def _get_image_format(
         self, file_path: Path
     ) -> Tuple[Optional[str], Optional[Tuple[int, int]]]:
-        """Get image format and resolution using Pillow."""
+        """Get image format and resolution using Pillow or RAW libraries."""
+        file_ext = file_path.suffix.lower()
+
+        # RAW formats that need special handling
+        raw_formats = {
+            ".arw",
+            ".cr2",
+            ".cr3",
+            ".nef",
+            ".dng",
+            ".orf",
+            ".rw2",
+            ".pef",
+            ".sr2",
+            ".raf",
+            ".raw",
+        }
+
+        # Try RAW conversion for RAW files
+        if file_ext in raw_formats:
+            try:
+                import rawpy
+
+                with rawpy.imread(str(file_path)) as raw:
+                    # Get dimensions from RAW file
+                    # Use sizes.raw_width and raw_height for actual sensor dimensions
+                    width = raw.sizes.raw_width
+                    height = raw.sizes.raw_height
+                    # Return the file extension as format (e.g., "ARW", "NEF")
+                    return file_ext[1:].upper(), (width, height)
+            except ImportError:
+                logger.debug("rawpy not available for RAW metadata extraction")
+                # Fall back to extension-based format detection for RAW files
+                return file_ext[1:].upper(), (0, 0)
+            except Exception as e:
+                logger.debug(f"Error reading RAW metadata with rawpy: {e}")
+                # Fall back to extension-based format detection for RAW files
+                return file_ext[1:].upper(), (0, 0)
+
+        # Standard PIL for all other formats
         try:
             with Image.open(file_path) as img:
                 return img.format, img.size

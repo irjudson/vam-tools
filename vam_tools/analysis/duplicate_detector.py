@@ -12,7 +12,7 @@ import multiprocessing as mp
 from collections import defaultdict
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from rich.progress import (
     BarColumn,
@@ -35,7 +35,10 @@ from ..core.types import (
 from .perceptual_hash import (
     HashMethod,
     combined_hash,
+    get_corruption_report,
+    get_corruption_summary,
     hamming_distance,
+    save_corruption_report,
     similarity_score,
 )
 from .quality_scorer import calculate_quality_score, select_best
@@ -178,6 +181,42 @@ class DuplicateDetector:
             )
             with compute_ctx:
                 self._compute_perceptual_hashes(recompute_hashes)
+
+            # Report any corrupted/problematic files encountered during hashing
+            corruption_report = get_corruption_report()
+            if corruption_report["total"] > 0:
+                # Save detailed report to catalog directory
+                report_path = self.catalog.catalog_path / "corruption_report.json"
+                save_corruption_report(report_path)
+                logger.warning(
+                    f"Encountered {corruption_report['total']} corrupted/problematic files during hashing"
+                )
+
+                # Log summary
+                summary = get_corruption_summary()
+                logger.info(f"\n{summary}")
+
+                # Add corrupted files to problematic files list
+                corruption_files: List[Dict[str, Any]] = corruption_report["files"]
+                for file_info in corruption_files:
+                    file_path = Path(file_info["path"])
+                    # Map corruption severity to problematic file category
+                    # All corruption gets CORRUPTED_FILE category
+                    category = ProblematicFileCategory.CORRUPTED_FILE
+
+                    problematic = ProblematicFile(
+                        id=file_info.get(
+                            "checksum", "unknown"
+                        ),  # Use checksum if available
+                        source_path=file_path,
+                        category=category,
+                        error_message=f"{file_info['error']} (severity: {file_info['severity']})",
+                    )
+                    self.problematic_files.append(problematic)
+
+                logger.info(
+                    f"Detailed corruption report saved to: {report_path.relative_to(self.catalog.catalog_path.parent)}"
+                )
 
             # Step 2: Find exact duplicates (same checksum)
             exact_ctx = (
