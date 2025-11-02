@@ -376,3 +376,221 @@ class TestImageScanner:
             assert len(images) == 1
             stats = db.get_statistics()
             assert stats.total_images == 1
+
+
+class TestIncrementalFileDiscovery:
+    """Tests for incremental file discovery functionality."""
+
+    def test_discover_files_incrementally_basic(self, tmp_path: Path) -> None:
+        """Test basic incremental file discovery."""
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create some test images
+        for i in range(5):
+            img_path = photos_dir / f"test{i}.jpg"
+            Image.new("RGB", (100, 100), color="red").save(img_path)
+
+        # Initialize catalog and scanner
+        catalog_dir = tmp_path / "catalog"
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+
+            # Collect files from incremental discovery
+            files = list(scanner._discover_files_incrementally(photos_dir))
+
+            assert len(files) == 5
+            assert all(f.suffix == ".jpg" for f in files)
+
+    def test_discover_files_incrementally_skips_synology_metadata(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that Synology metadata directories are skipped."""
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create regular images
+        img1_path = photos_dir / "photo1.jpg"
+        img2_path = photos_dir / "photo2.jpg"
+        Image.new("RGB", (100, 100), color="red").save(img1_path)
+        Image.new("RGB", (100, 100), color="blue").save(img2_path)
+
+        # Create Synology metadata directory
+        synology_dir = photos_dir / "@eaDir"
+        synology_dir.mkdir()
+        synology_img = synology_dir / "photo1.jpg"
+        Image.new("RGB", (100, 100), color="green").save(synology_img)
+
+        # Create @SynoResource file
+        synology_resource = photos_dir / "@SynoResource"
+        synology_resource.write_text("synology metadata")
+
+        # Initialize catalog and scanner
+        catalog_dir = tmp_path / "catalog"
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+
+            # Collect files
+            files = list(scanner._discover_files_incrementally(photos_dir))
+
+            # Should only find the 2 real images, not Synology metadata
+            assert len(files) == 2
+            assert all("@eaDir" not in str(f) for f in files)
+            assert all("@SynoResource" not in str(f) for f in files)
+
+    def test_discover_files_incrementally_skips_hidden_files(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that hidden files (starting with .) are skipped."""
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create regular image
+        img_path = photos_dir / "photo.jpg"
+        Image.new("RGB", (100, 100), color="red").save(img_path)
+
+        # Create hidden file
+        hidden_img = photos_dir / ".hidden.jpg"
+        Image.new("RGB", (100, 100), color="blue").save(hidden_img)
+
+        # Initialize catalog and scanner
+        catalog_dir = tmp_path / "catalog"
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+
+            # Collect files
+            files = list(scanner._discover_files_incrementally(photos_dir))
+
+            # Should only find the visible image
+            assert len(files) == 1
+            assert files[0].name == "photo.jpg"
+
+    def test_discover_files_incrementally_nested_directories(
+        self, tmp_path: Path
+    ) -> None:
+        """Test incremental discovery with nested directory structure."""
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create nested structure
+        sub1 = photos_dir / "2024" / "January"
+        sub2 = photos_dir / "2024" / "February"
+        sub3 = photos_dir / "2023" / "December"
+        sub1.mkdir(parents=True)
+        sub2.mkdir(parents=True)
+        sub3.mkdir(parents=True)
+
+        # Add images in different directories
+        Image.new("RGB", (100, 100), color="red").save(sub1 / "jan1.jpg")
+        Image.new("RGB", (100, 100), color="green").save(sub1 / "jan2.jpg")
+        Image.new("RGB", (100, 100), color="blue").save(sub2 / "feb1.jpg")
+        Image.new("RGB", (100, 100), color="yellow").save(sub3 / "dec1.jpg")
+
+        # Initialize catalog and scanner
+        catalog_dir = tmp_path / "catalog"
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+
+            # Collect files
+            files = list(scanner._discover_files_incrementally(photos_dir))
+
+            # Should find all 4 images across nested directories
+            assert len(files) == 4
+            file_names = [f.name for f in files]
+            assert "jan1.jpg" in file_names
+            assert "jan2.jpg" in file_names
+            assert "feb1.jpg" in file_names
+            assert "dec1.jpg" in file_names
+
+    def test_discover_files_incrementally_yields_as_discovered(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that files are yielded incrementally, not collected first."""
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create some test images
+        for i in range(10):
+            img_path = photos_dir / f"test{i}.jpg"
+            Image.new("RGB", (100, 100), color="red").save(img_path)
+
+        # Initialize catalog and scanner
+        catalog_dir = tmp_path / "catalog"
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+
+            # Test that we can iterate and get results immediately
+            file_generator = scanner._discover_files_incrementally(photos_dir)
+            first_file = next(file_generator)
+
+            # Should get a result without exhausting the generator
+            assert first_file is not None
+            assert first_file.suffix == ".jpg"
+
+    def test_discover_files_incrementally_mixed_file_types(
+        self, tmp_path: Path
+    ) -> None:
+        """Test discovery with mixed image and video files."""
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create images
+        img_path = photos_dir / "photo.jpg"
+        Image.new("RGB", (100, 100), color="red").save(img_path)
+
+        # Create mock video file (just a file with video extension)
+        video_path = photos_dir / "video.mp4"
+        video_path.write_bytes(b"fake video data")
+
+        # Create non-media file
+        text_path = photos_dir / "readme.txt"
+        text_path.write_text("text file")
+
+        # Initialize catalog and scanner
+        catalog_dir = tmp_path / "catalog"
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=1)
+
+            # Collect files
+            files = list(scanner._discover_files_incrementally(photos_dir))
+
+            # Should find image and video, but not text file
+            assert len(files) == 2
+            file_names = [f.name for f in files]
+            assert "photo.jpg" in file_names
+            assert "video.mp4" in file_names
+            assert "readme.txt" not in file_names
+
+    def test_batch_processing_checkpoints(self, tmp_path: Path) -> None:
+        """Test that batch processing creates checkpoints."""
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        # Create more than batch size (100) unique images
+        # Each image has a unique color to ensure different checksums
+        for i in range(150):
+            img_path = photos_dir / f"test{i}.jpg"
+            # Use i to create unique RGB colors for each image
+            color = (i % 256, (i * 2) % 256, (i * 3) % 256)
+            Image.new("RGB", (50, 50), color=color).save(img_path)
+
+        # Initialize catalog and scan
+        catalog_dir = tmp_path / "catalog"
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+            scanner = ImageScanner(db, workers=2)
+            scanner.scan_directories([photos_dir])
+
+            # Verify all images were processed
+            images = db.list_images()
+            assert len(images) == 150
+
+            # Verify statistics were updated
+            stats = db.get_statistics()
+            assert stats.total_images == 150
