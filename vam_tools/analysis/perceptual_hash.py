@@ -19,9 +19,85 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pywt
-from PIL import Image
+from PIL import Image, ImageFile
+
+# Increase PIL image size limit for large scanned images
+# Default is ~179M pixels, but scanned documents can legitimately exceed this
+# Set to None to disable the limit for trusted user files
+Image.MAX_IMAGE_PIXELS = None
+
+# Allow loading of truncated/partially corrupted images
+# Better to get partial hash than skip the image entirely
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 logger = logging.getLogger(__name__)
+
+
+# Corruption tracking
+class CorruptionSeverity(str, Enum):
+    """Severity levels for file corruption issues."""
+
+    MINOR = "minor"  # Truncated but mostly readable
+    MODERATE = "moderate"  # Broken data stream or partial corruption
+    SEVERE = "severe"  # Completely unreadable or unsupported format
+
+
+class CorruptionTracker:
+    """Tracks corrupted/problematic files during hash computation."""
+
+    def __init__(self):
+        self.corrupted_files: List[Dict[str, any]] = []
+
+    def add(
+        self,
+        file_path: Path,
+        error_message: str,
+        severity: CorruptionSeverity,
+        operation: str = "hashing",
+    ):
+        """Record a corrupted file."""
+        self.corrupted_files.append(
+            {
+                "path": str(file_path),
+                "error": error_message,
+                "severity": severity,
+                "operation": operation,
+            }
+        )
+
+    def get_report(self) -> Dict[str, any]:
+        """Generate a corruption report."""
+        if not self.corrupted_files:
+            return {"total": 0, "by_severity": {}, "files": []}
+
+        by_severity = {}
+        for severity in CorruptionSeverity:
+            files = [f for f in self.corrupted_files if f["severity"] == severity]
+            if files:
+                by_severity[severity] = {"count": len(files), "files": files}
+
+        return {
+            "total": len(self.corrupted_files),
+            "by_severity": by_severity,
+            "files": self.corrupted_files,
+        }
+
+    def save_report(self, output_path: Path):
+        """Save corruption report to a JSON file."""
+        import json
+
+        report = self.get_report()
+        with open(output_path, "w") as f:
+            json.dump(report, f, indent=2)
+        logger.info(f"Corruption report saved to {output_path}")
+
+    def clear(self):
+        """Clear all tracked corruption records."""
+        self.corrupted_files.clear()
+
+
+# Global corruption tracker instance
+_corruption_tracker = CorruptionTracker()
 
 
 class HashMethod(str, Enum):
@@ -106,10 +182,26 @@ def _load_image_for_hashing(image_path: Path) -> Optional[Image.Image]:
                     if result.returncode == 0 and len(result.stdout) > 0:
                         return Image.open(io.BytesIO(result.stdout))
 
-                    logger.warning(f"dcraw failed for {image_path}")
+                    # Track RAW conversion failure
+                    error_msg = (
+                        result.stderr.decode() if result.stderr else "dcraw failed"
+                    )
+                    _corruption_tracker.add(
+                        image_path,
+                        error_msg,
+                        CorruptionSeverity.SEVERE,
+                        "RAW conversion",
+                    )
+                    logger.warning(f"dcraw failed for {image_path}: {error_msg}")
                     return None
 
                 except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                    _corruption_tracker.add(
+                        image_path,
+                        str(e),
+                        CorruptionSeverity.SEVERE,
+                        "RAW conversion",
+                    )
                     logger.warning(
                         f"RAW conversion failed for {image_path}: {e}. "
                         "Install rawpy or dcraw for RAW support."
@@ -117,6 +209,16 @@ def _load_image_for_hashing(image_path: Path) -> Optional[Image.Image]:
                     return None
 
             except Exception as e:
+                error_str = str(e)
+                # Categorize RAW errors
+                if "not RAW file" in error_str or "Unsupported" in error_str:
+                    severity = CorruptionSeverity.SEVERE
+                else:
+                    severity = CorruptionSeverity.MODERATE
+
+                _corruption_tracker.add(
+                    image_path, error_str, severity, "RAW conversion"
+                )
                 logger.error(f"Error converting RAW file {image_path}: {e}")
                 return None
 
@@ -133,7 +235,21 @@ def _load_image_for_hashing(image_path: Path) -> Optional[Image.Image]:
             return Image.open(image_path)
 
     except Exception as e:
-        logger.error(f"Error loading image {image_path} for hashing: {e}")
+        error_str = str(e)
+
+        # Categorize error severity based on error message
+        if "truncated" in error_str.lower():
+            severity = CorruptionSeverity.MINOR
+            log_level = logging.WARNING
+        elif "broken data stream" in error_str.lower():
+            severity = CorruptionSeverity.MODERATE
+            log_level = logging.WARNING
+        else:
+            severity = CorruptionSeverity.SEVERE
+            log_level = logging.ERROR
+
+        _corruption_tracker.add(image_path, error_str, severity, "image loading")
+        logger.log(log_level, f"Error loading image {image_path} for hashing: {e}")
         return None
 
 
@@ -155,6 +271,7 @@ def dhash(image_path: Path, hash_size: int = 8) -> Optional[str]:
         # Load image (handles RAW/HEIC/TIFF conversion)
         img = _load_image_for_hashing(image_path)
         if img is None:
+            # Error already logged and tracked by _load_image_for_hashing
             return None
 
         # Convert to grayscale
@@ -180,7 +297,15 @@ def dhash(image_path: Path, hash_size: int = 8) -> Optional[str]:
         return _bits_to_hex(diff)
 
     except Exception as e:
-        logger.error(f"Error computing dHash for {image_path}: {e}")
+        # Computation error after successful load (rare)
+        error_str = str(e)
+        _corruption_tracker.add(
+            image_path,
+            f"dHash computation: {error_str}",
+            CorruptionSeverity.MODERATE,
+            "hashing",
+        )
+        logger.warning(f"Error computing dHash for {image_path}: {e}")
         return None
 
 
@@ -202,6 +327,7 @@ def ahash(image_path: Path, hash_size: int = 8) -> Optional[str]:
         # Load image (handles RAW/HEIC/TIFF conversion)
         img = _load_image_for_hashing(image_path)
         if img is None:
+            # Error already logged and tracked by _load_image_for_hashing
             return None
 
         # Convert to grayscale
@@ -223,7 +349,15 @@ def ahash(image_path: Path, hash_size: int = 8) -> Optional[str]:
         return _bits_to_hex(bits)
 
     except Exception as e:
-        logger.error(f"Error computing aHash for {image_path}: {e}")
+        # Computation error after successful load (rare)
+        error_str = str(e)
+        _corruption_tracker.add(
+            image_path,
+            f"aHash computation: {error_str}",
+            CorruptionSeverity.MODERATE,
+            "hashing",
+        )
+        logger.warning(f"Error computing aHash for {image_path}: {e}")
         return None
 
 
@@ -252,6 +386,7 @@ def whash(image_path: Path, hash_size: int = 8, mode: str = "haar") -> Optional[
         # Load image (handles RAW/HEIC/TIFF conversion)
         img = _load_image_for_hashing(image_path)
         if img is None:
+            # Error already logged and tracked by _load_image_for_hashing
             return None
 
         # Convert to grayscale
@@ -288,7 +423,15 @@ def whash(image_path: Path, hash_size: int = 8, mode: str = "haar") -> Optional[
         return _bits_to_hex(bits)
 
     except Exception as e:
-        logger.error(f"Error computing wHash for {image_path}: {e}")
+        # Computation error after successful load (rare)
+        error_str = str(e)
+        _corruption_tracker.add(
+            image_path,
+            f"wHash computation: {error_str}",
+            CorruptionSeverity.MODERATE,
+            "hashing",
+        )
+        logger.warning(f"Error computing wHash for {image_path}: {e}")
         return None
 
 
@@ -578,3 +721,116 @@ def compute_hashes_batch(
     # CPU fallback - process sequentially
     logger.info(f"Using CPU batch processing for {len(image_paths)} images")
     return [combined_hash(path) for path in image_paths]
+
+
+# Public corruption tracking API
+
+
+def get_corruption_report() -> Dict[str, any]:
+    """
+    Get a report of all corrupted/problematic files encountered during hashing.
+
+    Returns:
+        Dictionary with corruption statistics and file details:
+        {
+            "total": int,
+            "by_severity": {
+                "minor": {"count": int, "files": [...]},
+                "moderate": {"count": int, "files": [...]},
+                "severe": {"count": int, "files": [...]}
+            },
+            "files": [
+                {
+                    "path": str,
+                    "error": str,
+                    "severity": str,
+                    "operation": str
+                },
+                ...
+            ]
+        }
+
+    Example:
+        >>> # After running hash operations
+        >>> report = get_corruption_report()
+        >>> print(f"Found {report['total']} corrupted files")
+        >>> if 'severe' in report['by_severity']:
+        ...     print(f"Severe: {report['by_severity']['severe']['count']}")
+    """
+    return _corruption_tracker.get_report()
+
+
+def save_corruption_report(output_path: Path):
+    """
+    Save corruption report to a JSON file.
+
+    Args:
+        output_path: Path where the JSON report should be saved
+
+    Example:
+        >>> save_corruption_report(Path("corruption_report.json"))
+    """
+    _corruption_tracker.save_report(output_path)
+
+
+def clear_corruption_tracking():
+    """
+    Clear all tracked corruption records.
+
+    Useful when processing multiple batches and you want separate reports.
+
+    Example:
+        >>> # Process batch 1
+        >>> hashes1 = compute_hashes_batch(batch1_paths)
+        >>> report1 = get_corruption_report()
+        >>> clear_corruption_tracking()
+        >>> # Process batch 2
+        >>> hashes2 = compute_hashes_batch(batch2_paths)
+        >>> report2 = get_corruption_report()
+    """
+    _corruption_tracker.clear()
+
+
+def get_corruption_summary() -> str:
+    """
+    Get a human-readable summary of corruption issues.
+
+    Returns:
+        Multi-line string summarizing corruption statistics
+
+    Example:
+        >>> print(get_corruption_summary())
+        Corruption Summary:
+        ------------------
+        Total corrupted files: 5
+
+        By severity:
+          - Minor (truncated): 2 files
+          - Moderate (broken data): 2 files
+          - Severe (unreadable): 1 file
+    """
+    report = _corruption_tracker.get_report()
+
+    if report["total"] == 0:
+        return "No corruption detected."
+
+    lines = [
+        "Corruption Summary:",
+        "------------------",
+        f"Total corrupted files: {report['total']}",
+        "",
+        "By severity:",
+    ]
+
+    severity_desc = {
+        CorruptionSeverity.MINOR: "truncated",
+        CorruptionSeverity.MODERATE: "broken data",
+        CorruptionSeverity.SEVERE: "unreadable",
+    }
+
+    for severity, desc in severity_desc.items():
+        if severity in report["by_severity"]:
+            count = report["by_severity"][severity]["count"]
+            lines.append(f"  - {severity.value.title()} ({desc}): {count} files")
+
+    return "\n".join(lines)

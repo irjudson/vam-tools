@@ -1048,42 +1048,32 @@ const StatisticsView = {
                 </div>
             </div>
 
+            <!-- Phase Indicator -->
+            <div v-if="currentPhase" class="stat-card" style="margin-bottom: 2rem; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;">
+                    <div style="font-size: 2rem;">{{ currentPhase.icon }}</div>
+                    <div>
+                        <div style="font-size: 1.125rem; font-weight: 600; color: #e2e8f0;">
+                            Current Phase: {{ currentPhase.name }}
+                        </div>
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-top: 0.25rem;">
+                            {{ currentPhase.description }}
+                        </div>
+                    </div>
+                </div>
+                <div style="padding: 0.75rem; background: rgba(59, 130, 246, 0.1); border-radius: 0.375rem; border-left: 3px solid #3b82f6;">
+                    <div style="font-size: 0.875rem; color: #93c5fd;">
+                        <strong>Next:</strong> {{ currentPhase.next }}
+                    </div>
+                </div>
+            </div>
+
             <!-- Real-time stats (only shown when analysis is running) -->
             <div v-if="isAnalysisRunning">
-                <h3 style="margin-bottom: 1rem; color: #10b981;">⚡ Real-Time Statistics</h3>
+                <!-- Global Stats (Always Active) -->
+                <h3 style="margin-bottom: 1rem; color: #f59e0b;">🌍 Global Statistics</h3>
                 <div class="stats-grid" style="margin-bottom: 2rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
-                    <div class="stat-card">
-                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Files Processed</div>
-                        <div style="font-size: 2rem; font-weight: 700; color: #10b981;">
-                            {{ (currentStats.total_files_analyzed || 0).toLocaleString() }}
-                        </div>
-                        <div style="margin-top: 0.75rem; height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden; position: relative;">
-                            <div style="position: absolute; height: 100%; width: 30%; background: linear-gradient(90deg, transparent, #10b981, transparent); animation: pulse 2s ease-in-out infinite;">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Current Speed</div>
-                        <div style="font-size: 2rem; font-weight: 700; color: #3b82f6;">
-                            {{ (currentStats.files_per_second || 0).toFixed(1) }}
-                        </div>
-                        <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
-                            files/sec
-                        </div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Data Throughput</div>
-                        <div style="font-size: 2rem; font-weight: 700; color: #8b5cf6;">
-                            {{ formatBytes(currentStats.bytes_per_second) }}
-                        </div>
-                        <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
-                            per second
-                        </div>
-                    </div>
-
-                    <div class="stat-card">
+                    <div class="stat-card" :style="highlightGlobalStats ? 'box-shadow: 0 0 20px rgba(245, 158, 11, 0.4); border: 2px solid #f59e0b; transform: scale(1.02); transition: all 0.3s ease;' : ''">
                         <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Elapsed Time</div>
                         <div style="font-size: 2rem; font-weight: 700; color: #f59e0b;">
                             {{ formatDuration(currentStats.total_duration_seconds) }}
@@ -1092,59 +1082,95 @@ const StatisticsView = {
                             {{ getEstimatedRemaining() }}
                         </div>
                     </div>
+
+                    <div class="stat-card" :style="highlightGlobalStats ? 'box-shadow: 0 0 20px rgba(139, 92, 246, 0.4); border: 2px solid #8b5cf6; transform: scale(1.02); transition: all 0.3s ease;' : ''">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Data Processed</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #8b5cf6;">
+                            {{ formatBytes(currentStats.bytes_processed) }}
+                        </div>
+                        <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
+                            {{ formatBytes(currentStats.bytes_per_second) }}/sec
+                        </div>
+                    </div>
+
+                    <div class="stat-card" :style="highlightGlobalStats ? 'box-shadow: 0 0 20px rgba(236, 72, 153, 0.4); border: 2px solid #ec4899; transform: scale(1.02); transition: all 0.3s ease;' : ''">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Peak Memory</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #ec4899;">
+                            {{ (currentStats.peak_memory_mb || 0).toFixed(1) }}
+                        </div>
+                        <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
+                            MB
+                        </div>
+                    </div>
+
+                    <div class="stat-card" :style="highlightGlobalStats ? 'box-shadow: 0 0 20px rgba(' + (currentStats.total_errors > 0 ? '239, 68, 68' : '34, 197, 94') + ', 0.4); border: 2px solid ' + (currentStats.total_errors > 0 ? '#ef4444' : '#22c55e') + '; transform: scale(1.02); transition: all 0.3s ease;' : ''">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Total Errors</div>
+                        <div style="font-size: 2rem; font-weight: 700;" :style="'color: ' + (currentStats.total_errors > 0 ? '#ef4444' : '#22c55e')">
+                            {{ currentStats.total_errors || 0 }}
+                        </div>
+                        <div style="font-size: 0.875rem; margin-top: 0.25rem;" :style="'color: ' + (currentStats.total_errors > 0 ? '#fca5a5' : '#86efac')">
+                            {{ currentStats.total_errors > 0 ? 'Issues detected' : 'All good!' }}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 1: Scanning Files -->
+                <h3 style="margin-bottom: 1rem;" :style="'color: ' + (highlightPhase1 ? '#10b981' : '#64748b') + '; transition: all 0.3s ease;'">
+                    📂 Phase 1: Scanning Files
+                    <span v-if="highlightPhase1" style="color: #10b981; font-size: 0.875rem; margin-left: 0.5rem;">← Active</span>
+                </h3>
+                <div class="stats-grid" style="margin-bottom: 2rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+                    <div class="stat-card" :style="highlightPhase1 ? 'box-shadow: 0 0 20px rgba(16, 185, 129, 0.4); border: 2px solid #10b981; transform: scale(1.02); transition: all 0.3s ease;' : 'opacity: ' + (highlightPhase1 ? '1' : '0.5') + '; transition: all 0.3s ease;'">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Files Processed</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #10b981;">
+                            {{ (currentStats.total_files_analyzed || 0).toLocaleString() }}
+                        </div>
+                        <div style="margin-top: 0.75rem; height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden; position: relative;">
+                            <div v-if="highlightPhase1" style="position: absolute; height: 100%; width: 30%; background: linear-gradient(90deg, transparent, #10b981, transparent); animation: pulse 2s ease-in-out infinite;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stat-card" :style="highlightPhase1 ? 'box-shadow: 0 0 20px rgba(59, 130, 246, 0.4); border: 2px solid #3b82f6; transform: scale(1.02); transition: all 0.3s ease;' : 'opacity: ' + (highlightPhase1 ? '1' : '0.5') + '; transition: all 0.3s ease;'">
+                        <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Current Speed</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #3b82f6;">
+                            {{ (currentStats.files_per_second || 0).toFixed(1) }}
+                        </div>
+                        <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
+                            files/sec
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 2: Computing Hashes -->
+                <h3 style="margin-bottom: 1rem;" :style="'color: ' + (highlightPhase2 ? '#8b5cf6' : '#64748b') + '; transition: all 0.3s ease;'">
+                    🔢 Phase 2: Computing Hashes
+                    <span v-if="highlightPhase2" style="color: #8b5cf6; font-size: 0.875rem; margin-left: 0.5rem;">← Active</span>
+                </h3>
+                <div v-if="currentStats" style="margin-bottom: 2rem;">
+                    <div class="stat-card chart-card" :style="highlightPhase2 ? 'box-shadow: 0 0 20px rgba(139, 92, 246, 0.4); border: 2px solid #8b5cf6; transform: scale(1.02); transition: all 0.3s ease;' : 'opacity: ' + (highlightPhase2 ? '1' : '0.5') + '; transition: all 0.3s ease;'">
+                        <h4 style="margin-bottom: 1rem; font-size: 1rem; color: #94a3b8;">Hash Computation Breakdown</h4>
+                        <div style="height: 300px; position: relative;">
+                            <canvas ref="hashChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 3: Duplicate Detection -->
+                <h3 style="margin-bottom: 1rem;" :style="'color: ' + (highlightPhase3 ? '#f59e0b' : '#64748b') + '; transition: all 0.3s ease;'">
+                    🔍 Phase 3: Duplicate Detection
+                    <span v-if="highlightPhase3" style="color: #f59e0b; font-size: 0.875rem; margin-left: 0.5rem;">← Active</span>
+                </h3>
+                <div v-if="currentStats" style="margin-bottom: 2rem;">
+                    <div class="stat-card chart-card" :style="highlightPhase3 ? 'box-shadow: 0 0 20px rgba(245, 158, 11, 0.4); border: 2px solid #f59e0b; transform: scale(1.02); transition: all 0.3s ease;' : 'opacity: ' + (highlightPhase3 || highlightPhase2 ? '1' : '0.5') + '; transition: all 0.3s ease;'">
+                        <h4 style="margin-bottom: 1rem; font-size: 1rem; color: #94a3b8;">Operation Timing</h4>
+                        <div style="height: 300px; position: relative;">
+                            <canvas ref="operationsChart"></canvas>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Current run breakdown -->
-            <div v-if="currentStats" class="stats-grid" style="margin-bottom: 2rem;">
-                <div class="stat-card chart-card">
-                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Hash Computation Breakdown</h3>
-                    <div style="height: 300px; position: relative;">
-                        <canvas ref="hashChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="stat-card chart-card">
-                    <h3 style="margin-bottom: 1rem; font-size: 1.125rem;">Operation Timing</h3>
-                    <div style="height: 300px; position: relative;">
-                        <canvas ref="operationsChart"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Memory and data stats -->
-            <div v-if="currentStats" class="stats-grid" style="margin-bottom: 2rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-                <div class="stat-card">
-                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Data Processed</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: #60a5fa;">
-                        {{ formatBytes(currentStats.bytes_processed) }}
-                    </div>
-                    <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.25rem;">
-                        {{ formatBytes(currentStats.bytes_per_second) }}/sec
-                    </div>
-                </div>
-
-                <div class="stat-card">
-                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Peak Memory</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: #8b5cf6;">
-                        {{ (currentStats.peak_memory_mb || 0).toFixed(1) }} MB
-                    </div>
-                </div>
-
-                <div class="stat-card">
-                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Total Duration</div>
-                    <div style="font-size: 1.5rem; font-weight: 600; color: #10b981;">
-                        {{ formatDuration(currentStats.total_duration_seconds) }}
-                    </div>
-                </div>
-
-                <div class="stat-card">
-                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 0.5rem;">Errors</div>
-                    <div style="font-size: 1.5rem; font-weight: 600;" :style="{ color: currentStats.total_errors > 0 ? '#ef4444' : '#10b981' }">
-                        {{ currentStats.total_errors || 0 }}
-                    </div>
-                </div>
-            </div>
 
             <!-- Historical trends -->
             <div v-if="hasHistoricalData" class="stats-grid">
@@ -1202,24 +1228,153 @@ const StatisticsView = {
             if (!this.hasHistoricalData) return '';
             const lastRun = this.historicalData[this.historicalData.length - 1];
             return `${lastRun.total_files_analyzed.toLocaleString()} files at ${lastRun.files_per_second.toFixed(2)} files/sec`;
+        },
+
+        currentPhase() {
+            if (!this.currentStats || !this.isAnalysisRunning) return null;
+
+            const hashingStarted = this.currentStats.hashing?.total_hashes_computed > 0;
+            const scanningActive = this.currentStats.operations?.process_files || this.currentStats.operations?.scan_directories;
+            const duplicateDetection = this.currentStats.operations?.find_duplicates || this.currentStats.operations?.find_exact_duplicates;
+
+            if (duplicateDetection) {
+                return {
+                    name: 'Duplicate Detection',
+                    icon: '🔍',
+                    description: 'Analyzing images to find duplicates and similar photos.',
+                    next: 'Analysis will complete soon.',
+                    phase: 'duplicate_detection'
+                };
+            } else if (hashingStarted) {
+                return {
+                    name: 'Computing Hashes',
+                    icon: '🔢',
+                    description: 'Generating perceptual hashes for duplicate detection.',
+                    next: 'Duplicate detection will begin after hashing completes.',
+                    phase: 'hashing'
+                };
+            } else if (scanningActive) {
+                return {
+                    name: 'Scanning Files',
+                    icon: '📂',
+                    description: 'Discovering and processing files, extracting metadata.',
+                    next: 'Hash computation will begin after scanning completes.',
+                    phase: 'scanning'
+                };
+            }
+
+            return {
+                name: 'Initializing',
+                icon: '⏳',
+                description: 'Starting analysis...',
+                next: 'File scanning will begin shortly.',
+                phase: 'initializing'
+            };
+        },
+
+        // Global stats - always highlighted when analysis is running
+        highlightGlobalStats() {
+            return this.isAnalysisRunning;
+        },
+
+        // Phase 1: Scanning - files discovery and metadata extraction
+        highlightPhase1() {
+            const phase = this.currentPhase?.phase;
+            return phase === 'scanning' || phase === 'initializing';
+        },
+
+        // Phase 2: Hashing - perceptual hash computation
+        highlightPhase2() {
+            const phase = this.currentPhase?.phase;
+            return phase === 'hashing' || phase === 'duplicate_detection';
+        },
+
+        // Phase 3: Duplicate Detection - finding similar images
+        highlightPhase3() {
+            return this.currentPhase?.phase === 'duplicate_detection';
+        },
+
+        // Individual stat highlights (for backwards compatibility)
+        highlightFilesProcessed() {
+            return this.highlightPhase1;
+        },
+
+        highlightSpeed() {
+            return this.highlightPhase1;
+        },
+
+        highlightHashChart() {
+            return this.highlightPhase2;
+        },
+
+        highlightOperationsChart() {
+            return this.highlightPhase2 || this.highlightPhase3;
         }
     },
 
     methods: {
+        normalizeStats(stats) {
+            // Handle cases where numbers are returned as {source, parsedValue} objects
+            const normalizeValue = (val) => {
+                if (val && typeof val === 'object' && 'parsedValue' in val) {
+                    return val.parsedValue;
+                }
+                return val;
+            };
+
+            const normalized = { ...stats };
+            normalized.bytes_per_second = normalizeValue(stats.bytes_per_second);
+            normalized.peak_memory_mb = normalizeValue(stats.peak_memory_mb);
+
+            if (stats.hashing) {
+                normalized.hashing = {
+                    ...stats.hashing,
+                    dhash_time_seconds: normalizeValue(stats.hashing.dhash_time_seconds),
+                    ahash_time_seconds: normalizeValue(stats.hashing.ahash_time_seconds),
+                    whash_time_seconds: normalizeValue(stats.hashing.whash_time_seconds),
+                    raw_conversion_time_seconds: normalizeValue(stats.hashing.raw_conversion_time_seconds)
+                };
+            }
+
+            return normalized;
+        },
+
         async pollPerformanceData() {
             try {
                 const response = await axios.get('/api/performance/current');
+                console.log('[Statistics] Poll response:', response.data.status, 'files:', response.data.data?.total_files_analyzed);
+
+                const hadStats = !!this.currentStats;
 
                 if (response.data.status === 'running' && response.data.data) {
                     this.isAnalysisRunning = true;
-                    this.currentStats = response.data.data;
+                    this.currentStats = this.normalizeStats(response.data.data);
+                    console.log('[Statistics] Updated currentStats:', this.currentStats.total_files_analyzed, 'files');
+
+                    // If this is the first time we have stats, initialize charts
+                    if (!hadStats) {
+                        await this.$nextTick();
+                        this.initCharts();
+                        console.log('[Statistics] Charts initialized after first data load');
+                    }
+
                     this.updateStaticCharts();
                 } else if (response.data.status === 'idle' && response.data.data) {
                     this.isAnalysisRunning = false;
-                    this.currentStats = response.data.data;
+                    this.currentStats = this.normalizeStats(response.data.data);
+                    console.log('[Statistics] Analysis idle, stats loaded');
+
+                    // If this is the first time we have stats, initialize charts
+                    if (!hadStats) {
+                        await this.$nextTick();
+                        this.initCharts();
+                        console.log('[Statistics] Charts initialized after first data load');
+                    }
+
                     this.updateStaticCharts();
                 } else {
                     this.isAnalysisRunning = false;
+                    console.log('[Statistics] No data available');
                 }
             } catch (error) {
                 console.error('Error polling performance data:', error);
@@ -1342,18 +1497,26 @@ const StatisticsView = {
         updateStaticCharts() {
             if (!this.currentStats) return;
 
+            // Skip if analysis hasn't really started yet
+            if (this.currentStats.total_files_analyzed === 0) return;
+
             // Defer chart updates to next animation frame to avoid conflicts with Vue's reactive updates
             requestAnimationFrame(() => {
                 // Update hash chart
                 try {
-                    if (this.charts.hash && this.charts.hash.canvas && this.currentStats.hashing) {
+                    if (this.charts.hash && this.currentStats.hashing) {
                         const hashData = this.currentStats.hashing;
-                        this.charts.hash.data.datasets[0].data = [
-                            hashData.gpu_hashes || 0,
-                            hashData.cpu_hashes || 0,
-                            hashData.failed_hashes || 0
-                        ];
-                        this.charts.hash.update();
+                        const hasData = (hashData.gpu_hashes || 0) + (hashData.cpu_hashes || 0) + (hashData.failed_hashes || 0) > 0;
+
+                        if (hasData) {
+                            this.charts.hash.data.datasets[0].data = [
+                                hashData.gpu_hashes || 0,
+                                hashData.cpu_hashes || 0,
+                                hashData.failed_hashes || 0
+                            ];
+                            this.charts.hash.update('none'); // Use 'none' mode to skip animations
+                            console.log('[Statistics] Hash chart updated:', this.charts.hash.data.datasets[0].data);
+                        }
                     }
                 } catch (error) {
                     console.warn('[Statistics] Error updating hash chart:', error.message);
@@ -1361,14 +1524,25 @@ const StatisticsView = {
 
                 // Update operations chart
                 try {
-                    if (this.charts.operations && this.charts.operations.canvas && this.currentStats.operations) {
+                    if (this.charts.operations && this.currentStats.operations) {
                         const ops = this.currentStats.operations;
                         const labels = Object.keys(ops);
-                        const data = labels.map(key => ops[key].total_time_seconds || 0);
+                        console.log('[Statistics] Operations found:', labels);
 
-                        this.charts.operations.data.labels = labels;
-                        this.charts.operations.data.datasets[0].data = data;
-                        this.charts.operations.update();
+                        if (labels.length > 0) {
+                            const data = labels.map(key => ops[key].total_time_seconds || 0);
+                            console.log('[Statistics] Operations data:', data);
+
+                            this.charts.operations.data.labels = labels;
+                            this.charts.operations.data.datasets[0].data = data;
+                            this.charts.operations.update('none'); // Use 'none' mode to skip animations
+                            console.log('[Statistics] Operations chart updated');
+                        }
+                    } else {
+                        console.log('[Statistics] Operations chart skip:', {
+                            hasChart: !!this.charts.operations,
+                            hasOps: !!this.currentStats.operations
+                        });
                     }
                 } catch (error) {
                     console.warn('[Statistics] Error updating operations chart:', error.message);
@@ -1431,20 +1605,10 @@ const StatisticsView = {
         await this.loadHistoricalData();
         console.log('[Statistics] Historical data loaded:', this.historicalData.length, 'runs');
 
-        // Initialize charts after a short delay to ensure refs are available
-        await this.$nextTick();
-        console.log('[Statistics] Refs available:', {
-            filesChart: !!this.$refs.filesChart,
-            throughputChart: !!this.$refs.throughputChart,
-            hashChart: !!this.$refs.hashChart,
-            operationsChart: !!this.$refs.operationsChart,
-            historyChart: !!this.$refs.historyChart
-        });
+        // Don't init charts yet - they'll be initialized when first data arrives
+        // and the canvas elements are rendered
 
-        this.initCharts();
-        console.log('[Statistics] Charts initialized:', Object.keys(this.charts));
-
-        // Initial poll
+        // Initial poll (will initialize charts if data is available)
         await this.pollPerformanceData();
 
         // Start polling every second

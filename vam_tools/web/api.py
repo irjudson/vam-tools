@@ -1496,6 +1496,10 @@ async def get_performance_summary() -> Dict[str, Any]:
     }
 
 
+# Cache for tracking last catalog modification time
+_last_catalog_mtime = 0
+
+
 @app.get("/api/performance/current")
 async def get_current_performance_stats() -> Dict[str, Any]:
     """
@@ -1510,7 +1514,25 @@ async def get_current_performance_stats() -> Dict[str, Any]:
         - status: "running" if analysis is active, "idle" if not, "no_data" if never run
         - data: Performance metrics if available, None otherwise
     """
+    global _last_catalog_mtime
     catalog = get_catalog()
+
+    # Only reload if catalog file has been modified
+    # This avoids expensive reloads when nothing has changed
+    try:
+        catalog_file = (
+            catalog.db_file
+        )  # Use db_file directly (already includes catalog.json)
+        current_mtime = catalog_file.stat().st_mtime if catalog_file.exists() else 0
+
+        if current_mtime > _last_catalog_mtime:
+            catalog.load()
+            _last_catalog_mtime = current_mtime
+            logger.debug("Catalog reloaded for performance stats")
+    except Exception as e:
+        logger.warning(f"Failed to reload catalog for performance stats: {e}")
+        # Continue with cached data rather than failing the request
+
     perf_stats = catalog.get_performance_statistics()
 
     if (
