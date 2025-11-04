@@ -120,6 +120,12 @@ class TestChecksumOperations:
         assert verify_checksum(test_file, checksum.upper())
         assert verify_checksum(test_file, checksum.lower())
 
+    def test_verify_checksum_nonexistent_file(self, tmp_path):
+        """Test verify_checksum returns False when file doesn't exist."""
+        nonexistent = tmp_path / "nonexistent.txt"
+        result = verify_checksum(nonexistent, "any_checksum")
+        assert result is False
+
 
 class TestFormatting:
     """Test formatting utilities."""
@@ -234,6 +240,41 @@ class TestImageOperations:
         file_path.write_text("test")
 
         files = collect_image_files(file_path)
+        assert files == []
+
+    def test_collect_image_files_permission_error(self, tmp_path, monkeypatch):
+        """Test collecting image files handles PermissionError."""
+        import os
+
+        # Create a directory that will raise PermissionError when walked
+        test_dir = tmp_path / "restricted"
+        test_dir.mkdir()
+
+        # Mock os.walk to raise PermissionError
+        def mock_walk(*args, **kwargs):
+            raise PermissionError("Access denied")
+
+        monkeypatch.setattr(os, "walk", mock_walk)
+
+        # Should handle the error gracefully and return empty list
+        files = collect_image_files(test_dir, recursive=True)
+        assert files == []
+
+    def test_collect_image_files_generic_exception(self, tmp_path, monkeypatch):
+        """Test collecting image files handles generic exceptions."""
+        import os
+
+        test_dir = tmp_path / "error_dir"
+        test_dir.mkdir()
+
+        # Mock os.walk to raise a generic exception
+        def mock_walk(*args, **kwargs):
+            raise RuntimeError("Unexpected error")
+
+        monkeypatch.setattr(os, "walk", mock_walk)
+
+        # Should handle the error gracefully and return empty list
+        files = collect_image_files(test_dir, recursive=True)
         assert files == []
 
 
