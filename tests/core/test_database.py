@@ -341,3 +341,124 @@ class TestCatalogDatabase:
         repr_str = repr(db)
         assert "CatalogDatabase" in repr_str
         assert str(db.db_path) in repr_str
+
+    def test_transaction_error_without_connection(self, db_path: Path) -> None:
+        """Test transaction raises error without connection."""
+        db = CatalogDatabase(db_path)
+        # Don't connect
+        with pytest.raises(RuntimeError, match="not connected"):
+            with db.transaction():
+                pass
+
+    def test_initialize_with_invalid_schema(self, db: CatalogDatabase, tmp_path: Path) -> None:
+        """Test initialization with corrupted schema file."""
+        db.connect()
+
+        # Create invalid schema file temporarily
+        import shutil
+        schema_backup = db.db_path.parent.parent.parent / "vam_tools" / "core" / "schema.sql"
+        backup_path = tmp_path / "schema_backup.sql"
+
+        if schema_backup.exists():
+            shutil.copy(schema_backup, backup_path)
+            try:
+                # Write invalid SQL
+                with open(schema_backup, "w") as f:
+                    f.write("INVALID SQL HERE;")
+
+                with pytest.raises(Exception):
+                    db.initialize()
+            finally:
+                # Restore original
+                if backup_path.exists():
+                    shutil.copy(backup_path, schema_backup)
+
+    def test_create_backup_no_database(self, db_path: Path) -> None:
+        """Test creating backup when database doesn't exist."""
+        db = CatalogDatabase(db_path)
+
+        with pytest.raises(FileNotFoundError):
+            db.create_backup()
+
+    def test_cleanup_old_backups_no_backup_dir(self, db_path: Path) -> None:
+        """Test cleanup when backup directory doesn't exist."""
+        db = CatalogDatabase(db_path)
+
+        # Remove backup dir
+        db.backup_dir.rmdir()
+
+        deleted = db.cleanup_old_backups()
+        assert deleted == 0
+
+    def test_execute_without_connection(self, db_path: Path) -> None:
+        """Test execute auto-connects."""
+        db = CatalogDatabase(db_path)
+        db.initialize()  # This will auto-connect
+
+        # Execute should work even if we didn't explicitly connect
+        cursor = db.execute("SELECT 1")
+        result = cursor.fetchone()
+        assert result[0] == 1
+
+    def test_executemany_without_connection(self, db_path: Path) -> None:
+        """Test executemany auto-connects."""
+        db = CatalogDatabase(db_path)
+        db.initialize()
+
+        db.executemany(
+            "INSERT INTO tags (name, category, created_at) VALUES (?, ?, datetime('now'))",
+            [("tag1", "subject"), ("tag2", "scene")]
+        )
+
+        cursor = db.execute("SELECT COUNT(*) FROM tags")
+        assert cursor.fetchone()[0] == 2
+
+    def test_vacuum_without_connection(self, db_path: Path) -> None:
+        """Test vacuum auto-connects."""
+        db = CatalogDatabase(db_path)
+        db.initialize()
+
+        # Should auto-connect
+        db.vacuum()
+
+    def test_get_stats_without_connection(self, db_path: Path) -> None:
+        """Test get_stats auto-connects."""
+        db = CatalogDatabase(db_path)
+        db.initialize()
+
+        stats = db.get_stats()
+        assert "tags_count" in stats
+        assert stats["tags_count"] >= 0
+
+    def test_get_schema_version_without_connection(self, db_path: Path) -> None:
+        """Test get_schema_version auto-connects."""
+        db = CatalogDatabase(db_path)
+        db.initialize()
+
+        version = db.get_schema_version()
+        assert version >= 1
+
+    def test_cleanup_old_backups_with_failed_delete(self, db: CatalogDatabase, monkeypatch) -> None:
+        """Test cleanup handles delete failures gracefully."""
+        import time
+
+        db.connect()
+        db.initialize()
+
+        # Create backups
+        for i in range(3):
+            db.create_backup()
+            time.sleep(1.1)
+
+        # Mock unlink to fail
+        original_unlink = Path.unlink
+        def failing_unlink(self, *args, **kwargs):
+            if "catalog_" in str(self):
+                raise PermissionError("Cannot delete")
+            return original_unlink(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", failing_unlink)
+
+        # Should handle failures gracefully
+        deleted = db.cleanup_old_backups(keep_count=1)
+        assert deleted == 0  # No successful deletes due to mock failure
