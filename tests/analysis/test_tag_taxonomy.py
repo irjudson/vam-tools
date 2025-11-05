@@ -16,7 +16,7 @@ class TestTagDefinition:
             category=TagCategory.SUBJECT,
             parent_id=None,
             synonyms={"test", "testing"},
-            description="A test tag"
+            description="A test tag",
         )
 
         assert tag.id == 1
@@ -28,11 +28,7 @@ class TestTagDefinition:
 
     def test_tag_definition_default_synonyms(self) -> None:
         """Test that synonyms defaults to empty set."""
-        tag = TagDefinition(
-            id=1,
-            name="test",
-            category=TagCategory.SUBJECT
-        )
+        tag = TagDefinition(id=1, name="test", category=TagCategory.SUBJECT)
 
         assert tag.synonyms == set()
 
@@ -139,9 +135,7 @@ class TestTagTaxonomy:
         assert len(tags) > 0
         assert any(tag.name == "dogs" for tag in tags)
 
-    def test_find_tags_by_synonym_case_insensitive(
-        self, taxonomy: TagTaxonomy
-    ) -> None:
+    def test_find_tags_by_synonym_case_insensitive(self, taxonomy: TagTaxonomy) -> None:
         """Test synonym search is case-insensitive."""
         tags1 = taxonomy.find_tags_by_synonym("puppy")
         tags2 = taxonomy.find_tags_by_synonym("PUPPY")
@@ -257,4 +251,6 @@ class TestTagTaxonomy:
         for tag in all_tags:
             if tag.parent_id is not None:
                 parent = taxonomy.get_tag_by_id(tag.parent_id)
-                assert parent is not None, f"Tag {tag.name} has invalid parent_id {tag.parent_id}"
+                assert (
+                    parent is not None
+                ), f"Tag {tag.name} has invalid parent_id {tag.parent_id}"

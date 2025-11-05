@@ -154,191 +154,290 @@ class TagTaxonomy:
         tags = [
             # Root: People (1-5)
             TagDefinition(
-                1, "people", TagCategory.SUBJECT, None,
+                1,
+                "people",
+                TagCategory.SUBJECT,
+                None,
                 {"person", "human", "humans"},
-                "Images containing people"
+                "Images containing people",
             ),
             TagDefinition(
-                2, "portrait", TagCategory.SUBJECT, 1,
+                2,
+                "portrait",
+                TagCategory.SUBJECT,
+                1,
                 {"headshot", "face", "closeup"},
-                "Portrait-style photos of individuals"
+                "Portrait-style photos of individuals",
             ),
             TagDefinition(
-                3, "group", TagCategory.SUBJECT, 1,
+                3,
+                "group",
+                TagCategory.SUBJECT,
+                1,
                 {"crowd", "people", "gathering"},
-                "Multiple people together"
+                "Multiple people together",
             ),
             TagDefinition(
-                4, "candid", TagCategory.SUBJECT, 1,
+                4,
+                "candid",
+                TagCategory.SUBJECT,
+                1,
                 {"unposed", "natural", "spontaneous"},
-                "Unposed, natural moments"
+                "Unposed, natural moments",
             ),
-
             # Root: Animals (10-15)
             TagDefinition(
-                10, "animals", TagCategory.SUBJECT, None,
+                10,
+                "animals",
+                TagCategory.SUBJECT,
+                None,
                 {"animal", "creature", "pet", "wildlife"},
-                "Images containing animals"
+                "Images containing animals",
             ),
             TagDefinition(
-                11, "dogs", TagCategory.SUBJECT, 10,
+                11,
+                "dogs",
+                TagCategory.SUBJECT,
+                10,
                 {"dog", "canine", "puppy", "pup"},
-                "Images containing dogs"
+                "Images containing dogs",
             ),
             TagDefinition(
-                12, "cats", TagCategory.SUBJECT, 10,
+                12,
+                "cats",
+                TagCategory.SUBJECT,
+                10,
                 {"cat", "feline", "kitten", "kitty"},
-                "Images containing cats"
+                "Images containing cats",
             ),
             TagDefinition(
-                13, "birds", TagCategory.SUBJECT, 10,
+                13,
+                "birds",
+                TagCategory.SUBJECT,
+                10,
                 {"bird", "avian", "fowl"},
-                "Images containing birds"
+                "Images containing birds",
             ),
             TagDefinition(
-                14, "wildlife", TagCategory.SUBJECT, 10,
+                14,
+                "wildlife",
+                TagCategory.SUBJECT,
+                10,
                 {"wild", "safari", "nature"},
-                "Wild animals in natural habitats"
+                "Wild animals in natural habitats",
             ),
-
             # Root: Nature (20-24)
             TagDefinition(
-                20, "nature", TagCategory.SUBJECT, None,
+                20,
+                "nature",
+                TagCategory.SUBJECT,
+                None,
                 {"natural", "outdoors", "wilderness"},
-                "Natural environments and elements"
+                "Natural environments and elements",
             ),
             TagDefinition(
-                21, "flowers", TagCategory.SUBJECT, 20,
+                21,
+                "flowers",
+                TagCategory.SUBJECT,
+                20,
                 {"flower", "floral", "bloom", "blossom"},
-                "Images of flowers"
+                "Images of flowers",
             ),
             TagDefinition(
-                22, "trees", TagCategory.SUBJECT, 20,
+                22,
+                "trees",
+                TagCategory.SUBJECT,
+                20,
                 {"tree", "forest", "woods"},
-                "Images featuring trees"
+                "Images featuring trees",
             ),
             TagDefinition(
-                23, "landscape", TagCategory.SUBJECT, 20,
+                23,
+                "landscape",
+                TagCategory.SUBJECT,
+                20,
                 {"scenery", "vista", "view", "panorama"},
-                "Wide landscape views"
+                "Wide landscape views",
             ),
-
             # Root: Objects (30-35)
             TagDefinition(
-                30, "food", TagCategory.SUBJECT, None,
+                30,
+                "food",
+                TagCategory.SUBJECT,
+                None,
                 {"meal", "cuisine", "dish", "dining"},
-                "Images of food and meals"
+                "Images of food and meals",
             ),
             TagDefinition(
-                31, "architecture", TagCategory.SUBJECT, None,
+                31,
+                "architecture",
+                TagCategory.SUBJECT,
+                None,
                 {"building", "structure", "architectural"},
-                "Buildings and architectural features"
+                "Buildings and architectural features",
             ),
             TagDefinition(
-                32, "vehicles", TagCategory.SUBJECT, None,
+                32,
+                "vehicles",
+                TagCategory.SUBJECT,
+                None,
                 {"vehicle", "car", "transportation", "auto"},
-                "Cars, trucks, and other vehicles"
+                "Cars, trucks, and other vehicles",
             ),
             TagDefinition(
-                33, "technology", TagCategory.SUBJECT, None,
+                33,
+                "technology",
+                TagCategory.SUBJECT,
+                None,
                 {"tech", "device", "gadget", "electronics"},
-                "Technology and electronic devices"
+                "Technology and electronic devices",
             ),
-
             # Scenes (50-60)
             TagDefinition(
-                50, "indoor", TagCategory.SCENE, None,
+                50,
+                "indoor",
+                TagCategory.SCENE,
+                None,
                 {"inside", "interior"},
-                "Indoor scenes"
+                "Indoor scenes",
             ),
             TagDefinition(
-                51, "outdoor", TagCategory.SCENE, None,
+                51,
+                "outdoor",
+                TagCategory.SCENE,
+                None,
                 {"outside", "exterior"},
-                "Outdoor scenes"
+                "Outdoor scenes",
             ),
             TagDefinition(
-                52, "urban", TagCategory.SCENE, None,
+                52,
+                "urban",
+                TagCategory.SCENE,
+                None,
                 {"city", "downtown", "metropolitan"},
-                "Urban environments"
+                "Urban environments",
             ),
             TagDefinition(
-                53, "rural", TagCategory.SCENE, None,
+                53,
+                "rural",
+                TagCategory.SCENE,
+                None,
                 {"countryside", "country", "farmland"},
-                "Rural areas"
+                "Rural areas",
             ),
             TagDefinition(
-                54, "beach", TagCategory.SCENE, None,
+                54,
+                "beach",
+                TagCategory.SCENE,
+                None,
                 {"shore", "coast", "seaside", "ocean"},
-                "Beach and coastal scenes"
+                "Beach and coastal scenes",
             ),
             TagDefinition(
-                55, "mountain", TagCategory.SCENE, None,
+                55,
+                "mountain",
+                TagCategory.SCENE,
+                None,
                 {"mountains", "peak", "alpine", "hills"},
-                "Mountain scenes"
+                "Mountain scenes",
             ),
             TagDefinition(
-                56, "forest", TagCategory.SCENE, None,
+                56,
+                "forest",
+                TagCategory.SCENE,
+                None,
                 {"woods", "woodland", "trees"},
-                "Forest environments"
+                "Forest environments",
             ),
             TagDefinition(
-                57, "water", TagCategory.SCENE, None,
+                57,
+                "water",
+                TagCategory.SCENE,
+                None,
                 {"lake", "river", "stream", "waterfall"},
-                "Water features"
+                "Water features",
             ),
-
             # Lighting (70-75)
             TagDefinition(
-                70, "daylight", TagCategory.LIGHTING, None,
+                70,
+                "daylight",
+                TagCategory.LIGHTING,
+                None,
                 {"day", "daytime", "bright"},
-                "Daylight conditions"
+                "Daylight conditions",
             ),
             TagDefinition(
-                71, "golden_hour", TagCategory.LIGHTING, None,
+                71,
+                "golden_hour",
+                TagCategory.LIGHTING,
+                None,
                 {"golden", "sunrise", "sunset", "dusk", "dawn"},
-                "Golden hour lighting"
+                "Golden hour lighting",
             ),
             TagDefinition(
-                72, "blue_hour", TagCategory.LIGHTING, None,
+                72,
+                "blue_hour",
+                TagCategory.LIGHTING,
+                None,
                 {"blue", "twilight"},
-                "Blue hour twilight"
+                "Blue hour twilight",
             ),
             TagDefinition(
-                73, "night", TagCategory.LIGHTING, None,
+                73,
+                "night",
+                TagCategory.LIGHTING,
+                None,
                 {"nighttime", "evening", "dark"},
-                "Night scenes"
+                "Night scenes",
             ),
             TagDefinition(
-                74, "studio", TagCategory.LIGHTING, None,
+                74,
+                "studio",
+                TagCategory.LIGHTING,
+                None,
                 {"studio lighting", "artificial"},
-                "Studio or artificial lighting"
+                "Studio or artificial lighting",
             ),
-
             # Mood/Style (90-95)
             TagDefinition(
-                90, "vibrant", TagCategory.MOOD, None,
+                90,
+                "vibrant",
+                TagCategory.MOOD,
+                None,
                 {"colorful", "bright", "vivid", "saturated"},
-                "Vibrant, colorful images"
+                "Vibrant, colorful images",
             ),
             TagDefinition(
-                91, "moody", TagCategory.MOOD, None,
+                91,
+                "moody",
+                TagCategory.MOOD,
+                None,
                 {"dark", "dramatic", "atmospheric"},
-                "Moody, dramatic atmosphere"
+                "Moody, dramatic atmosphere",
             ),
             TagDefinition(
-                92, "minimalist", TagCategory.MOOD, None,
+                92,
+                "minimalist",
+                TagCategory.MOOD,
+                None,
                 {"minimal", "simple", "clean"},
-                "Minimalist composition"
+                "Minimalist composition",
             ),
             TagDefinition(
-                93, "vintage", TagCategory.MOOD, None,
+                93,
+                "vintage",
+                TagCategory.MOOD,
+                None,
                 {"retro", "classic", "old-fashioned"},
-                "Vintage or retro style"
+                "Vintage or retro style",
             ),
             TagDefinition(
-                94, "abstract", TagCategory.MOOD, None,
+                94,
+                "abstract",
+                TagCategory.MOOD,
+                None,
                 {"artistic", "conceptual"},
-                "Abstract or artistic style"
+                "Abstract or artistic style",
             ),
         ]
 

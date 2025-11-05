@@ -96,9 +96,7 @@ class CatalogMigrator:
             stats["images"] = self._migrate_images(data.get("images", {}))
 
             # Migrate duplicate groups
-            dup_stats = self._migrate_duplicate_groups(
-                data.get("duplicate_groups", {})
-            )
+            dup_stats = self._migrate_duplicate_groups(data.get("duplicate_groups", {}))
             stats["duplicate_groups"] = dup_stats[0]
             stats["duplicate_images"] = dup_stats[1]
 

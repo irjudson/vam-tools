@@ -51,17 +51,23 @@ class TestCatalogDatabase:
         db.initialize()
 
         # Check that tables exist
-        cursor = db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )
+        cursor = db.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = {row[0] for row in cursor.fetchall()}
 
         expected_tables = {
-            "schema_version", "images", "tags", "image_tags",
-            "duplicate_groups", "duplicate_group_images",
-            "burst_groups", "burst_group_images",
-            "review_queue", "problematic_files",
-            "catalog_config", "statistics", "performance_snapshots"
+            "schema_version",
+            "images",
+            "tags",
+            "image_tags",
+            "duplicate_groups",
+            "duplicate_group_images",
+            "burst_groups",
+            "burst_group_images",
+            "review_queue",
+            "problematic_files",
+            "catalog_config",
+            "statistics",
+            "performance_snapshots",
         }
 
         assert expected_tables.issubset(tables)
@@ -83,7 +89,7 @@ class TestCatalogDatabase:
             db.execute(
                 "INSERT INTO tags (name, category, created_at) "
                 "VALUES (?, ?, datetime('now'))",
-                ("test_tag", "subject")
+                ("test_tag", "subject"),
             )
 
         # Verify committed
@@ -101,13 +107,13 @@ class TestCatalogDatabase:
                 db.execute(
                     "INSERT INTO tags (name, category, created_at) "
                     "VALUES (?, ?, datetime('now'))",
-                    ("test_tag", "subject")
+                    ("test_tag", "subject"),
                 )
                 # Force error with duplicate
                 db.execute(
                     "INSERT INTO tags (name, category, created_at) "
                     "VALUES (?, ?, datetime('now'))",
-                    ("test_tag", "subject")
+                    ("test_tag", "subject"),
                 )
         except sqlite3.IntegrityError:
             pass
@@ -125,7 +131,7 @@ class TestCatalogDatabase:
         db.execute(
             "INSERT INTO tags (name, category, created_at) "
             "VALUES (?, ?, datetime('now'))",
-            ("test_tag", "subject")
+            ("test_tag", "subject"),
         )
 
         cursor = db.execute("SELECT * FROM tags WHERE name = ?", ("test_tag",))
@@ -140,16 +146,12 @@ class TestCatalogDatabase:
         db.connect()
         db.initialize()
 
-        tags = [
-            ("dogs", "subject"),
-            ("cats", "subject"),
-            ("sunset", "lighting")
-        ]
+        tags = [("dogs", "subject"), ("cats", "subject"), ("sunset", "lighting")]
 
         db.executemany(
             "INSERT INTO tags (name, category, created_at) "
             "VALUES (?, ?, datetime('now'))",
-            tags
+            tags,
         )
 
         cursor = db.execute("SELECT COUNT(*) FROM tags")
@@ -167,7 +169,7 @@ class TestCatalogDatabase:
                 "INSERT INTO image_tags "
                 "(image_id, tag_id, confidence, source, created_at) "
                 "VALUES (?, ?, ?, ?, datetime('now'))",
-                ("img1", 999, 0.5, "manual")
+                ("img1", 999, 0.5, "manual"),
             )
 
     def test_check_constraints(self, db: CatalogDatabase) -> None:
@@ -179,7 +181,7 @@ class TestCatalogDatabase:
         db.execute(
             "INSERT INTO tags (name, category, created_at) "
             "VALUES (?, ?, datetime('now'))",
-            ("test_tag", "subject")
+            ("test_tag", "subject"),
         )
 
         # Try invalid confidence (out of range)
@@ -188,7 +190,7 @@ class TestCatalogDatabase:
                 "INSERT INTO image_tags "
                 "(image_id, tag_id, confidence, source, created_at) "
                 "VALUES (?, ?, ?, ?, datetime('now'))",
-                ("img1", 1, 1.5, "manual")  # confidence > 1.0
+                ("img1", 1, 1.5, "manual"),  # confidence > 1.0
             )
 
     def test_unique_constraints(self, db: CatalogDatabase) -> None:
@@ -200,7 +202,7 @@ class TestCatalogDatabase:
         db.execute(
             "INSERT INTO tags (name, category, created_at) "
             "VALUES (?, ?, datetime('now'))",
-            ("test_tag", "subject")
+            ("test_tag", "subject"),
         )
 
         # Try duplicate name
@@ -208,7 +210,7 @@ class TestCatalogDatabase:
             db.execute(
                 "INSERT INTO tags (name, category, created_at) "
                 "VALUES (?, ?, datetime('now'))",
-                ("test_tag", "lighting")  # Duplicate name
+                ("test_tag", "lighting"),  # Duplicate name
             )
 
     def test_create_backup(self, db: CatalogDatabase) -> None:
@@ -220,7 +222,7 @@ class TestCatalogDatabase:
         db.execute(
             "INSERT INTO tags (name, category, created_at) "
             "VALUES (?, ?, datetime('now'))",
-            ("test_tag", "subject")
+            ("test_tag", "subject"),
         )
 
         # Create backup
@@ -242,7 +244,9 @@ class TestCatalogDatabase:
         for i in range(5):
             backup = db.create_backup()
             backups.append(backup)
-            time.sleep(1.1)  # Ensure distinct modification times (backup uses second precision)
+            time.sleep(
+                1.1
+            )  # Ensure distinct modification times (backup uses second precision)
 
         # Keep only 2
         deleted = db.cleanup_old_backups(keep_count=2)
@@ -260,7 +264,7 @@ class TestCatalogDatabase:
             db.execute(
                 "INSERT INTO tags (name, category, created_at) "
                 "VALUES (?, ?, datetime('now'))",
-                (f"tag_{i}", "subject")
+                (f"tag_{i}", "subject"),
             )
 
         db.execute("DELETE FROM tags")
@@ -277,7 +281,7 @@ class TestCatalogDatabase:
         db.execute(
             "INSERT INTO tags (name, category, created_at) "
             "VALUES (?, ?, datetime('now'))",
-            ("test_tag", "subject")
+            ("test_tag", "subject"),
         )
 
         stats = db.get_stats()
@@ -297,7 +301,7 @@ class TestCatalogDatabase:
         db.execute(
             "INSERT INTO tags (name, category, created_at) "
             "VALUES (?, ?, datetime('now'))",
-            ("test_tag", "subject")
+            ("test_tag", "subject"),
         )
 
         cursor = db.execute("SELECT * FROM tags")
@@ -312,15 +316,13 @@ class TestCatalogDatabase:
         db.connect()
         db.initialize()
 
-        cursor = db.execute(
-            "SELECT name FROM sqlite_master WHERE type='view'"
-        )
+        cursor = db.execute("SELECT name FROM sqlite_master WHERE type='view'")
         views = {row[0] for row in cursor.fetchall()}
 
         expected_views = {
             "v_images_with_tags",
             "v_duplicate_images",
-            "v_review_queue_detailed"
+            "v_review_queue_detailed",
         }
 
         assert expected_views.issubset(views)

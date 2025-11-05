@@ -318,11 +318,15 @@ class TestCatalogMigrator:
 
         # Verify database was created and initialized
         assert migrator.db.db_path.exists()
-        cursor = migrator.db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        cursor = migrator.db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
         tables = {row[0] for row in cursor.fetchall()}
         assert "images" in tables
 
-    def test_migrate_transaction_rollback(self, json_catalog: Path, monkeypatch) -> None:
+    def test_migrate_transaction_rollback(
+        self, json_catalog: Path, monkeypatch
+    ) -> None:
         """Test migration rolls back on error."""
         migrator = CatalogMigrator(json_catalog)
 
