@@ -212,25 +212,6 @@ This document outlines planned features and improvements for VAM Tools, organize
 
 ---
 
-### Cloud Integration
-
-**Goal**: Sync with cloud photo services
-
-**Features**:
-- Google Photos sync (download/upload)
-- iCloud Photos sync
-- Dropbox/OneDrive integration
-- Two-way sync with conflict resolution
-- Selective sync (specific albums/dates)
-
-**Benefits**:
-- Central management across services
-- Backup to cloud
-- Access from anywhere
-
-
----
-
 
 
 ## Documentation Improvements
