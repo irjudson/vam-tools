@@ -1,6 +1,5 @@
 """Tests for preview extractor."""
 
-import io
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -106,9 +105,7 @@ class TestExtractPreviewWorker:
         assert error == "No embedded preview found"
 
     @patch("subprocess.run")
-    def test_extract_raw_timeout(
-        self, mock_run, sample_raw_image: ImageRecord
-    ) -> None:
+    def test_extract_raw_timeout(self, mock_run, sample_raw_image: ImageRecord) -> None:
         """Test RAW extraction timeout."""
         import subprocess
 
@@ -211,9 +208,7 @@ class TestPreviewExtractor:
         assert extractor.workers == 2
         assert extractor.preview_cache is not None
 
-    def test_initialization_default_workers(
-        self, catalog: CatalogDatabase
-    ) -> None:
+    def test_initialization_default_workers(self, catalog: CatalogDatabase) -> None:
         """Test default worker count."""
         import multiprocessing
 
@@ -307,9 +302,7 @@ class TestPreviewExtractor:
         # Mock pool
         mock_pool_instance = MagicMock()
         mock_pool.return_value.__enter__.return_value = mock_pool_instance
-        mock_pool_instance.imap_unordered.return_value = [
-            ("img1", b"new_data", None)
-        ]
+        mock_pool_instance.imap_unordered.return_value = [("img1", b"new_data", None)]
 
         # Force should re-extract even though cached
         extractor.extract_previews(force=True)
@@ -355,7 +348,7 @@ class TestPreviewExtractor:
                 source_path="/tmp/test.cr2",
                 file_size=1000000,
                 file_hash="abc",
-            checksum="sha256:abc123",
+                checksum="sha256:abc123",
                 format="CR2",
                 width=6000,
                 height=4000,
@@ -366,7 +359,7 @@ class TestPreviewExtractor:
                 source_path="/tmp/test.jpg",
                 file_size=100000,
                 file_hash="def",
-            checksum="sha256:abc123",
+                checksum="sha256:abc123",
                 format="JPEG",
                 width=1920,
                 height=1080,
@@ -377,7 +370,7 @@ class TestPreviewExtractor:
                 source_path="/tmp/test.heic",
                 file_size=200000,
                 file_hash="ghi",
-            checksum="sha256:abc123",
+                checksum="sha256:abc123",
                 format="HEIC",
                 width=4000,
                 height=3000,
@@ -388,7 +381,7 @@ class TestPreviewExtractor:
                 source_path="/tmp/test.mp4",
                 file_size=5000000,
                 file_hash="jkl",
-            checksum="sha256:abc123",
+                checksum="sha256:abc123",
                 format="MP4",
                 file_type=FileType.VIDEO,
             ),
@@ -426,7 +419,7 @@ class TestPreviewExtractor:
                 source_path=f"/tmp/test{i}.cr2",
                 file_size=1000000,
                 file_hash=f"abc{i}",
-            checksum="sha256:abc123",
+                checksum="sha256:abc123",
                 format="CR2",
                 width=6000,
                 height=4000,
