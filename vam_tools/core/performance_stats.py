@@ -112,7 +112,15 @@ class PerformanceMetrics(BaseModel):
 
     def finalize(self) -> None:
         """Finalize metrics after analysis completes."""
-        if self.started_at and self.completed_at:
+        # Calculate total duration from actual processing time (sum of operations)
+        # This excludes idle/pause time and gives accurate processing metrics
+        operation_total = sum(op.total_time_seconds for op in self.operations.values())
+
+        # Use operation total if available, otherwise fall back to wall-clock time
+        if operation_total > 0:
+            self.total_duration_seconds = operation_total
+        elif self.started_at and self.completed_at:
+            # Fall back to wall-clock time only if no operations tracked
             self.total_duration_seconds = (
                 self.completed_at - self.started_at
             ).total_seconds()
