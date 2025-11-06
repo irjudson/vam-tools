@@ -396,3 +396,80 @@ class TestDuplicateDetector:
             assert metrics.ahash_similarity >= 90.0
             assert metrics.whash_similarity >= 90.0
             assert metrics.overall_similarity >= 90.0
+
+    def test_detect_duplicates_empty_catalog(self, tmp_path: Path) -> None:
+        """Test detection with empty catalog."""
+        catalog_dir = tmp_path / "catalog"
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[])
+            detector = DuplicateDetector(db)
+            groups = detector.detect_duplicates()
+            assert groups == []
+
+    def test_detect_duplicates_single_image(self, tmp_path: Path) -> None:
+        """Test detection with single image."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        img = Image.new("RGB", (100, 100), color="red")
+        path = photos_dir / "single.jpg"
+        img.save(path)
+
+        from vam_tools.core.types import FileType, ImageRecord
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+
+            record = ImageRecord(
+                id="single",
+                source_path=str(path),
+                file_size=1000,
+                file_hash="hash1",
+                checksum="sha256:hash1",
+                format="JPEG",
+                width=100,
+                height=100,
+                file_type=FileType.IMAGE,
+            )
+            db.add_image(record)
+
+            detector = DuplicateDetector(db)
+            groups = detector.detect_duplicates()
+            assert groups == []
+
+    def test_detect_duplicates_no_similar_images(self, tmp_path: Path) -> None:
+        """Test detection with completely different images."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        colors = ["red", "green", "blue", "yellow", "purple"]
+
+        from vam_tools.core.types import FileType, ImageRecord
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+
+            for i, color in enumerate(colors):
+                img = Image.new("RGB", (100, 100), color=color)
+                path = photos_dir / f"{color}.jpg"
+                img.save(path)
+
+                record = ImageRecord(
+                    id=f"img_{i}",
+                    source_path=str(path),
+                    file_size=1000,
+                    file_hash=f"hash_{i}",
+                    checksum=f"sha256:hash_{i}",
+                    format="JPEG",
+                    width=100,
+                    height=100,
+                    file_type=FileType.IMAGE,
+                )
+                db.add_image(record)
+
+            detector = DuplicateDetector(db)
+            groups = detector.detect_duplicates()
+            # With strict threshold, shouldn't find any groups
+            assert len(groups) == 0

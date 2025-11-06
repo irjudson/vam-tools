@@ -350,13 +350,18 @@ class TestCatalogDatabase:
             with db.transaction():
                 pass
 
-    def test_initialize_with_invalid_schema(self, db: CatalogDatabase, tmp_path: Path) -> None:
+    def test_initialize_with_invalid_schema(
+        self, db: CatalogDatabase, tmp_path: Path
+    ) -> None:
         """Test initialization with corrupted schema file."""
         db.connect()
 
         # Create invalid schema file temporarily
         import shutil
-        schema_backup = db.db_path.parent.parent.parent / "vam_tools" / "core" / "schema.sql"
+
+        schema_backup = (
+            db.db_path.parent.parent.parent / "vam_tools" / "core" / "schema.sql"
+        )
         backup_path = tmp_path / "schema_backup.sql"
 
         if schema_backup.exists():
@@ -407,7 +412,7 @@ class TestCatalogDatabase:
 
         db.executemany(
             "INSERT INTO tags (name, category, created_at) VALUES (?, ?, datetime('now'))",
-            [("tag1", "subject"), ("tag2", "scene")]
+            [("tag1", "subject"), ("tag2", "scene")],
         )
 
         cursor = db.execute("SELECT COUNT(*) FROM tags")
@@ -438,7 +443,9 @@ class TestCatalogDatabase:
         version = db.get_schema_version()
         assert version >= 1
 
-    def test_cleanup_old_backups_with_failed_delete(self, db: CatalogDatabase, monkeypatch) -> None:
+    def test_cleanup_old_backups_with_failed_delete(
+        self, db: CatalogDatabase, monkeypatch
+    ) -> None:
         """Test cleanup handles delete failures gracefully."""
         import time
 
@@ -452,6 +459,7 @@ class TestCatalogDatabase:
 
         # Mock unlink to fail
         original_unlink = Path.unlink
+
         def failing_unlink(self, *args, **kwargs):
             if "catalog_" in str(self):
                 raise PermissionError("Cannot delete")
