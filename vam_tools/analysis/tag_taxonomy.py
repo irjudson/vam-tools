@@ -29,7 +29,7 @@ Example:
         ['dogs', 'cats', 'birds', 'wildlife']
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Set
 
@@ -77,13 +77,8 @@ class TagDefinition:
     name: str
     category: TagCategory
     parent_id: Optional[int] = None
-    synonyms: Set[str] = None
+    synonyms: Set[str] = field(default_factory=set)
     description: str = ""
-
-    def __post_init__(self) -> None:
-        """Initialize synonyms as empty set if None."""
-        if self.synonyms is None:
-            self.synonyms = set()
 
 
 class TagTaxonomy:
@@ -603,7 +598,7 @@ class TagTaxonomy:
             >>> [t.name for t in path]
             ['animals', 'dogs']
         """
-        path = []
+        path: List[TagDefinition] = []
         current = self._tags.get(tag_id)
 
         while current is not None:

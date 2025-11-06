@@ -394,7 +394,7 @@ class CatalogMigrator:
         logger.debug("Migrated statistics")
 
 
-def main():
+def main() -> int:
     """CLI entry point for migration."""
     import argparse
 

@@ -25,7 +25,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ class CatalogDatabase:
         self.close()
 
     @contextmanager
-    def transaction(self):
+    def transaction(self) -> Generator[sqlite3.Connection, None, None]:
         """Context manager for database transactions.
 
         Automatically commits on success, rolls back on error.
@@ -153,6 +153,8 @@ class CatalogDatabase:
         if self.connection is None:
             self.connect()
 
+        assert self.connection is not None  # For mypy
+
         # Load schema from file
         schema_file = Path(__file__).parent / "schema.sql"
         with open(schema_file, "r") as f:
@@ -181,6 +183,7 @@ class CatalogDatabase:
         if self.connection is None:
             self.connect()
 
+        assert self.connection is not None  # For mypy
         cursor = self.connection.execute("SELECT MAX(version) FROM schema_version")
         row = cursor.fetchone()
         return row[0] if row and row[0] else 0
@@ -264,6 +267,7 @@ class CatalogDatabase:
         if self.connection is None:
             self.connect()
 
+        assert self.connection is not None  # For mypy
         return self.connection.execute(sql, parameters)
 
     def executemany(self, sql: str, parameters_list: List[Tuple]) -> sqlite3.Cursor:
@@ -286,6 +290,7 @@ class CatalogDatabase:
         if self.connection is None:
             self.connect()
 
+        assert self.connection is not None  # For mypy
         return self.connection.executemany(sql, parameters_list)
 
     def vacuum(self) -> None:
@@ -298,6 +303,7 @@ class CatalogDatabase:
         if self.connection is None:
             self.connect()
 
+        assert self.connection is not None  # For mypy
         logger.info("Vacuuming database...")
         self.connection.execute("VACUUM")
         logger.info("Database vacuumed")
