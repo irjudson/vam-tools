@@ -371,7 +371,7 @@ class TestCatalogDatabase:
                 with open(schema_backup, "w") as f:
                     f.write("INVALID SQL HERE;")
 
-                with pytest.raises(Exception):
+                with pytest.raises(sqlite3.OperationalError):
                     db.initialize()
             finally:
                 # Restore original
