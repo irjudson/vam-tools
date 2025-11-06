@@ -396,3 +396,95 @@ class TestDuplicateDetector:
             assert metrics.ahash_similarity >= 90.0
             assert metrics.whash_similarity >= 90.0
             assert metrics.overall_similarity >= 90.0
+
+    def test_detect_duplicates_empty_catalog(self, tmp_path: Path) -> None:
+        """Test detection with empty catalog."""
+        catalog_dir = tmp_path / "catalog"
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[])
+            detector = DuplicateDetector(db)
+            groups = detector.detect_duplicates()
+            assert groups == []
+
+    def test_detect_duplicates_single_image(self, tmp_path: Path) -> None:
+        """Test detection with single image."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        img = Image.new("RGB", (100, 100), color="red")
+        path = photos_dir / "single.jpg"
+        img.save(path)
+
+        from vam_tools.core.types import FileType, ImageRecord
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+
+            record = ImageRecord(
+                id="single",
+                source_path=str(path),
+                file_size=1000,
+                file_hash="hash1",
+                checksum="sha256:hash1",
+                format="JPEG",
+                width=100,
+                height=100,
+                file_type=FileType.IMAGE,
+            )
+            db.add_image(record)
+
+            detector = DuplicateDetector(db)
+            groups = detector.detect_duplicates()
+            assert groups == []
+
+    def test_detect_duplicates_no_similar_images(self, tmp_path: Path) -> None:
+        """Test detection with completely different images."""
+        catalog_dir = tmp_path / "catalog"
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+
+        from vam_tools.core.types import FileType, ImageRecord
+
+        with CatalogDatabase(catalog_dir) as db:
+            db.initialize(source_directories=[photos_dir])
+
+            # Create images with different patterns (not solid colors)
+            # Each image has distinct features
+            for i in range(5):
+                img = Image.new("L", (100, 100))
+                # Create different patterns for each image
+                for x in range(100):
+                    for y in range(100):
+                        # Different formulas create different patterns
+                        if i == 0:
+                            img.putpixel((x, y), (x + y) % 256)
+                        elif i == 1:
+                            img.putpixel((x, y), (x * y) % 256)
+                        elif i == 2:
+                            img.putpixel((x, y), abs(x - y) % 256)
+                        elif i == 3:
+                            img.putpixel((x, y), (x**2 + y) % 256)
+                        else:
+                            img.putpixel((x, y), (x + y**2) % 256)
+
+                path = photos_dir / f"pattern{i}.jpg"
+                img.save(path)
+
+                record = ImageRecord(
+                    id=f"img_{i}",
+                    source_path=str(path),
+                    file_size=1000,
+                    file_hash=f"hash_{i}",
+                    checksum=f"sha256:hash_{i}",
+                    format="JPEG",
+                    width=100,
+                    height=100,
+                    file_type=FileType.IMAGE,
+                )
+                db.add_image(record)
+
+            detector = DuplicateDetector(db, similarity_threshold=5)
+            groups = detector.detect_duplicates()
+            # With strict threshold and very different patterns, shouldn't find groups
+            assert len(groups) == 0

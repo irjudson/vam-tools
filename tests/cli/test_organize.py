@@ -651,3 +651,41 @@ class TestDisplayResult:
         # Should show dry run warning
         assert "This was a DRY RUN" in result.output
         assert "no files were modified" in result.output
+
+
+class TestOrganizeTransactionFeatures:
+    """Test transaction-related features (rollback, resume)."""
+
+    def test_rollback_with_invalid_transaction_id(self, test_catalog_with_images):
+        """Test rollback with invalid transaction ID."""
+        runner = CliRunner()
+        result = runner.invoke(
+            organize,
+            [
+                str(test_catalog_with_images),
+                "/tmp/output",
+                "--rollback",
+                "nonexistent-transaction-id",
+            ],
+        )
+
+        # Should fail gracefully
+        assert result.exit_code == 1
+        assert "Rollback failed" in result.output or "failed" in result.output.lower()
+
+    def test_resume_with_invalid_transaction_id(self, test_catalog_with_images):
+        """Test resume with invalid transaction ID."""
+        runner = CliRunner()
+        result = runner.invoke(
+            organize,
+            [
+                str(test_catalog_with_images),
+                "/tmp/output",
+                "--resume",
+                "nonexistent-transaction-id",
+            ],
+        )
+
+        # Should fail gracefully
+        assert result.exit_code == 1
+        assert "Resume failed" in result.output or "failed" in result.output.lower()
