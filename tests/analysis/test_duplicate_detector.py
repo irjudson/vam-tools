@@ -444,16 +444,31 @@ class TestDuplicateDetector:
         photos_dir = tmp_path / "photos"
         photos_dir.mkdir()
 
-        colors = ["red", "green", "blue", "yellow", "purple"]
-
         from vam_tools.core.types import FileType, ImageRecord
 
         with CatalogDatabase(catalog_dir) as db:
             db.initialize(source_directories=[photos_dir])
 
-            for i, color in enumerate(colors):
-                img = Image.new("RGB", (100, 100), color=color)
-                path = photos_dir / f"{color}.jpg"
+            # Create images with different patterns (not solid colors)
+            # Each image has distinct features
+            for i in range(5):
+                img = Image.new("L", (100, 100))
+                # Create different patterns for each image
+                for x in range(100):
+                    for y in range(100):
+                        # Different formulas create different patterns
+                        if i == 0:
+                            img.putpixel((x, y), (x + y) % 256)
+                        elif i == 1:
+                            img.putpixel((x, y), (x * y) % 256)
+                        elif i == 2:
+                            img.putpixel((x, y), abs(x - y) % 256)
+                        elif i == 3:
+                            img.putpixel((x, y), (x**2 + y) % 256)
+                        else:
+                            img.putpixel((x, y), (x + y**2) % 256)
+
+                path = photos_dir / f"pattern{i}.jpg"
                 img.save(path)
 
                 record = ImageRecord(
@@ -469,7 +484,7 @@ class TestDuplicateDetector:
                 )
                 db.add_image(record)
 
-            detector = DuplicateDetector(db)
+            detector = DuplicateDetector(db, similarity_threshold=5)
             groups = detector.detect_duplicates()
-            # With strict threshold, shouldn't find any groups
+            # With strict threshold and very different patterns, shouldn't find groups
             assert len(groups) == 0
