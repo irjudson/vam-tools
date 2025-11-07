@@ -53,14 +53,19 @@
                             <div v-if="catalogs.length === 0" class="empty-catalogs">
                                 No catalogs configured. Add one to get started!
                             </div>
-                            <div v-for="catalog in catalogs" :key="catalog.id" 
-                                 @click="switchCatalog(catalog.id); showCatalogManager = false"
+                            <div v-for="catalog in catalogs" :key="catalog.id"
                                  :class="['catalog-item', {active: currentCatalog && currentCatalog.id === catalog.id}]">
                                 <div class="catalog-color" :style="{background: catalog.color}"></div>
-                                <div class="catalog-info">
+                                <div class="catalog-info" @click="switchCatalog(catalog.id); showCatalogManager = false">
                                     <div class="catalog-name">{{ catalog.name }}</div>
-                                    <div class="catalog-path">{{ catalog.catalog_path }}</div>
+                                    <div class="catalog-path">{{ displayPath(catalog.catalog_path) }}</div>
                                 </div>
+                                <button
+                                    @click.stop="deleteCatalog(catalog.id)"
+                                    class="catalog-delete-btn"
+                                    title="Delete catalog configuration">
+                                    ×
+                                </button>
                             </div>
                         </div>
                         <div class="catalog-actions">
@@ -449,16 +454,16 @@
                     </div>
                     <div class="form-group">
                         <label>Catalog Storage Path</label>
-                        <input v-model="addCatalogForm.catalog_path" type="text" required 
-                               placeholder="/app/catalogs/my-photos" />
-                        <small>Where catalog metadata will be stored</small>
+                        <input v-model="addCatalogForm.catalog_path" type="text" required
+                               placeholder="~/catalogs/my-photos" />
+                        <small>Where catalog metadata will be stored (e.g., ~/catalogs/vacation-2024)</small>
                     </div>
                     <div class="form-group">
                         <label>Source Directories (one per line)</label>
-                        <textarea v-model="addCatalogForm.source_directories" 
+                        <textarea v-model="addCatalogForm.source_directories"
                                   rows="3" required
-                                  placeholder="/app/photos/2023&#10;/app/photos/2024"></textarea>
-                        <small>Directories containing your original photos</small>
+                                  placeholder="~/photos/2023&#10;~/photos/2024"></textarea>
+                        <small>Directories containing your original photos (e.g., ~/photos, ~/Pictures)</small>
                     </div>
                     <div class="form-group">
                         <label>Description (optional)</label>

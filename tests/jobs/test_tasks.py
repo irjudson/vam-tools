@@ -2,13 +2,10 @@
 Tests for Celery tasks.
 """
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.core.catalog import CatalogDatabase
 from vam_tools.jobs.tasks import (
     analyze_catalog_task,
     generate_thumbnails_task,

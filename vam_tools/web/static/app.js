@@ -477,6 +477,17 @@ createApp({
         formatDate(dateStr) {
             if (!dateStr) return 'Unknown';
             return new Date(dateStr).toLocaleString();
+        },
+
+        displayPath(path) {
+            // Strip /app prefix to show user-friendly paths
+            // /app/catalogs/my-catalog -> ~/catalogs/my-catalog
+            // /app/photos/vacation -> ~/photos/vacation
+            if (!path) return '';
+            if (path.startsWith('/app/')) {
+                return '~/' + path.substring(5);
+            }
+            return path;
         }
     },
     
