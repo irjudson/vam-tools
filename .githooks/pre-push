@@ -74,7 +74,12 @@ fi
 # 4. Run tests
 echo ""
 echo -e "${YELLOW}4. Running tests...${NC}"
-if pytest tests/ -x --tb=short -q; then
+# Use venv pytest explicitly to ensure correct environment
+PYTEST_BIN="${VIRTUAL_ENV:-venv}/bin/pytest"
+if [ ! -f "$PYTEST_BIN" ]; then
+    PYTEST_BIN="venv/bin/pytest"
+fi
+if "$PYTEST_BIN" tests/ -x --tb=short -q; then
     echo -e "${GREEN}  ✓ All tests passed${NC}"
 else
     echo -e "${RED}  ✗ Tests failed${NC}"
