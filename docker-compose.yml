@@ -26,9 +26,9 @@ services:
       - "8765:8000"
     volumes:
       # Mount catalog directory for persistence
-      - ${CATALOG_PATH:-./catalogs}:/app/catalogs
+      - ${CATALOG_PATH:-~/catalogs}:/app/catalogs
       # Mount source photos directory (read-only recommended)
-      - ${PHOTOS_PATH:-./photos}:/app/photos:ro
+      - ${PHOTOS_PATH:-~/photos}:/app/photos:ro
       # Development: mount source code for live reload
       - ./vam_tools:/app/vam_tools
     environment:
@@ -65,8 +65,8 @@ services:
     container_name: vam-celery-worker
     volumes:
       # Same mounts as web service
-      - ${CATALOG_PATH:-./catalogs}:/app/catalogs
-      - ${PHOTOS_PATH:-./photos}:/app/photos:ro
+      - ${CATALOG_PATH:-~/catalogs}:/app/catalogs
+      - ${PHOTOS_PATH:-~/photos}:/app/photos:ro
       - ./vam_tools:/app/vam_tools
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0

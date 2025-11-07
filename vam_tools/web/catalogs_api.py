@@ -15,6 +15,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/catalogs", tags=["catalogs"])
 
 
+def normalize_path(path: str) -> str:
+    """
+    Normalize user-friendly paths to container paths.
+
+    Converts:
+    - ~/catalogs/my-photos -> /app/catalogs/my-photos
+    - ~/photos/2024 -> /app/photos/2024
+
+    This allows users to use familiar home directory syntax
+    while the backend uses Docker container paths.
+    """
+    if path.startswith("~/"):
+        return "/app/" + path[2:]
+    return path
+
+
 class CatalogCreateRequest(BaseModel):
     """Request model for creating a catalog."""
 
@@ -80,10 +96,14 @@ async def create_catalog(request: CatalogCreateRequest):
     manager = get_catalog_manager()
 
     try:
+        # Normalize paths from user-friendly (~/) to container paths (/app/)
+        catalog_path = normalize_path(request.catalog_path)
+        source_directories = [normalize_path(d) for d in request.source_directories]
+
         catalog = manager.add_catalog(
             name=request.name,
-            catalog_path=request.catalog_path,
-            source_directories=request.source_directories,
+            catalog_path=catalog_path,
+            source_directories=source_directories,
             description=request.description,
             color=request.color,
         )

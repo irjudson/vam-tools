@@ -785,6 +785,29 @@ section h3 {
 .catalog-info {
     flex: 1;
     min-width: 0;
+    cursor: pointer;
+}
+
+.catalog-delete-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    transition: all 0.2s;
+    opacity: 0;
+    flex-shrink: 0;
+}
+
+.catalog-item:hover .catalog-delete-btn {
+    opacity: 1;
+}
+
+.catalog-delete-btn:hover {
+    background: #ef4444;
+    color: white;
 }
 
 .catalog-name {

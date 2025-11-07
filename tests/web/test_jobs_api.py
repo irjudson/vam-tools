@@ -1,9 +1,7 @@
 """Tests for jobs API endpoints."""
 
-import json
 from unittest.mock import Mock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from vam_tools.web.api import app
