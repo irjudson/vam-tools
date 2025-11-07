@@ -20,6 +20,8 @@ from pydantic import BaseModel
 from ..core.catalog import CatalogDatabase
 from ..core.types import ImageRecord
 from ..shared.preview_cache import PreviewCache
+from .catalogs_api import router as catalogs_router
+from .jobs_api import router as jobs_router
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],  # Restrict to needed methods
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(jobs_router)
+app.include_router(catalogs_router)
 
 # Mount static files directory
 static_dir = Path(__file__).parent / "static"
