@@ -10,7 +10,8 @@ max-line-length = 88
 # B007: loop variable not used (acceptable pattern)
 # B008: function call in argument default (FastAPI Query pattern)
 # B011: assert False (acceptable in tests)
-extend-ignore = E203, E266, E501, W503, C901, D, B007, B008, B011
+# I: all isort checks (handled by isort tool separately with black profile)
+extend-ignore = E203, E266, E501, W503, C901, D, B007, B008, B011, I
 exclude =
     .git,
     __pycache__,
