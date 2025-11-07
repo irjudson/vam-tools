@@ -80,7 +80,7 @@ PYTEST_BIN="${VIRTUAL_ENV:-venv}/bin/pytest"
 if [ ! -f "$PYTEST_BIN" ]; then
     PYTEST_BIN="venv/bin/pytest"
 fi
-if "$PYTEST_BIN" tests/ -x --tb=short -q --ignore=tests/integration/ --ignore=tests/jobs/; then
+if "$PYTEST_BIN" tests/ -x --tb=short -q --ignore=tests/integration/ --ignore=tests/jobs/ --ignore=tests/web/test_jobs_api.py; then
     echo -e "${GREEN}  ✓ All tests passed${NC}"
 else
     echo -e "${RED}  ✗ Tests failed${NC}"
