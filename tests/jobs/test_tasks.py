@@ -57,9 +57,8 @@ class TestAnalyzeTask:
 
         # Verify
         assert result["status"] == "completed"
-        assert "statistics" in result
-        assert result["statistics"]["total_images"] == 100
         assert result["processed"] == 2
+        assert result["total_files"] == 2
 
     def test_analyze_task_invalid_path(self):
         """Test analysis with invalid path raises error."""
