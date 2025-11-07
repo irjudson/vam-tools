@@ -20,9 +20,8 @@ class TestAnalyzeTask:
         """Test task is registered with Celery."""
         assert analyze_catalog_task.name == "analyze_catalog"
 
-    @patch("vam_tools.jobs.tasks.Scanner")
     @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    def test_analyze_task_success(self, mock_catalog_db, mock_scanner, tmp_path):
+    def test_analyze_task_success(self, mock_catalog_db, tmp_path):
         """Test successful analysis returns expected result format."""
         # Setup mocks
         mock_db = MagicMock()
@@ -36,16 +35,14 @@ class TestAnalyzeTask:
             suspicious_dates=2,
         )
 
-        mock_scanner_instance = MagicMock()
-        mock_scanner.return_value = mock_scanner_instance
-        mock_scanner_instance.collect_files.return_value = [
-            tmp_path / "test1.jpg",
-            tmp_path / "test2.jpg",
-        ]
-        mock_scanner_instance.scan_directories.return_value = {
-            "processed": 2,
-            "errors": 0,
-        }
+        # Create some test files
+        photos_dir = tmp_path / "photos"
+        photos_dir.mkdir()
+        (photos_dir / "test1.jpg").touch()
+        (photos_dir / "test2.jpg").touch()
+
+        catalog_dir = tmp_path / "catalog"
+        catalog_dir.mkdir()
 
         # Create task instance
         task = analyze_catalog_task
@@ -53,8 +50,8 @@ class TestAnalyzeTask:
 
         # Execute
         result = task(
-            catalog_path=str(tmp_path / "catalog"),
-            source_directories=[str(tmp_path / "photos")],
+            catalog_path=str(catalog_dir),
+            source_directories=[str(photos_dir)],
             detect_duplicates=False,
         )
 
