@@ -33,7 +33,15 @@ createApp({
             jobsLoading: false,
             jobsRefreshInterval: null,
             jobDetailsCache: {},
-            
+
+            // Worker health
+            workerHealth: {
+                status: 'unknown',
+                workers: 0,
+                active_tasks: 0,
+                message: 'Checking...'
+            },
+
             // Filters and search
             currentFilter: 'all',
             searchQuery: '',
@@ -46,7 +54,8 @@ createApp({
             
             analyzeForm: {
                 catalog_id: null,
-                detect_duplicates: false
+                detect_duplicates: false,
+                force_reanalyze: false
             },
             organizeForm: {
                 catalog_id: null,
@@ -63,7 +72,16 @@ createApp({
             },
             
             // Notifications
-            notifications: []
+            notifications: [],
+
+            // Review Queue
+            reviewQueue: [],
+            reviewQueueStats: {
+                total_needing_review: 0,
+                date_conflicts: 0,
+                no_date: 0,
+                suspicious_dates: 0,
+            },
         };
     },
     
@@ -101,8 +119,9 @@ createApp({
                     name: this.getJobName(jobId, details),
                     status: details.status || 'PENDING',
                     progress: details.progress?.percent || 0,
-                    started: new Date().toISOString(),
-                    ...details
+                    progressData: details.progress, // Keep full progress object
+                    result: details.result,
+                    error: details.error
                 };
             });
         },
@@ -127,6 +146,10 @@ createApp({
             }
             if (view === 'browse' && this.images.length === 0) {
                 this.loadImages();
+            }
+            if (view === 'review') {
+                this.loadReviewQueueStats();
+                this.loadReviewQueue();
             }
         },
         
@@ -266,15 +289,19 @@ createApp({
             try {
                 const response = await axios.get('/api/jobs');
                 const jobsList = response.data.jobs || [];
-                
+
+                // API now returns full job objects with details
                 if (Array.isArray(jobsList)) {
-                    this.allJobs = jobsList;
-                } else if (typeof jobsList === 'object') {
-                    this.allJobs = Object.keys(jobsList);
-                }
-                
-                for (const jobId of this.allJobs) {
-                    this.loadJobDetails(jobId);
+                    // Extract job IDs and cache the full details
+                    this.allJobs = jobsList.map(job => {
+                        if (typeof job === 'string') {
+                            return job;
+                        } else {
+                            // Cache the full job details
+                            this.jobDetailsCache[job.job_id] = job;
+                            return job.job_id;
+                        }
+                    });
                 }
             } catch (error) {
                 console.error('Error loading jobs:', error);
@@ -289,6 +316,20 @@ createApp({
                 console.error(`Error loading job ${jobId}:`, error);
             }
         },
+
+        async loadWorkerHealth() {
+            try {
+                const response = await axios.get('/api/jobs/health');
+                this.workerHealth = response.data;
+            } catch (error) {
+                this.workerHealth = {
+                    status: 'error',
+                    workers: 0,
+                    active_tasks: 0,
+                    message: 'Failed to check worker health'
+                };
+            }
+        },
         
         async submitAnalyzeJob() {
             try {
@@ -301,7 +342,8 @@ createApp({
                 const response = await axios.post('/api/jobs/analyze', {
                     catalog_path: catalog.catalog_path,
                     source_directories: catalog.source_directories,
-                    detect_duplicates: this.analyzeForm.detect_duplicates
+                    detect_duplicates: this.analyzeForm.detect_duplicates,
+                    force_reanalyze: this.analyzeForm.force_reanalyze
                 });
                 
                 this.addNotification('Analysis job submitted successfully', 'success');
@@ -400,13 +442,24 @@ createApp({
             if (!confirm('Force kill this job? This may leave files in an incomplete state.')) {
                 return;
             }
-            
+
             try {
                 await axios.post(`/api/jobs/${jobId}/kill`);
                 this.addNotification('Job force-killed. Check catalog integrity.', 'warning');
                 this.loadJobDetails(jobId);
             } catch (error) {
                 this.addNotification('Failed to kill job: ' + (error.response?.data?.detail || error.message), 'error');
+                console.error(error);
+            }
+        },
+
+        async rerunJob(jobId) {
+            try {
+                const response = await axios.post(`/api/jobs/${jobId}/rerun`);
+                this.addNotification(`Job resubmitted: ${response.data.job_id.substring(0, 8)}...`, 'success');
+                this.loadJobs();
+            } catch (error) {
+                this.addNotification('Failed to rerun job: ' + (error.response?.data?.detail || error.message), 'error');
                 console.error(error);
             }
         },
@@ -422,12 +475,13 @@ createApp({
         
         startJobsRefresh() {
             if (this.jobsRefreshInterval) return;
-            
+
             this.loadJobs();
+            this.loadWorkerHealth();
             this.jobsRefreshInterval = setInterval(() => {
-                for (const job of this.activeJobs) {
-                    this.loadJobDetails(job.id);
-                }
+                // Reload all jobs to get updated status
+                this.loadJobs();
+                this.loadWorkerHealth();
             }, 2000);
         },
         
@@ -488,6 +542,51 @@ createApp({
                 return '~/' + path.substring(5);
             }
             return path;
+        },
+
+        // Review Queue Methods
+        async loadReviewQueueStats() {
+            try {
+                const response = await axios.get('/api/review/stats');
+                this.reviewQueueStats = response.data;
+            } catch (error) {
+                console.error('Error loading review queue stats:', error);
+                this.reviewQueueStats = {
+                    total_needing_review: 0,
+                    date_conflicts: 0,
+                    no_date: 0,
+                    suspicious_dates: 0,
+                };
+            }
+        },
+
+        async loadReviewQueue() {
+            this.loading = true;
+            try {
+                const response = await axios.get('/api/review/queue');
+                this.reviewQueue = response.data.items || [];
+            } catch (error) {
+                console.error('Error loading review queue:', error);
+                this.reviewQueue = [];
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async resolveReviewItem(itemId) {
+            // Placeholder for actual resolution logic
+            this.addNotification(`Resolved item: ${itemId}`, 'success');
+            // After resolution, reload queue
+            await this.loadReviewQueueStats();
+            await this.loadReviewQueue();
+        },
+
+        async skipReviewItem(itemId) {
+            // Placeholder for actual skip logic
+            this.addNotification(`Skipped item: ${itemId}`, 'info');
+            // After skipping, reload queue
+            await this.loadReviewQueueStats();
+            await this.loadReviewQueue();
         }
     },
     

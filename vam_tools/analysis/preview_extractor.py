@@ -21,8 +21,8 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from ..core.catalog import CatalogDatabase
-from ..core.types import FileType, ImageRecord
+from ..core.database import CatalogDatabase
+from ..core.types import FileType, ImageMetadata, ImageRecord, ImageStatus
 from ..shared.preview_cache import PreviewCache
 
 logger = logging.getLogger(__name__)
@@ -154,7 +154,27 @@ class PreviewExtractor:
             force: If True, re-extract even if already cached
         """
         # Get all images from catalog
-        all_images = self.catalog.list_images()
+        rows = self.catalog.execute("SELECT * FROM images").fetchall()
+        all_images: List[ImageRecord] = []
+        for row in rows:
+            # Manually construct ImageRecord from row (simplified)
+            image = ImageRecord(
+                id=row["id"],
+                source_path=Path(row["source_path"]),
+                file_type=(
+                    FileType.IMAGE
+                    if row["format"]
+                    in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]
+                    else FileType.VIDEO
+                ),
+                checksum=row["file_hash"],
+                status=ImageStatus.COMPLETE,
+                file_size=row["file_size"],
+                metadata=ImageMetadata(
+                    format=row["format"],
+                ),
+            )
+            all_images.append(image)
 
         # Filter to only images that need preview extraction
         images_to_process: List[ImageRecord] = []

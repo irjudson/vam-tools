@@ -36,6 +36,7 @@ class ImageStatus(Enum):
     NEEDS_REVIEW = "needs_review"
     APPROVED = "approved"
     EXECUTED = "executed"
+    COMPLETE = "complete"
 
 
 class DuplicateRole(Enum):
@@ -325,6 +326,9 @@ class Statistics(BaseModel):
     total_images: int = 0
     total_videos: int = 0
     total_size_bytes: int = 0
+    images_scanned: int = 0
+    images_hashed: int = 0
+    images_tagged: int = 0
     organized: int = 0
     needs_review: int = 0
     no_date: int = 0
@@ -334,6 +338,7 @@ class Statistics(BaseModel):
     burst_images: int = 0
     unique_images: int = 0
     problematic_files: int = 0
+    duplicate_images: int = 0  # Added
 
 
 class CatalogState(BaseModel):

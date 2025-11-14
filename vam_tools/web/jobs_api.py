@@ -6,8 +6,10 @@ background jobs (analysis, organization, thumbnail generation).
 """
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
+import redis
 from celery.result import AsyncResult
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -21,6 +23,26 @@ from ..jobs.tasks import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Job history tracking
+JOB_HISTORY_KEY = "vam:job_history"
+MAX_HISTORY_SIZE = 100
+
+# Redis client for job history
+_redis_client = None
+
+
+def get_redis_client() -> redis.Redis:
+    """Get or create Redis client for job history tracking."""
+    global _redis_client
+    if _redis_client is None:
+        redis_host = os.getenv("REDIS_HOST", "localhost")
+        redis_port = int(os.getenv("REDIS_PORT", "6379"))
+        _redis_client = redis.Redis(
+            host=redis_host, port=redis_port, db=0, decode_responses=True
+        )
+    return _redis_client
+
 
 # Create router
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -41,14 +63,11 @@ class AnalyzeJobRequest(BaseModel):
     detect_duplicates: bool = Field(
         default=False, description="Whether to detect duplicates"
     )
+    force_reanalyze: bool = Field(
+        default=False, description="Reset catalog and analyze all files fresh"
+    )
     similarity_threshold: int = Field(
         default=5, ge=0, le=64, description="Similarity threshold for duplicates"
-    )
-    workers: Optional[int] = Field(
-        default=None, description="Number of worker processes"
-    )
-    checkpoint_interval: int = Field(
-        default=100, ge=1, description="Checkpoint interval in number of files"
     )
 
 
@@ -117,6 +136,33 @@ class JobList(BaseModel):
 # ============================================================================
 
 
+def _track_job(job_id: str, job_type: str, params: dict) -> None:
+    """Track job submission in Redis for history."""
+    try:
+        redis_client = get_redis_client()
+        import json
+        import time
+
+        job_data = {
+            "job_id": job_id,
+            "type": job_type,
+            "params": params,
+            "submitted_at": time.time(),
+        }
+
+        # Store job data with job_id as key
+        redis_client.setex(
+            f"vam:job:{job_id}", 3600 * 24, json.dumps(job_data)  # 24 hour TTL
+        )
+
+        # Add to job history list (most recent first)
+        redis_client.lpush(JOB_HISTORY_KEY, job_id)
+        redis_client.ltrim(JOB_HISTORY_KEY, 0, MAX_HISTORY_SIZE - 1)
+
+    except Exception as e:
+        logger.warning(f"Failed to track job {job_id}: {e}")
+
+
 @router.post("/analyze", response_model=JobResponse)
 async def submit_analyze_job(request: AnalyzeJobRequest) -> JobResponse:
     """
@@ -142,12 +188,23 @@ async def submit_analyze_job(request: AnalyzeJobRequest) -> JobResponse:
             catalog_path=request.catalog_path,
             source_directories=request.source_directories,
             detect_duplicates=request.detect_duplicates,
+            force_reanalyze=request.force_reanalyze,
             similarity_threshold=request.similarity_threshold,
-            workers=request.workers,
-            checkpoint_interval=request.checkpoint_interval,
         )
 
         logger.info(f"Submitted analysis job: {task.id}")
+
+        # Track job for history
+        _track_job(
+            task.id,
+            "analyze_catalog",
+            {
+                "catalog_path": request.catalog_path,
+                "source_directories": request.source_directories,
+                "detect_duplicates": request.detect_duplicates,
+                "force_reanalyze": request.force_reanalyze,
+            },
+        )
 
         return JobResponse(
             job_id=task.id,
@@ -157,6 +214,56 @@ async def submit_analyze_job(request: AnalyzeJobRequest) -> JobResponse:
 
     except Exception as e:
         logger.error(f"Failed to submit analysis job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/thumbnails", response_model=JobResponse)
+async def submit_thumbnail_job(request: ThumbnailJobRequest) -> JobResponse:
+    """
+    Submit a thumbnail generation job.
+
+    Generates thumbnails for all images in the catalog.
+
+    Example:
+        ```bash
+        curl -X POST http://localhost:8000/api/jobs/thumbnails \\
+          -H "Content-Type: application/json" \\
+          -d '{
+            "catalog_path": "/app/catalogs/my-catalog",
+            "sizes": [256, 512],
+            "quality": 85
+          }'
+        ```
+    """
+    try:
+        task = generate_thumbnails_task.delay(
+            catalog_path=request.catalog_path,
+            sizes=request.sizes,
+            quality=request.quality,
+            force=request.force,
+        )
+
+        logger.info(f"Submitted thumbnail job: {task.id}")
+
+        # Track job for history
+        _track_job(
+            task.id,
+            "generate_thumbnails",
+            {
+                "catalog_path": request.catalog_path,
+                "sizes": request.sizes,
+                "quality": request.quality,
+            },
+        )
+
+        return JobResponse(
+            job_id=task.id,
+            status="PENDING",
+            message="Thumbnail generation job submitted successfully",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to submit thumbnail job: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -193,6 +300,18 @@ async def submit_organize_job(request: OrganizeJobRequest) -> JobResponse:
 
         logger.info(f"Submitted organization job: {task.id}")
 
+        # Track job for history
+        _track_job(
+            task.id,
+            "organize_catalog",
+            {
+                "catalog_path": request.catalog_path,
+                "output_directory": request.output_directory,
+                "operation": request.operation,
+                "dry_run": request.dry_run,
+            },
+        )
+
         return JobResponse(
             job_id=task.id,
             status="PENDING",
@@ -204,48 +323,54 @@ async def submit_organize_job(request: OrganizeJobRequest) -> JobResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/thumbnails", response_model=JobResponse)
-async def submit_thumbnail_job(request: ThumbnailJobRequest) -> JobResponse:
-    """
-    Submit a thumbnail generation job.
-
-    Generates thumbnails for all images in the catalog.
-
-    Example:
-        ```bash
-        curl -X POST http://localhost:8000/api/jobs/thumbnails \\
-          -H "Content-Type: application/json" \\
-          -d '{
-            "catalog_path": "/app/catalogs/my-catalog",
-            "sizes": [256, 512],
-            "quality": 85
-          }'
-        ```
-    """
-    try:
-        task = generate_thumbnails_task.delay(
-            catalog_path=request.catalog_path,
-            sizes=request.sizes,
-            quality=request.quality,
-            force=request.force,
-        )
-
-        logger.info(f"Submitted thumbnail job: {task.id}")
-
-        return JobResponse(
-            job_id=task.id,
-            status="PENDING",
-            message="Thumbnail generation job submitted successfully",
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to submit thumbnail job: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # ============================================================================
 # Job Status and Control Endpoints
 # ============================================================================
+
+
+@router.get("/health")
+async def get_worker_health() -> Dict[str, Any]:
+    """
+    Get Celery worker health status.
+
+    Returns information about active workers and their status.
+
+    Example:
+        ```bash
+        curl http://localhost:8000/api/jobs/health
+        ```
+    """
+    try:
+        inspect = celery_app.control.inspect()
+
+        # Get active workers
+        stats = inspect.stats()
+        active = inspect.active()
+
+        if not stats:
+            return {
+                "status": "unhealthy",
+                "workers": 0,
+                "message": "No workers are currently active",
+            }
+
+        worker_count = len(stats)
+        active_tasks = sum(len(tasks) for tasks in (active.values() if active else []))
+
+        return {
+            "status": "healthy",
+            "workers": worker_count,
+            "active_tasks": active_tasks,
+            "message": f"{worker_count} worker{'s' if worker_count != 1 else ''} active",
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get worker health: {e}")
+        return {
+            "status": "error",
+            "workers": 0,
+            "message": "Failed to check worker health",
+        }
 
 
 @router.get("/{job_id}", response_model=JobStatus)
@@ -321,6 +446,70 @@ async def cancel_job(job_id: str) -> Dict[str, str]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/{job_id}/rerun")
+async def rerun_job(job_id: str) -> Dict[str, Any]:
+    """
+    Rerun a job with the same parameters.
+
+    Fetches the original job parameters and resubmits the job.
+
+    Example:
+        ```bash
+        curl -X POST http://localhost:8000/api/jobs/{job_id}/rerun
+        ```
+    """
+    try:
+        import json
+
+        redis_client = get_redis_client()
+
+        # Fetch original job data from Redis
+        job_data_str = redis_client.get(f"vam:job:{job_id}")
+        if not job_data_str:
+            raise HTTPException(
+                status_code=404,
+                detail="Job parameters not found. Job may have expired.",
+            )
+
+        job_data = json.loads(job_data_str)
+        job_type = job_data.get("type")
+        params = job_data.get("params", {})
+
+        # Resubmit based on job type
+        if job_type == "analyze_catalog":
+            task = analyze_catalog_task.delay(**params)
+            _track_job(task.id, job_type, params)
+            return {
+                "job_id": task.id,
+                "status": "PENDING",
+                "message": "Analysis job resubmitted successfully",
+            }
+        elif job_type == "organize_catalog":
+            task = organize_catalog_task.delay(**params)
+            _track_job(task.id, job_type, params)
+            return {
+                "job_id": task.id,
+                "status": "PENDING",
+                "message": "Organization job resubmitted successfully",
+            }
+        elif job_type == "generate_thumbnails":
+            task = generate_thumbnails_task.delay(**params)
+            _track_job(task.id, job_type, params)
+            return {
+                "job_id": task.id,
+                "status": "PENDING",
+                "message": "Thumbnail generation job resubmitted successfully",
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown job type: {job_type}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to rerun job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{job_id}/stream")
 async def stream_job_progress(job_id: str) -> EventSourceResponse:
     """
@@ -388,9 +577,9 @@ async def stream_job_progress(job_id: str) -> EventSourceResponse:
 @router.get("", response_model=JobList)
 async def list_active_jobs() -> JobList:
     """
-    List all active jobs.
+    List all active and recent jobs.
 
-    Returns information about all currently running and recent jobs.
+    Returns information about all currently running jobs and recent completed jobs.
 
     Example:
         ```bash
@@ -398,47 +587,80 @@ async def list_active_jobs() -> JobList:
         ```
     """
     try:
-        # Get active tasks from Celery
-        inspect = celery_app.control.inspect()
-        active = inspect.active()
-        scheduled = inspect.scheduled()
-        reserved = inspect.reserved()
-
         jobs: List[JobStatus] = []
 
-        # Collect all task IDs
-        task_ids = set()
+        # Get recent job IDs from history
+        redis_client = get_redis_client()
+        job_ids = redis_client.lrange(JOB_HISTORY_KEY, 0, 49)  # Last 50 jobs
 
-        if active:
-            for worker_tasks in active.values():
-                task_ids.update(task["id"] for task in worker_tasks)
+        # Convert bytes to strings
+        job_ids = [
+            job_id.decode() if isinstance(job_id, bytes) else job_id
+            for job_id in job_ids
+        ]
 
-        if scheduled:
-            for worker_tasks in scheduled.values():
-                task_ids.update(task["id"] for task in worker_tasks)
-
-        if reserved:
-            for worker_tasks in reserved.values():
-                task_ids.update(task["id"] for task in worker_tasks)
-
-        # Get status for each task
-        for task_id in task_ids:
+        # Get status for each job
+        for task_id in job_ids:
             result = AsyncResult(task_id, app=celery_app)
-            jobs.append(
-                JobStatus(
-                    job_id=task_id,
-                    status=result.state,
-                    progress=result.info if result.state == "PROGRESS" else None,
-                    result=result.result if result.state == "SUCCESS" else None,
-                    error=str(result.info) if result.state == "FAILURE" else None,
-                )
+
+            job_status = JobStatus(
+                job_id=task_id,
+                status=result.state,
+                progress=None,
+                result=None,
+                error=None,
             )
+
+            if result.state == "PROGRESS":
+                job_status.progress = result.info
+            elif result.state == "SUCCESS":
+                job_status.result = result.result
+                job_status.progress = {
+                    "current": 100,
+                    "total": 100,
+                    "percent": 100,
+                    "message": "Job completed successfully",
+                }
+            elif result.state == "FAILURE":
+                job_status.error = str(result.info)
+
+            jobs.append(job_status)
 
         return JobList(jobs=jobs)
 
     except Exception as e:
         logger.error(f"Failed to list jobs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Fallback to old behavior if Redis fails
+        try:
+            inspect = celery_app.control.inspect()
+            active = inspect.active()
+            jobs = []
+
+            if active:
+                for worker_tasks in active.values():
+                    for task in worker_tasks:
+                        result = AsyncResult(task["id"], app=celery_app)
+                        jobs.append(
+                            JobStatus(
+                                job_id=task["id"],
+                                status=result.state,
+                                progress=(
+                                    result.info if result.state == "PROGRESS" else None
+                                ),
+                                result=(
+                                    result.result if result.state == "SUCCESS" else None
+                                ),
+                                error=(
+                                    str(result.info)
+                                    if result.state == "FAILURE"
+                                    else None
+                                ),
+                            )
+                        )
+
+            return JobList(jobs=jobs)
+        except:
+            return JobList(jobs=[])
 
 
 @router.post("/{job_id}/restart")
@@ -479,15 +701,33 @@ async def restart_job(job_id: str) -> Dict[str, Any]:
                 status_code=400, detail=f"Unknown task type: {task_name}"
             )
 
-        # Submit new job (Note: we can't easily get original args/kwargs from Celery)
-        # So we return instructions for the user to resubmit manually
-        return {
-            "status": "restart_required",
-            "message": "To restart this job, please resubmit using the original parameters",
-            "original_job_id": job_id,
-            "task_type": task_name,
-            "note": "Job parameters cannot be automatically retrieved. Please use the form to resubmit.",
-        }
+        # Resubmit based on job type
+        if job_type == "analyze_catalog":
+            task = analyze_catalog_task.delay(**params)
+            _track_job(task.id, job_type, params)
+            return {
+                "job_id": task.id,
+                "status": "PENDING",
+                "message": "Analysis job resubmitted successfully",
+            }
+        elif job_type == "organize_catalog":
+            task = organize_catalog_task.delay(**params)
+            _track_job(task.id, job_type, params)
+            return {
+                "job_id": task.id,
+                "status": "PENDING",
+                "message": "Organization job resubmitted successfully",
+            }
+        elif job_type == "generate_thumbnails":
+            task = generate_thumbnails_task.delay(**params)
+            _track_job(task.id, job_type, params)
+            return {
+                "job_id": task.id,
+                "status": "PENDING",
+                "message": "Thumbnail generation job resubmitted successfully",
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown job type: {job_type}")
 
     except HTTPException:
         raise

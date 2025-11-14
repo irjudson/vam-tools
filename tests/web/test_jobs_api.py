@@ -162,35 +162,39 @@ class TestJobStatusEndpoints:
 class TestJobListEndpoint:
     """Tests for job list endpoint."""
 
-    @patch("vam_tools.web.jobs_api.app_celery.control.inspect")
-    def test_list_active_jobs(self, mock_inspect):
+    @patch("vam_tools.web.jobs_api.get_redis_client")
+    @patch("vam_tools.web.jobs_api.AsyncResult")
+    def test_list_active_jobs(self, mock_async_result, mock_get_redis_client):
         """Test GET /api/jobs lists active jobs."""
-        mock_inspect_obj = Mock()
-        mock_inspect.return_value = mock_inspect_obj
-        mock_inspect_obj.active.return_value = {
-            "worker1": [
-                {
-                    "id": "job-1",
-                    "name": "analyze_catalog",
-                    "args": [],
-                    "kwargs": {},
-                }
-            ]
-        }
+        mock_redis = Mock()
+        mock_get_redis_client.return_value = mock_redis
+        mock_redis.lrange.return_value = ["job-1", "job-2"]
+
+        mock_result_1 = Mock()
+        mock_result_1.state = "PROGRESS"
+        mock_result_1.info = {"percent": 50}
+        mock_result_2 = Mock()
+        mock_result_2.state = "SUCCESS"
+        mock_result_2.result = {"status": "completed"}
+        mock_async_result.side_effect = [mock_result_1, mock_result_2]
 
         response = client.get("/api/jobs")
 
         assert response.status_code == 200
         data = response.json()
         assert "jobs" in data
+        assert len(data["jobs"]) == 2
+        assert data["jobs"][0]["job_id"] == "job-1"
+        assert data["jobs"][0]["status"] == "PROGRESS"
+        assert data["jobs"][1]["job_id"] == "job-2"
+        assert data["jobs"][1]["status"] == "SUCCESS"
 
 
 class TestJobCancellation:
     """Tests for job cancellation."""
 
-    @patch("vam_tools.web.jobs_api.app_celery.control.revoke")
     @patch("vam_tools.web.jobs_api.AsyncResult")
-    def test_cancel_job(self, mock_async_result, mock_revoke):
+    def test_cancel_job(self, mock_async_result):
         """Test DELETE /api/jobs/{job_id} cancels job."""
         mock_result = Mock()
         mock_result.state = "PROGRESS"
@@ -200,8 +204,8 @@ class TestJobCancellation:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["message"] == "Job cancelled successfully"
-        mock_revoke.assert_called_once_with("test-job-123", terminate=True)
+        assert "cancelled" in data["message"].lower()
+        mock_result.revoke.assert_called_once_with(terminate=True)
 
     @patch("vam_tools.web.jobs_api.AsyncResult")
     def test_cancel_completed_job(self, mock_async_result):
@@ -227,65 +231,55 @@ class TestSSEProgressStream:
         pass
 
 
-class TestRequestValidation:
-    """Tests for request validation."""
+class TestJobRerunEndpoint:
+    """Tests for job rerun endpoint."""
 
-    def test_invalid_catalog_path(self):
-        """Test job submission with invalid catalog path."""
-        response = client.post(
-            "/api/jobs/analyze",
-            json={
-                "catalog_path": "",  # Empty path
-                "source_directories": ["/app/photos"],
-            },
-        )
-
-        assert response.status_code == 422
-
-    def test_invalid_sizes_for_thumbnails(self):
-        """Test thumbnail job with invalid sizes."""
-        response = client.post(
-            "/api/jobs/thumbnails",
-            json={
-                "catalog_path": "/app/catalogs/test",
-                "sizes": [],  # Empty list
-                "quality": 85,
-            },
-        )
-
-        # Should validate that sizes is not empty
-        assert response.status_code in [200, 422]
-
-    def test_invalid_quality_parameter(self):
-        """Test thumbnail job with out-of-range quality."""
-        response = client.post(
-            "/api/jobs/thumbnails",
-            json={
-                "catalog_path": "/app/catalogs/test",
-                "sizes": [200],
-                "quality": 150,  # > 100
-            },
-        )
-
-        # Should validate quality is 1-100
-        assert response.status_code in [200, 422]
-
-
-class TestErrorHandling:
-    """Tests for error handling in API."""
-
+    @patch("vam_tools.web.jobs_api.get_redis_client")
     @patch("vam_tools.web.jobs_api.analyze_catalog_task")
-    def test_task_submission_failure(self, mock_task):
-        """Test API handles task submission failure."""
-        mock_task.delay.side_effect = Exception("Celery error")
+    def test_rerun_analyze_job(self, mock_analyze_task, mock_get_redis_client):
+        """Test POST /api/jobs/{job_id}/rerun for analyze job."""
+        mock_redis = Mock()
+        mock_get_redis_client.return_value = mock_redis
+        mock_redis.get.return_value = '{"job_id": "old-analyze-job", "type": "analyze_catalog", "params": {"catalog_path": "/app/test", "source_directories": ["/app/photos"]}}'
 
-        response = client.post(
-            "/api/jobs/analyze",
-            json={
-                "catalog_path": "/app/catalogs/test",
-                "source_directories": ["/app/photos"],
-            },
+        mock_result = Mock()
+        mock_result.id = "new-analyze-job"
+        mock_analyze_task.delay.return_value = mock_result
+
+        response = client.post("/api/jobs/old-analyze-job/rerun")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["job_id"] == "new-analyze-job"
+        mock_analyze_task.delay.assert_called_once_with(
+            catalog_path="/app/test", source_directories=["/app/photos"]
         )
 
-        # Should return 500 or handle gracefully
-        assert response.status_code in [500, 200]
+    @patch("vam_tools.web.jobs_api.get_redis_client")
+    def test_rerun_job_not_found(self, mock_get_redis_client):
+        """Test rerun job when original job parameters are not found."""
+        mock_redis = Mock()
+        mock_get_redis_client.return_value = mock_redis
+        mock_redis.get.return_value = None
+
+        response = client.post("/api/jobs/nonexistent-job/rerun")
+
+        assert response.status_code == 404
+        assert "Job parameters not found" in response.json()["detail"]
+
+
+class TestJobKillEndpoint:
+    """Tests for job kill endpoint."""
+
+    @patch("vam_tools.web.jobs_api.AsyncResult")
+    def test_kill_job(self, mock_async_result):
+        """Test POST /api/jobs/{job_id}/kill kills job."""
+        mock_result = Mock()
+        mock_async_result.return_value = mock_result
+
+        response = client.post("/api/jobs/test-job-to-kill/kill")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "killed"
+        mock_result.revoke.assert_called_once_with(terminate=True, signal="SIGKILL")

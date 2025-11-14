@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAM Tools - Media Catalog Management</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Top Navigation -->
+        <nav class="top-nav">
+            <div class="nav-container">
+                <div class="nav-brand">
+                    <h1>VAM Tools</h1>
+                    <span class="tagline">Media Catalog Management</span>
+                </div>
+                <div class="nav-menu">
+                    <button 
+                        @click="setView('dashboard')" 
+                        :class="{'active': currentView === 'dashboard'}"
+                        class="nav-button">
+                        📊 Dashboard
+                    </button>
+                    <button 
+                        @click="setView('browse')" 
+                        :class="{'active': currentView === 'browse'}"
+                        class="nav-button">
+                        🖼️ Browse
+                    </button>
+                    <button 
+                        @click="setView('jobs')" 
+                        :class="{'active': currentView === 'jobs'}"
+                        class="nav-button">
+                        ⚙️ Jobs
+                        <span v-if="hasActiveJobs" class="badge">{{ activeJobs.length }}</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Notifications -->
+        <div class="notifications">
+            <div v-for="notification in notifications" :key="notification.id"
+                 :class="['notification', `notification-${notification.type}`]">
+                {{ notification.message }}
+                <button @click="removeNotification(notification.id)" class="notification-close">×</button>
+            </div>
+        </div>
+
+        <!-- Active Jobs Banner (visible on all views when jobs are running) -->
+        <div v-if="hasActiveJobs && currentView !== 'jobs'" class="active-jobs-banner">
+            <div class="banner-content">
+                <strong>{{ activeJobs.length }} Active Job(s)</strong>
+                <div class="mini-progress-list">
+                    <div v-for="job in activeJobs.slice(0, 2)" :key="job.id" class="mini-job">
+                        <span>{{ job.name }}</span>
+                        <div class="mini-progress-bar">
+                            <div class="mini-progress-fill" :style="{width: job.progress + '%'}"></div>
+                        </div>
+                        <span>{{ job.progress }}%</span>
+                    </div>
+                </div>
+                <button @click="setView('jobs')" class="btn-small">View All</button>
+            </div>
+        </div>
+
+        <!-- Dashboard View -->
+        <div v-if="currentView === 'dashboard'" class="view-container">
+            <div class="content-wrapper">
+                <h2>Dashboard</h2>
+
+                <!-- Quick Actions -->
+                <section class="quick-actions">
+                    <h3>Quick Actions</h3>
+                    <div class="action-grid">
+                        <div class="action-card" @click="showAnalyzeForm = true">
+                            <div class="action-icon">🔍</div>
+                            <h4>Analyze Catalog</h4>
+                            <p>Scan and extract metadata from your photos</p>
+                        </div>
+                        <div class="action-card" @click="showOrganizeForm = true">
+                            <div class="action-icon">📁</div>
+                            <h4>Organize Files</h4>
+                            <p>Organize photos by date or custom pattern</p>
+                        </div>
+                        <div class="action-card" @click="showThumbnailsForm = true">
+                            <div class="action-icon">🖼️</div>
+                            <h4>Generate Thumbnails</h4>
+                            <p>Create preview images for faster browsing</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Catalog Statistics -->
+                <section class="catalog-stats">
+                    <h3>Catalog Overview</h3>
+                    <div v-if="dashboardStats" class="stats-grid">
+                        <div class="stat-card">
+                            <h4>Total Images</h4>
+                            <div class="stat-value">{{ formatNumber(dashboardStats.total_images) }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Total Videos</h4>
+                            <div class="stat-value">{{ formatNumber(dashboardStats.total_videos) }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Total Size</h4>
+                            <div class="stat-value">{{ formatBytes(dashboardStats.total_size_bytes) }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Duplicates</h4>
+                            <div class="stat-value">{{ formatNumber(dashboardStats.duplicates) }}</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Recent Jobs -->
+                <section class="recent-jobs">
+                    <h3>Recent Activity</h3>
+                    <div v-if="jobs.length > 0" class="jobs-list">
+                        <div v-for="job in jobs.slice(0, 5)" :key="job.id" class="job-item">
+                            <div class="job-info">
+                                <strong>{{ job.name || job.id }}</strong>
+                                <span :class="['job-status', getJobStatusClass(job.status)]">
+                                    {{ job.status }}
+                                </span>
+                            </div>
+                            <div v-if="job.status === 'PROGRESS'" class="progress-bar">
+                                <div class="progress-fill" :style="{width: job.progress + '%'}"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <p v-else class="empty-state">No recent jobs</p>
+                </section>
+            </div>
+        </div>
+
+        <!-- Browse Catalog View -->
+        <div v-if="currentView === 'browse'" class="view-container">
+            <div class="content-wrapper">
+                <h2>Browse Catalog</h2>
+                
+                <!-- Filters and Search -->
+                <div class="controls">
+                    <input 
+                        v-model="searchQuery" 
+                        type="text" 
+                        placeholder="Search by filename or tags..."
+                        class="search-input"
+                    />
+                    <select v-model="currentFilter">
+                        <option value="all">All Media</option>
+                        <option value="duplicates">Duplicates Only</option>
+                        <option value="no_date">Missing Date</option>
+                        <option value="videos">Videos Only</option>
+                    </select>
+                    <button @click="loadImages" class="btn-primary">Refresh</button>
+                </div>
+
+                <!-- Image Grid -->
+                <div v-if="loading" class="loading-state">Loading...</div>
+                <div v-else-if="error" class="error-state">{{ error }}</div>
+                <div v-else-if="filteredImages.length > 0" class="image-grid">
+                    <div v-for="image in filteredImages" :key="image.file_path" class="image-card">
+                        <div class="image-thumbnail">
+                            <img :src="`/api/preview/${encodeURIComponent(image.file_path)}`" 
+                                 :alt="image.file_name"
+                                 loading="lazy"
+                            />
+                        </div>
+                        <div class="image-info">
+                            <div class="image-name">{{ image.file_name }}</div>
+                            <div class="image-meta">
+                                <span v-if="image.captured_date">
+                                    {{ formatDate(image.captured_date) }}
+                                </span>
+                                <span v-else class="warning">No date</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div v-else class="empty-state">
+                    No images found. Start by analyzing your catalog!
+                </div>
+            </div>
+        </div>
+
+        <!-- Jobs View -->
+        <div v-if="currentView === 'jobs'" class="view-container">
+            <div class="content-wrapper">
+                <h2>Job Management</h2>
+
+                <!-- Active Jobs -->
+                <section v-if="activeJobs.length > 0" class="active-jobs-section">
+                    <h3>Active Jobs ({{ activeJobs.length }})</h3>
+                    <div class="jobs-grid">
+                        <div v-for="job in activeJobs" :key="job.id" class="job-card active">
+                            <div class="job-header">
+                                <strong>{{ job.name || 'Job' }}</strong>
+                                <span :class="['status-badge', getJobStatusClass(job.status)]">
+                                    {{ job.status }}
+                                </span>
+                            </div>
+                            <div class="job-id">ID: {{ job.id }}</div>
+                            <div class="progress-section">
+                                <div class="progress-bar">
+                                    <div class="progress-fill" :style="{width: job.progress + '%'}"></div>
+                                </div>
+                                <div class="progress-text">{{ job.progress }}%</div>
+                            </div>
+                            <div class="job-actions">
+                                <button @click="cancelJob(job.id)" class="btn-danger btn-small">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- All Jobs -->
+                <section class="all-jobs-section">
+                    <h3>All Jobs</h3>
+                    <div class="jobs-table">
+                        <table v-if="jobs.length > 0">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Progress</th>
+                                    <th>Started</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="job in jobs" :key="job.id">
+                                    <td>{{ job.name || 'Unknown' }}</td>
+                                    <td>
+                                        <span :class="['status-badge', getJobStatusClass(job.status)]">
+                                            {{ job.status }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div v-if="job.status === 'PROGRESS'" class="table-progress">
+                                            {{ job.progress }}%
+                                        </div>
+                                        <span v-else>-</span>
+                                    </td>
+                                    <td>{{ formatDate(job.started) }}</td>
+                                    <td>
+                                        <button 
+                                            v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
+                                            @click="cancelJob(job.id)" 
+                                            class="btn-danger btn-small">
+                                            Cancel
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div v-else class="empty-state">
+                            No jobs yet. Start by using the Quick Actions on the Dashboard!
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- Analyze Form Modal -->
+        <div v-if="showAnalyzeForm" class="modal-overlay" @click="showAnalyzeForm = false">
+            <div class="modal-content" @click.stop>
+                <h3>Analyze Catalog</h3>
+                <form @submit.prevent="submitAnalyzeJob">
+                    <div class="form-group">
+                        <label>Catalog Path</label>
+                        <input v-model="analyzeForm.catalogPath" type="text" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Source Directories (one per line)</label>
+                        <textarea 
+                            v-model="analyzeForm.sourceDirectories" 
+                            rows="3" 
+                            placeholder="/app/photos"
+                        ></textarea>
+                    </div>
+                    <div class="form-group checkbox">
+                        <label>
+                            <input v-model="analyzeForm.detectDuplicates" type="checkbox" />
+                            Detect Duplicates
+                        </label>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" @click="showAnalyzeForm = false" class="btn-secondary">
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn-primary">
+                            Start Analysis
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Organize Form Modal -->
+        <div v-if="showOrganizeForm" class="modal-overlay" @click="showOrganizeForm = false">
+            <div class="modal-content" @click.stop>
+                <h3>Organize Files</h3>
+                <form @submit.prevent="submitOrganizeJob">
+                    <div class="form-group">
+                        <label>Catalog Path</label>
+                        <input v-model="organizeForm.catalogPath" type="text" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Output Directory</label>
+                        <input v-model="organizeForm.outputDirectory" type="text" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Pattern</label>
+                        <input v-model="organizeForm.pattern" type="text" 
+                               placeholder="{year}/{month}" />
+                    </div>
+                    <div class="form-group">
+                        <label>Operation</label>
+                        <select v-model="organizeForm.operation">
+                            <option value="copy">Copy (Safe - keeps originals)</option>
+                            <option value="move">Move (Deletes originals)</option>
+                        </select>
+                    </div>
+                    <div class="form-group checkbox">
+                        <label>
+                            <input v-model="organizeForm.dryRun" type="checkbox" />
+                            Dry Run (Preview only, no changes)
+                        </label>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" @click="showOrganizeForm = false" class="btn-secondary">
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn-primary">
+                            Start Organization
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Thumbnails Form Modal -->
+        <div v-if="showThumbnailsForm" class="modal-overlay" @click="showThumbnailsForm = false">
+            <div class="modal-content" @click.stop>
+                <h3>Generate Thumbnails</h3>
+                <form @submit.prevent="submitThumbnailsJob">
+                    <div class="form-group">
+                        <label>Catalog Path</label>
+                        <input v-model="thumbnailsForm.catalogPath" type="text" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Sizes (comma-separated)</label>
+                        <input v-model="thumbnailsForm.sizes" type="text" 
+                               placeholder="200, 400, 800" />
+                    </div>
+                    <div class="form-group">
+                        <label>Quality (1-100)</label>
+                        <input v-model.number="thumbnailsForm.quality" type="number" 
+                               min="1" max="100" required />
+                    </div>
+                    <div class="form-group checkbox">
+                        <label>
+                            <input v-model="thumbnailsForm.skipExisting" type="checkbox" />
+                            Skip Existing Thumbnails
+                        </label>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" @click="showThumbnailsForm = false" class="btn-secondary">
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn-primary">
+                            Generate Thumbnails
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
