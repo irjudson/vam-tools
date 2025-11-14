@@ -30,7 +30,7 @@ VAM Tools is a comprehensive photo catalog management system designed to organiz
 │  └──────────────┘  └──────────────┘  └──────────────┘     │
 │         ↓                 ↓                  ↓              │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │            Catalog Database (catalog.json)          │   │
+│  │            Catalog Database (SQLite)          │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
@@ -49,20 +49,20 @@ Components:
 - **Quality Scorer** (`quality_scorer.py`): Image quality assessment for duplicate selection
 
 ### Catalog Database
-**Module**: `vam_tools/core/`
+**Module**: `vam_tools/core/database.py`
 
-Central data store with ACID-like properties.
+Central data store with ACID properties, implemented using SQLite.
 
 Components:
-- **Database Manager** (`catalog.py`): File locking, checkpointing, transactions
-- **Type Definitions** (`types.py`): Pydantic models for type safety
+- **Database Manager** (`database.py`): Handles SQLite connections, migrations, and transactions.
+- **Type Definitions** (`types.py`): Pydantic models for type safety and data validation.
+- **Schema Definition** (`schema.sql`): Defines the database schema.
 
 Features:
-- JSON-based storage (human-readable, version controllable)
-- File locking (fcntl) for concurrent access safety
-- Automatic checkpointing every 100 files
-- Signal-based lock timeout (30s default)
-- Path indexing for fast lookups
+- SQLite-based storage for scalability and performance.
+- Transactional operations for data integrity.
+- Versioned migrations for schema evolution.
+- Efficient querying and indexing for large datasets.
 
 ### Web Interface
 **Module**: `vam_tools/web/`
@@ -70,7 +70,7 @@ Features:
 FastAPI-based REST API with Vue.js frontend.
 
 Components:
-- **API Server** (`api.py`): REST endpoints for catalog browsing and duplicate review
+- **API Server** (`api.py`, `catalogs_api.py`, `jobs_api.py`): REST endpoints for catalog browsing, duplicate review, and job management.
 - **Static Files**: Vue 3 SPAs for catalog viewing and duplicate comparison
 
 Endpoints:
@@ -91,6 +91,8 @@ Command-line interfaces built with Click.
 Commands:
 - `vam-analyze` - Scan directories and build catalog
 - `vam-web` - Launch web UI server
+- `vam-organize` - Organize files based on catalog analysis
+- `vam-generate-thumbnails` - Generate thumbnails for images in the catalog
 
 ## Data Model
 

@@ -23,7 +23,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from ..core.catalog import CatalogDatabase
+from ..core.database import CatalogDatabase
 from ..core.types import ImageRecord
 from ..shared.media_utils import compute_checksum
 from .strategy import OrganizationStrategy
@@ -109,7 +109,10 @@ class FileOrganizer:
         )
 
         # Get all images from catalog
-        images = self.catalog.list_images()
+        images_dict = self.catalog.get_all_images()
+        images = [
+            ImageRecord.model_validate(img_data) for img_data in images_dict.values()
+        ]
         result.total_files = len(images)
 
         logger.info(f"Processing {len(images)} files")
@@ -380,13 +383,15 @@ class FileOrganizer:
             for operation in pending:
                 try:
                     # Get image from catalog
-                    image = self.catalog.get_image(operation.operation_id)
-                    if not image:
+                    image_data = self.catalog.get_image(operation.operation_id)
+                    if not image_data:
                         logger.warning(
-                            f"Image not found in catalog: " f"{operation.operation_id}"
+                            f"Image data not found in catalog for operation ID: "
+                            f"{operation.operation_id}"
                         )
                         result.skipped += 1
                         continue
+                    image = ImageRecord.model_validate(image_data)
 
                     # Process the operation
                     if self._process_image(image, False, True, True):

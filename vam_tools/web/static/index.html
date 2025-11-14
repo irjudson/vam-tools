@@ -37,6 +37,13 @@
                         ⚙️ Jobs
                         <span v-if="hasActiveJobs" class="badge">{{ activeJobs.length }}</span>
                     </button>
+                    <button 
+                        @click="setView('review')" 
+                        :class="{'active': currentView === 'review'}"
+                        class="nav-button">
+                        📝 Review
+                        <span v-if="reviewQueueStats.total_needing_review > 0" class="badge">{{ reviewQueueStats.total_needing_review }}</span>
+                    </button>
                 
                 <!-- Catalog Selector -->
                 <div class="catalog-selector">
@@ -74,7 +81,14 @@
                             </button>
                         </div>
                     </div>
-                </div></div>
+                </div>
+
+                <!-- Worker Health Indicator -->
+                <div class="worker-health" :class="'health-' + workerHealth.status" :title="workerHealth.message">
+                    <span class="health-dot"></span>
+                    <span class="health-text">{{ workerHealth.workers }} worker{{ workerHealth.workers !== 1 ? 's' : '' }}</span>
+                </div>
+                </div>
             </div>
         </nav>
 
@@ -203,7 +217,7 @@
                 <div v-else-if="filteredImages.length > 0" class="image-grid">
                     <div v-for="image in filteredImages" :key="image.file_path" class="image-card">
                         <div class="image-thumbnail">
-                            <img :src="`/api/preview/${encodeURIComponent(image.file_path)}`" 
+                            <img :src="image.thumbnail_path ? `/api/images/${image.id}/thumbnail` : `/api/preview/${encodeURIComponent(image.source_path)}`" 
                                  :alt="image.file_name"
                                  loading="lazy"
                             />
@@ -247,13 +261,38 @@
                                     <div class="progress-fill" :style="{width: job.progress + '%'}"></div>
                                 </div>
                                 <div class="progress-text">{{ job.progress }}%</div>
+                                <div v-if="job.progressData && job.progressData.message" class="progress-message">
+                                    {{ job.progressData.message }}
+                                </div>
+                            </div>
+                            <div v-if="job.result" class="job-result-summary">
+                                <div class="result-label">✓ Completed</div>
+                                <div v-if="job.result.processed !== undefined" class="result-stats-inline">
+                                    Processed: <strong>{{ job.result.processed }}</strong>
+                                    <span v-if="job.result.files_added !== undefined"> | Added: <strong class="text-success">{{ job.result.files_added }}</strong></span>
+                                </div>
+                                <div v-if="job.result.organized !== undefined" class="result-stats-inline">
+                                    Organized: <strong class="text-success">{{ job.result.organized }}</strong>
+                                </div>
+                                <div v-if="job.result.generated !== undefined" class="result-stats-inline">
+                                    Generated: <strong class="text-success">{{ job.result.generated }}</strong>
+                                </div>
+                            </div>
+                            <div v-if="job.error" class="job-error-summary">
+                                <div class="error-label">✗ Error</div>
+                                <div class="error-text">{{ job.error }}</div>
                             </div>
                             <div class="job-actions">
-                                <button @click="cancelJob(job.id)" class="btn-secondary btn-small" title="Stop job gracefully">
+                                <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
+                                        @click="cancelJob(job.id)" class="btn-secondary btn-small" title="Stop job gracefully">
                                     Cancel
                                 </button>
-                                <button @click="killJob(job.id)" class="btn-danger btn-small" title="Force kill stuck job">
+                                <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
+                                        @click="killJob(job.id)" class="btn-danger btn-small" title="Force kill stuck job">
                                     Force Kill
+                                </button>
+                                <button @click="rerunJob(job.id)" class="btn-primary btn-small" title="Rerun job with same parameters">
+                                    🔄 Rerun
                                 </button>
                             </div>
                         </div>
@@ -270,6 +309,7 @@
                                     <th>Type</th>
                                     <th>Status</th>
                                     <th>Progress</th>
+                                    <th>Result</th>
                                     <th>Started</th>
                                     <th>Actions</th>
                                 </tr>
@@ -284,24 +324,51 @@
                                     </td>
                                     <td>
                                         <div v-if="job.status === 'PROGRESS'" class="table-progress">
-                                            {{ job.progress }}%
+                                            <div>{{ job.progress }}%</div>
+                                            <div v-if="job.progressData && job.progressData.message" class="table-progress-message">
+                                                {{ job.progressData.message }}
+                                            </div>
+                                        </div>
+                                        <span v-else>-</span>
+                                    </td>
+                                    <td>
+                                        <div v-if="job.result" class="table-result">
+                                            <span v-if="job.result.processed !== undefined">
+                                                {{ job.result.processed }} processed
+                                                <span v-if="job.result.files_added" class="text-success"> (+{{ job.result.files_added }})</span>
+                                            </span>
+                                            <span v-if="job.result.organized !== undefined" class="text-success">
+                                                {{ job.result.organized }} organized
+                                            </span>
+                                            <span v-if="job.result.generated !== undefined" class="text-success">
+                                                {{ job.result.generated }} generated
+                                            </span>
+                                        </div>
+                                        <div v-else-if="job.error" class="table-error">
+                                            Error
                                         </div>
                                         <span v-else>-</span>
                                     </td>
                                     <td>{{ formatDate(job.started) }}</td>
                                     <td>
-                                        <div v-if="job.status === 'PROGRESS' || job.status === 'PENDING'" class="job-actions-inline">
-                                            <button 
-                                                @click="cancelJob(job.id)" 
+                                        <div class="job-actions-inline">
+                                            <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
+                                                @click="cancelJob(job.id)"
                                                 class="btn-secondary btn-small"
                                                 title="Cancel job">
                                                 Cancel
                                             </button>
-                                            <button 
-                                                @click="killJob(job.id)" 
+                                            <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
+                                                @click="killJob(job.id)"
                                                 class="btn-danger btn-small"
                                                 title="Force kill">
                                                 Kill
+                                            </button>
+                                            <button
+                                                @click="rerunJob(job.id)"
+                                                class="btn-primary btn-small"
+                                                title="Rerun job">
+                                                🔄
                                             </button>
                                         </div>
                                     </td>
@@ -311,6 +378,70 @@
                         <div v-else class="empty-state">
                             No jobs yet. Start by using the Quick Actions on the Dashboard!
                         </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- Review Queue View -->
+        <div v-if="currentView === 'review'" class="view-container">
+            <div class="content-wrapper">
+                <h2>Review Queue</h2>
+
+                <section class="review-stats">
+                    <h3>Overview</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h4>Total Items</h4>
+                            <div class="stat-value">{{ reviewQueueStats.total_needing_review }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Date Conflicts</h4>
+                            <div class="stat-value">{{ reviewQueueStats.date_conflicts }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>No Date</h4>
+                            <div class="stat-value">{{ reviewQueueStats.no_date }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Suspicious Dates</h4>
+                            <div class="stat-value">{{ reviewQueueStats.suspicious_dates }}</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="review-items">
+                    <h3>Items Needing Review</h3>
+                    <div v-if="reviewQueue.length > 0" class="review-list">
+                        <div v-for="item in reviewQueue" :key="item.id" class="review-card">
+                            <div class="review-thumbnail">
+                                <img :src="item.thumbnail_path ? `/api/images/${item.id}/thumbnail` : `/api/preview/${encodeURIComponent(item.source_path)}`" 
+                                     :alt="item.source_path"
+                                     loading="lazy"
+                                />
+                            </div>
+                            <div class="review-info">
+                                <div class="review-path">{{ item.source_path }}</div>
+                                <div class="review-reason">Reason: {{ item.type.replace('_', ' ') }}</div>
+                                <div v-if="item.current_date" class="review-current-date">
+                                    Current Date: {{ formatDate(item.current_date) }}
+                                </div>
+                                <div v-if="item.confidence" class="review-confidence">
+                                    Confidence: {{ item.confidence }}%
+                                </div>
+                                <div class="review-actions">
+                                    <button @click="resolveReviewItem(item.id)" class="btn-primary btn-small">
+                                        Resolve
+                                    </button>
+                                    <button @click="skipReviewItem(item.id)" class="btn-secondary btn-small">
+                                        Skip
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="empty-state">
+                        No items currently in the review queue.
                     </div>
                 </section>
             </div>
@@ -337,6 +468,12 @@
                         <label>
                             <input v-model="analyzeForm.detect_duplicates" type="checkbox" />
                             Detect Duplicates
+                        </label>
+                    </div>
+                    <div class="form-group checkbox">
+                        <label>
+                            <input v-model="analyzeForm.force_reanalyze" type="checkbox" />
+                            Reset Catalog (analyze all files fresh)
                         </label>
                     </div>
                     <div class="form-actions">

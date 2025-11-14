@@ -56,10 +56,8 @@ class TestGenerateThumbnailsCLI:
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
-    @patch("vam_tools.cli.generate_thumbnails.get_thumbnail_path")
     def test_generate_basic(
         self,
-        mock_get_path,
         mock_gen_thumb,
         mock_catalog_cls,
         runner: CliRunner,
@@ -68,29 +66,33 @@ class TestGenerateThumbnailsCLI:
     ) -> None:
         """Test basic thumbnail generation."""
         # Mock catalog
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = sample_images
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
 
-        # Mock thumbnail generation
-        mock_thumb_path = catalog_dir / "thumbnails" / "img1.jpg"
-        mock_get_path.return_value = mock_thumb_path
+        # Mock db.execute for image retrieval
+        mock_db.execute.return_value.fetchall.return_value = [
+            {"id": img.id, "source_path": str(img.source_path), "thumbnail_path": None}
+            for img in sample_images
+        ]
+
+        # Mock generate_thumbnail
         mock_gen_thumb.return_value = True
 
         result = runner.invoke(generate, [str(catalog_dir)])
 
         assert result.exit_code == 0
         assert "Generated: 2" in result.output
-        mock_catalog.save.assert_called_once()
+        # Verify execute was called to update thumbnail_path
+        assert mock_db.execute.call_count >= 2  # At least 2 for updates
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     def test_generate_no_images(
         self, mock_catalog_cls, runner: CliRunner, catalog_dir: Path
     ) -> None:
         """Test with no images in catalog."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = []
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
+        mock_db.execute.return_value.fetchall.return_value = []  # No images
 
         result = runner.invoke(generate, [str(catalog_dir)])
 
@@ -98,13 +100,11 @@ class TestGenerateThumbnailsCLI:
         assert "No images found" in result.output
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    def test_generate_catalog_load_error(
+    def test_generate_catalog_connection_error(
         self, mock_catalog_cls, runner: CliRunner, catalog_dir: Path
     ) -> None:
-        """Test catalog load error."""
-        mock_catalog = Mock()
-        mock_catalog.load.side_effect = Exception("Load failed")
-        mock_catalog_cls.return_value = mock_catalog
+        """Test catalog connection error."""
+        mock_catalog_cls.side_effect = Exception("Connection failed")
 
         result = runner.invoke(generate, [str(catalog_dir)])
 
@@ -113,10 +113,8 @@ class TestGenerateThumbnailsCLI:
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
-    @patch("vam_tools.cli.generate_thumbnails.get_thumbnail_path")
     def test_generate_with_force(
         self,
-        mock_get_path,
         mock_gen_thumb,
         mock_catalog_cls,
         runner: CliRunner,
@@ -124,15 +122,20 @@ class TestGenerateThumbnailsCLI:
         sample_images: list[ImageRecord],
     ) -> None:
         """Test force regeneration."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = sample_images
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
 
-        # Mock existing thumbnails
-        mock_thumb_path = Mock()
-        mock_thumb_path.exists.return_value = True
-        mock_thumb_path.relative_to.return_value = Path("thumbnails/img1.jpg")
-        mock_get_path.return_value = mock_thumb_path
+        # Mock db.execute for image retrieval, with existing thumbnail paths
+        mock_db.execute.return_value.fetchall.return_value = [
+            {
+                "id": img.id,
+                "source_path": str(img.source_path),
+                "thumbnail_path": f"thumbnails/{img.id}.jpg",
+            }
+            for img in sample_images
+        ]
+
+        # Mock generate_thumbnail
         mock_gen_thumb.return_value = True
 
         result = runner.invoke(generate, [str(catalog_dir), "--force"])
@@ -140,13 +143,12 @@ class TestGenerateThumbnailsCLI:
         assert result.exit_code == 0
         assert "Force mode" in result.output
         assert "Generated: 2" in result.output
+        assert mock_gen_thumb.call_count == 2  # Should call for all images
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
-    @patch("vam_tools.cli.generate_thumbnails.get_thumbnail_path")
     def test_generate_skip_existing(
         self,
-        mock_get_path,
         mock_gen_thumb,
         mock_catalog_cls,
         runner: CliRunner,
@@ -154,18 +156,24 @@ class TestGenerateThumbnailsCLI:
         sample_images: list[ImageRecord],
     ) -> None:
         """Test skipping existing thumbnails."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = sample_images
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
 
+        # Mock db.execute for image retrieval
         # First image has thumbnail, second doesn't
-        def mock_get_path_side_effect(image_id, thumbs_dir):
-            mock_path = Mock()
-            mock_path.exists.return_value = image_id == "img1"
-            mock_path.relative_to.return_value = Path(f"thumbnails/{image_id}.jpg")
-            return mock_path
+        mock_db.execute.return_value.fetchall.return_value = [
+            {
+                "id": sample_images[0].id,
+                "source_path": str(sample_images[0].source_path),
+                "thumbnail_path": f"thumbnails/{sample_images[0].id}.jpg",
+            },
+            {
+                "id": sample_images[1].id,
+                "source_path": str(sample_images[1].source_path),
+                "thumbnail_path": None,
+            },
+        ]
 
-        mock_get_path.side_effect = mock_get_path_side_effect
         mock_gen_thumb.return_value = True
 
         result = runner.invoke(generate, [str(catalog_dir)])
@@ -173,13 +181,12 @@ class TestGenerateThumbnailsCLI:
         assert result.exit_code == 0
         assert "Generated: 1" in result.output
         assert "Skipped: 1" in result.output
+        assert mock_gen_thumb.call_count == 1  # Only called for the second image
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
-    @patch("vam_tools.cli.generate_thumbnails.get_thumbnail_path")
     def test_generate_with_custom_size(
         self,
-        mock_get_path,
         mock_gen_thumb,
         mock_catalog_cls,
         runner: CliRunner,
@@ -187,14 +194,15 @@ class TestGenerateThumbnailsCLI:
         sample_images: list[ImageRecord],
     ) -> None:
         """Test custom thumbnail size."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = sample_images
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
 
-        mock_thumb_path = Mock()
-        mock_thumb_path.exists.return_value = False
-        mock_thumb_path.relative_to.return_value = Path("thumbnails/img1.jpg")
-        mock_get_path.return_value = mock_thumb_path
+        # Mock db.execute for image retrieval
+        mock_db.execute.return_value.fetchall.return_value = [
+            {"id": img.id, "source_path": str(img.source_path), "thumbnail_path": None}
+            for img in sample_images
+        ]
+
         mock_gen_thumb.return_value = True
 
         result = runner.invoke(generate, [str(catalog_dir), "--size", "300"])
@@ -208,10 +216,8 @@ class TestGenerateThumbnailsCLI:
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
-    @patch("vam_tools.cli.generate_thumbnails.get_thumbnail_path")
     def test_generate_with_custom_quality(
         self,
-        mock_get_path,
         mock_gen_thumb,
         mock_catalog_cls,
         runner: CliRunner,
@@ -219,14 +225,15 @@ class TestGenerateThumbnailsCLI:
         sample_images: list[ImageRecord],
     ) -> None:
         """Test custom JPEG quality."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = sample_images
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
 
-        mock_thumb_path = Mock()
-        mock_thumb_path.exists.return_value = False
-        mock_thumb_path.relative_to.return_value = Path("thumbnails/img1.jpg")
-        mock_get_path.return_value = mock_thumb_path
+        # Mock db.execute for image retrieval
+        mock_db.execute.return_value.fetchall.return_value = [
+            {"id": img.id, "source_path": str(img.source_path), "thumbnail_path": None}
+            for img in sample_images
+        ]
+
         mock_gen_thumb.return_value = True
 
         result = runner.invoke(generate, [str(catalog_dir), "--quality", "70"])
@@ -240,10 +247,8 @@ class TestGenerateThumbnailsCLI:
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
-    @patch("vam_tools.cli.generate_thumbnails.get_thumbnail_path")
     def test_generate_with_errors(
         self,
-        mock_get_path,
         mock_gen_thumb,
         mock_catalog_cls,
         runner: CliRunner,
@@ -251,14 +256,14 @@ class TestGenerateThumbnailsCLI:
         sample_images: list[ImageRecord],
     ) -> None:
         """Test handling generation errors."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = sample_images
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
 
-        mock_thumb_path = Mock()
-        mock_thumb_path.exists.return_value = False
-        mock_thumb_path.relative_to.return_value = Path("thumbnails/img.jpg")
-        mock_get_path.return_value = mock_thumb_path
+        # Mock db.execute for image retrieval
+        mock_db.execute.return_value.fetchall.return_value = [
+            {"id": img.id, "source_path": str(img.source_path), "thumbnail_path": None}
+            for img in sample_images
+        ]
 
         # First succeeds, second fails
         mock_gen_thumb.side_effect = [True, False]
@@ -270,42 +275,15 @@ class TestGenerateThumbnailsCLI:
         assert "Errors: 1" in result.output
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
-    @patch("vam_tools.cli.generate_thumbnails.get_thumbnail_path")
-    def test_generate_catalog_save_error(
-        self,
-        mock_get_path,
-        mock_gen_thumb,
-        mock_catalog_cls,
-        runner: CliRunner,
-        catalog_dir: Path,
-        sample_images: list[ImageRecord],
-    ) -> None:
-        """Test catalog save error."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = sample_images
-        mock_catalog.save.side_effect = Exception("Save failed")
-        mock_catalog_cls.return_value = mock_catalog
-
-        mock_thumb_path = Mock()
-        mock_thumb_path.exists.return_value = False
-        mock_thumb_path.relative_to.return_value = Path("thumbnails/img.jpg")
-        mock_get_path.return_value = mock_thumb_path
-        mock_gen_thumb.return_value = True
-
-        result = runner.invoke(generate, [str(catalog_dir)])
-
-        assert result.exit_code == 1
-        assert "Error saving catalog" in result.output
-
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     def test_generate_verbose(
         self, mock_catalog_cls, runner: CliRunner, catalog_dir: Path
     ) -> None:
         """Test verbose logging."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = []
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
+        mock_db.execute.return_value.fetchall.return_value = (
+            []
+        )  # No images for simplicity
 
         result = runner.invoke(generate, [str(catalog_dir), "--verbose"])
 
@@ -314,10 +292,8 @@ class TestGenerateThumbnailsCLI:
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
-    @patch("vam_tools.cli.generate_thumbnails.get_thumbnail_path")
     def test_generate_updates_catalog(
         self,
-        mock_get_path,
         mock_gen_thumb,
         mock_catalog_cls,
         runner: CliRunner,
@@ -325,25 +301,29 @@ class TestGenerateThumbnailsCLI:
         sample_images: list[ImageRecord],
     ) -> None:
         """Test catalog is updated with thumbnail paths."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = sample_images
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
 
-        mock_thumb_path = Mock()
-        mock_thumb_path.exists.return_value = False
-        mock_thumb_path.relative_to.return_value = Path("thumbnails/img1.jpg")
-        mock_get_path.return_value = mock_thumb_path
+        # Mock db.execute for image retrieval
+        mock_db.execute.return_value.fetchall.return_value = [
+            {"id": img.id, "source_path": str(img.source_path), "thumbnail_path": None}
+            for img in sample_images
+        ]
+
         mock_gen_thumb.return_value = True
 
         result = runner.invoke(generate, [str(catalog_dir)])
 
         assert result.exit_code == 0
-        # Verify add_image was called to update records
-        assert mock_catalog.add_image.call_count == 2
-        # Verify thumbnail paths were set
-        for call in mock_catalog.add_image.call_args_list:
-            image = call[0][0]
-            assert hasattr(image, "thumbnail_path")
+        # Verify execute was called to update thumbnail_path for each image
+        mock_db.execute.assert_any_call(
+            "UPDATE images SET thumbnail_path = ? WHERE id = ?",
+            (f"thumbnails/{sample_images[0].id}.jpg", sample_images[0].id),
+        )
+        mock_db.execute.assert_any_call(
+            "UPDATE images SET thumbnail_path = ? WHERE id = ?",
+            (f"thumbnails/{sample_images[1].id}.jpg", sample_images[1].id),
+        )
 
     def test_generate_nonexistent_directory(self, runner: CliRunner) -> None:
         """Test with non-existent catalog directory."""
@@ -354,10 +334,8 @@ class TestGenerateThumbnailsCLI:
 
     @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
     @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
-    @patch("vam_tools.cli.generate_thumbnails.get_thumbnail_path")
     def test_generate_all_options(
         self,
-        mock_get_path,
         mock_gen_thumb,
         mock_catalog_cls,
         runner: CliRunner,
@@ -365,14 +343,19 @@ class TestGenerateThumbnailsCLI:
         sample_images: list[ImageRecord],
     ) -> None:
         """Test with all CLI options."""
-        mock_catalog = Mock()
-        mock_catalog.list_images.return_value = sample_images
-        mock_catalog_cls.return_value = mock_catalog
+        mock_db = Mock()
+        mock_catalog_cls.return_value.__enter__.return_value = mock_db
 
-        mock_thumb_path = Mock()
-        mock_thumb_path.exists.return_value = True  # Should regenerate with --force
-        mock_thumb_path.relative_to.return_value = Path("thumbnails/img.jpg")
-        mock_get_path.return_value = mock_thumb_path
+        # Mock db.execute for image retrieval
+        mock_db.execute.return_value.fetchall.return_value = [
+            {
+                "id": img.id,
+                "source_path": str(img.source_path),
+                "thumbnail_path": f"thumbnails/{img.id}.jpg",
+            }
+            for img in sample_images
+        ]
+
         mock_gen_thumb.return_value = True
 
         result = runner.invoke(

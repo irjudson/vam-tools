@@ -11,6 +11,7 @@ import logging
 import multiprocessing as mp
 from collections import defaultdict
 from contextlib import nullcontext
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -22,12 +23,15 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from ..core.catalog import CatalogDatabase
+from ..core.database import CatalogDatabase
 from ..core.performance_stats import PerformanceTracker
 from ..core.types import (
+    DateInfo,
     DuplicateGroup,
     FileType,
+    ImageMetadata,
     ImageRecord,
+    ImageStatus,
     ProblematicFile,
     ProblematicFileCategory,
     SimilarityMetrics,
@@ -186,7 +190,9 @@ class DuplicateDetector:
             corruption_report = get_corruption_report()
             if corruption_report["total"] > 0:
                 # Save detailed report to catalog directory
-                report_path = self.catalog.catalog_path / "corruption_report.json"
+                report_path = (
+                    self.catalog.catalog_path / "corruption_report.json"
+                )  # Still JSON for report
                 save_corruption_report(report_path)
                 logger.warning(
                     f"Encountered {corruption_report['total']} corrupted/problematic files during hashing"
@@ -215,7 +221,7 @@ class DuplicateDetector:
                     self.problematic_files.append(problematic)
 
                 logger.info(
-                    f"Detailed corruption report saved to: {report_path.relative_to(self.catalog.catalog_path.parent)}"
+                    f"Detailed corruption report saved to: {report_path.relative_to(self.catalog.catalog_path)}"
                 )
 
             # Step 2: Find exact duplicates (same checksum)
@@ -231,7 +237,10 @@ class DuplicateDetector:
             # Step 3: Find similar images (perceptual hash similarity)
             similar_ctx = (
                 self.perf_tracker.track_operation(
-                    "find_similar_images", items=len(self.catalog.list_images())
+                    "find_similar_images",
+                    items=self.catalog.execute(
+                        "SELECT COUNT(*) FROM images"
+                    ).fetchone()[0],
                 )
                 if self.perf_tracker
                 else nullcontext()
@@ -271,7 +280,31 @@ class DuplicateDetector:
         Args:
             force: Force recomputation even if hash exists
         """
-        all_files = self.catalog.list_images()
+        rows = self.catalog.execute("SELECT * FROM images").fetchall()
+        all_files: List[ImageRecord] = []
+        for row in rows:
+            # Manually construct ImageRecord from row (simplified)
+            image = ImageRecord(
+                id=row["id"],
+                source_path=Path(row["source_path"]),
+                file_type=(
+                    FileType.IMAGE
+                    if row["format"]
+                    in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]
+                    else FileType.VIDEO
+                ),
+                checksum=row["file_hash"],
+                status=ImageStatus.COMPLETE,
+                file_size=row["file_size"],
+                metadata=ImageMetadata(
+                    format=row["format"],
+                    perceptual_hash_dhash=row[
+                        "perceptual_hash"
+                    ],  # Assuming this is dhash
+                ),
+            )
+            all_files.append(image)
+
         images_to_process = []
         videos_to_process = []
 
@@ -279,7 +312,9 @@ class DuplicateDetector:
             # Separate images and videos
             if file_record.file_type == FileType.VIDEO:
                 # For videos, only check if dhash exists (videos use single hash)
-                needs_compute = force or not file_record.metadata.perceptual_hash_dhash
+                needs_compute = force or not (
+                    file_record.metadata and file_record.metadata.perceptual_hash_dhash
+                )
                 if needs_compute:
                     videos_to_process.append(file_record)
             else:
@@ -287,19 +322,19 @@ class DuplicateDetector:
                 needs_compute = force
                 if not force:
                     for method in self.hash_methods:
-                        if (
-                            method == HashMethod.DHASH
-                            and not file_record.metadata.perceptual_hash_dhash
+                        if method == HashMethod.DHASH and not (
+                            file_record.metadata
+                            and file_record.metadata.perceptual_hash_dhash
                         ):
                             needs_compute = True
-                        elif (
-                            method == HashMethod.AHASH
-                            and not file_record.metadata.perceptual_hash_ahash
+                        elif method == HashMethod.AHASH and not (
+                            file_record.metadata
+                            and file_record.metadata.perceptual_hash_ahash
                         ):
                             needs_compute = True
-                        elif (
-                            method == HashMethod.WHASH
-                            and not file_record.metadata.perceptual_hash_whash
+                        elif method == HashMethod.WHASH and not (
+                            file_record.metadata
+                            and file_record.metadata.perceptual_hash_whash
                         ):
                             needs_compute = True
 
@@ -355,13 +390,26 @@ class DuplicateDetector:
                 # Update catalog with computed hashes
                 for image, hashes in zip(images_to_process, all_hashes):
                     if hashes:
+                        update_fields = {}
                         if "dhash" in hashes:
-                            image.metadata.perceptual_hash_dhash = hashes["dhash"]
-                        if "ahash" in hashes:
-                            image.metadata.perceptual_hash_ahash = hashes["ahash"]
-                        if "whash" in hashes:
-                            image.metadata.perceptual_hash_whash = hashes["whash"]
-                        self.catalog.update_image(image)
+                            update_fields["perceptual_hash"] = hashes[
+                                "dhash"
+                            ]  # Assuming perceptual_hash is dhash
+                        # If ahash/whash are supported, add them here
+                        # if "ahash" in hashes:
+                        #     update_fields["perceptual_hash_ahash"] = hashes["ahash"]
+                        # if "whash" in hashes:
+                        #     update_fields["perceptual_hash_whash"] = hashes["whash"]
+
+                        if update_fields:
+                            set_clauses = ", ".join(
+                                [f"{k} = ?" for k in update_fields.keys()]
+                            )
+                            params = list(update_fields.values()) + [image.id]
+                            self.catalog.execute(
+                                f"UPDATE images SET {set_clauses} WHERE id = ?",
+                                tuple(params),
+                            )
                     else:
                         logger.warning(
                             f"Failed to compute hash for {image.source_path}"
@@ -403,14 +451,26 @@ class DuplicateDetector:
 
                         if hashes:
                             # Update image metadata with computed hashes
+                            update_fields = {}
                             if "dhash" in hashes:
-                                image.metadata.perceptual_hash_dhash = hashes["dhash"]
-                            if "ahash" in hashes:
-                                image.metadata.perceptual_hash_ahash = hashes["ahash"]
-                            if "whash" in hashes:
-                                image.metadata.perceptual_hash_whash = hashes["whash"]
-                            # Save to catalog
-                            self.catalog.update_image(image)
+                                update_fields["perceptual_hash"] = hashes[
+                                    "dhash"
+                                ]  # Assuming perceptual_hash is dhash
+                            # If ahash/whash are supported, add them here
+                            # if "ahash" in hashes:
+                            #     update_fields["perceptual_hash_ahash"] = hashes["ahash"]
+                            # if "whash" in hashes:
+                            #     update_fields["perceptual_hash_whash"] = hashes["whash"]
+
+                            if update_fields:
+                                set_clauses = ", ".join(
+                                    [f"{k} = ?" for k in update_fields.keys()]
+                                )
+                                params = list(update_fields.values()) + [image.id]
+                                self.catalog.execute(
+                                    f"UPDATE images SET {set_clauses} WHERE id = ?",
+                                    tuple(params),
+                                )
                         else:
                             logger.warning(
                                 f"Failed to compute hash for {image.source_path}"
@@ -468,12 +528,10 @@ class DuplicateDetector:
 
                     if hashes and hashes.get("dhash"):
                         # Store video hash in dhash field for compatibility
-                        video.metadata.perceptual_hash_dhash = hashes["dhash"]
-                        # Clear other hash fields (videos only have one hash type)
-                        video.metadata.perceptual_hash_ahash = None
-                        video.metadata.perceptual_hash_whash = None
-                        # Save to catalog
-                        self.catalog.update_image(video)
+                        self.catalog.execute(
+                            "UPDATE images SET perceptual_hash = ? WHERE id = ?",
+                            (hashes["dhash"], video.id),
+                        )
                     else:
                         logger.warning(
                             f"Failed to compute video hash for {video.source_path}"
@@ -504,8 +562,9 @@ class DuplicateDetector:
         # Group images by checksum
         checksum_groups: Dict[str, List[str]] = defaultdict(list)
 
-        for image in self.catalog.list_images():
-            checksum_groups[image.checksum].append(image.id)
+        rows = self.catalog.execute("SELECT id, file_hash FROM images").fetchall()
+        for row in rows:
+            checksum_groups[row["file_hash"]].append(row["id"])
 
         # Create duplicate groups for checksums with multiple images
         groups = []
@@ -527,7 +586,30 @@ class DuplicateDetector:
         Returns:
             List of similar image groups
         """
-        images = self.catalog.list_images()
+        rows = self.catalog.execute("SELECT * FROM images").fetchall()
+        images: List[ImageRecord] = []
+        for row in rows:
+            # Manually construct ImageRecord from row (simplified)
+            image = ImageRecord(
+                id=row["id"],
+                source_path=Path(row["source_path"]),
+                file_type=(
+                    FileType.IMAGE
+                    if row["format"]
+                    in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]
+                    else FileType.VIDEO
+                ),
+                checksum=row["file_hash"],
+                status=ImageStatus.COMPLETE,
+                file_size=row["file_size"],
+                metadata=ImageMetadata(
+                    format=row["format"],
+                    perceptual_hash_dhash=row[
+                        "perceptual_hash"
+                    ],  # Assuming this is dhash
+                ),
+            )
+            images.append(image)
 
         # Filter to images with at least one valid perceptual hash
         # Images must have hashes for the methods we're using
@@ -535,21 +617,18 @@ class DuplicateDetector:
         for img in images:
             has_required_hashes = True
             for method in self.hash_methods:
-                if (
-                    method == HashMethod.DHASH
-                    and not img.metadata.perceptual_hash_dhash
+                if method == HashMethod.DHASH and not (
+                    img.metadata and img.metadata.perceptual_hash_dhash
                 ):
                     has_required_hashes = False
                     break
-                elif (
-                    method == HashMethod.AHASH
-                    and not img.metadata.perceptual_hash_ahash
+                elif method == HashMethod.AHASH and not (
+                    img.metadata and img.metadata.perceptual_hash_ahash
                 ):
                     has_required_hashes = False
                     break
-                elif (
-                    method == HashMethod.WHASH
-                    and not img.metadata.perceptual_hash_whash
+                elif method == HashMethod.WHASH and not (
+                    img.metadata and img.metadata.perceptual_hash_whash
                 ):
                     has_required_hashes = False
                     break
@@ -962,8 +1041,35 @@ class DuplicateDetector:
             # Get metadata for all images in group
             images_data = {}
             for image_id in group.images:
-                image = self.catalog.get_image(image_id)
-                if image:
+                row = self.catalog.execute(
+                    "SELECT * FROM images WHERE id = ?", (image_id,)
+                ).fetchone()
+                if row:
+                    # Manually construct ImageRecord from row (simplified)
+                    image = ImageRecord(
+                        id=row["id"],
+                        source_path=Path(row["source_path"]),
+                        file_type=(
+                            FileType.IMAGE
+                            if row["format"]
+                            in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]
+                            else FileType.VIDEO
+                        ),
+                        checksum=row["file_hash"],
+                        status=ImageStatus.COMPLETE,
+                        file_size=row["file_size"],
+                        dates=DateInfo(
+                            selected_date=(
+                                datetime.fromisoformat(row["date_taken"])
+                                if row["date_taken"]
+                                else None
+                            ),
+                        ),
+                        metadata=ImageMetadata(
+                            format=row["format"],
+                            size_bytes=row["file_size"],
+                        ),
+                    )
                     images_data[image_id] = (image.metadata, image.file_type)
 
             if not images_data:
@@ -1002,7 +1108,39 @@ class DuplicateDetector:
     def save_duplicate_groups(self) -> None:
         """Save detected duplicate groups to catalog."""
         logger.info(f"Saving {len(self.duplicate_groups)} duplicate groups to catalog")
-        self.catalog.save_duplicate_groups(self.duplicate_groups)
+
+        with self.catalog.transaction():
+            for group in self.duplicate_groups:
+                # Insert into duplicate_groups table
+                cursor = self.catalog.execute(
+                    """
+                    INSERT INTO duplicate_groups (
+                        hash_distance, similarity_score, created_at, reviewed
+                    ) VALUES (?, ?, datetime('now'), ?)
+                    """,
+                    (
+                        self.similarity_threshold,  # Using similarity_threshold as hash_distance for now
+                        group.similarity_score,
+                        (
+                            1 if group.needs_review else 0
+                        ),  # Assuming needs_review maps to reviewed
+                    ),
+                )
+                group_id = cursor.lastrowid
+
+                # Insert images into duplicate_group_images table
+                for image_id in group.images:
+                    is_primary = 1 if image_id == group.primary else 0
+                    # Fetch quality score if available, otherwise default to 0
+                    quality_score = group.quality_scores.get(image_id, 0)
+                    self.catalog.execute(
+                        """
+                        INSERT INTO duplicate_group_images (
+                            group_id, image_id, is_primary, quality_score
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (group_id, image_id, is_primary, quality_score),
+                    )
         logger.info("Duplicate groups saved")
 
     def save_problematic_files(self) -> None:
@@ -1011,7 +1149,21 @@ class DuplicateDetector:
             logger.info(
                 f"Saving {len(self.problematic_files)} problematic files to catalog"
             )
-            self.catalog.save_problematic_files(self.problematic_files)
+            with self.catalog.transaction():
+                for file in self.problematic_files:
+                    self.catalog.execute(
+                        """
+                        INSERT INTO problematic_files (
+                            file_path, category, error_message, detected_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            str(file.source_path),
+                            file.category.value,
+                            file.error_message,
+                            file.detected_at.isoformat(),
+                        ),
+                    )
             logger.info("Problematic files saved")
 
     def get_statistics(self) -> Dict[str, int]:

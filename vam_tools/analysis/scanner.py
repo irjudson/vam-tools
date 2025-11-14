@@ -9,6 +9,7 @@ import multiprocessing as mp
 import os
 import time
 from contextlib import nullcontext
+from datetime import datetime
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
@@ -23,9 +24,9 @@ from rich.progress import (
 from vam_tools.shared import compute_checksum, get_file_type
 from vam_tools.shared.thumbnail_utils import generate_thumbnail, get_thumbnail_path
 
-from ..core.catalog import CatalogDatabase
+from ..core.database import CatalogDatabase
 from ..core.performance_stats import PerformanceTracker
-from ..core.types import CatalogPhase, FileType, ImageRecord, ImageStatus
+from ..core.types import CatalogPhase, FileType, ImageRecord, ImageStatus, Statistics
 from .metadata import MetadataExtractor
 
 logger = logging.getLogger(__name__)
@@ -102,7 +103,12 @@ class ImageScanner:
         self.catalog = catalog
         self.generate_thumbnails = generate_thumbnails
         # Load existing statistics if catalog exists, otherwise start fresh
-        self.stats = catalog.get_statistics()
+        latest_stats_row = self.catalog.execute(
+            "SELECT * FROM statistics ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()
+        self.stats = (
+            Statistics(**latest_stats_row) if latest_stats_row else Statistics()
+        )
         self.files_added = 0
         self.files_skipped = 0
         self.files_processed = 0  # Track total files processed for performance stats
@@ -121,10 +127,11 @@ class ImageScanner:
         """
         logger.info(f"Scanning {len(directories)} directories (incremental mode)")
 
-        # Update state
-        state = self.catalog.get_state()
-        state.phase = CatalogPhase.ANALYZING
-        self.catalog.update_state(state)
+        # Update state (phase) in catalog_config
+        self.catalog.execute(
+            "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            ("phase", CatalogPhase.ANALYZING.value),
+        )
 
         # Track file collection
         ctx = (
@@ -160,25 +167,89 @@ class ImageScanner:
                         self._process_files(current_batch)
                         current_batch = []
 
-                        # Checkpoint after each batch
-                        self.catalog.update_statistics(self.stats)
-                        self.catalog.checkpoint()
+                        # Insert new statistics snapshot after each batch
+                        self.catalog.execute(
+                            """
+                            INSERT INTO statistics (
+                                timestamp, total_images, total_videos, total_size_bytes,
+                                images_scanned, images_hashed, images_tagged,
+                                duplicate_groups, duplicate_images, potential_savings_bytes,
+                                high_quality_count, medium_quality_count, low_quality_count,
+                                corrupted_count, unsupported_count,
+                                processing_time_seconds, images_per_second,
+                                no_date, suspicious_dates, problematic_files
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                datetime.now().isoformat(),
+                                self.stats.total_images,
+                                self.stats.total_videos,
+                                self.stats.total_size_bytes,
+                                self.stats.images_scanned,
+                                self.stats.images_hashed,
+                                self.stats.images_tagged,
+                                self.stats.duplicate_groups,
+                                self.stats.duplicate_images,
+                                self.stats.potential_savings_bytes,
+                                self.stats.high_quality_count,
+                                self.stats.medium_quality_count,
+                                self.stats.low_quality_count,
+                                self.stats.corrupted_count,
+                                self.stats.unsupported_count,
+                                self.stats.processing_time_seconds,
+                                self.stats.images_per_second,
+                                self.stats.no_date,
+                                self.stats.suspicious_dates,
+                                self.stats.problematic_files,
+                            ),
+                        )
 
             # Process any remaining files
             if current_batch:
                 logger.info(f"Processing final batch of {len(current_batch)} files")
                 self._process_files(current_batch)
 
-            # Update final statistics
-            self.catalog.update_statistics(self.stats)
+            # Insert final statistics snapshot
+            self.catalog.execute(
+                """
+                INSERT INTO statistics (
+                    timestamp, total_images, total_videos, total_size_bytes,
+                    images_scanned, images_hashed, images_tagged,
+                    duplicate_groups, duplicate_images, potential_savings_bytes,
+                    high_quality_count, medium_quality_count, low_quality_count,
+                    corrupted_count, unsupported_count,
+                    processing_time_seconds, images_per_second,
+                    no_date, suspicious_dates, problematic_files
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    datetime.now().isoformat(),
+                    self.stats.total_images,
+                    self.stats.total_videos,
+                    self.stats.total_size_bytes,
+                    self.stats.images_scanned,
+                    self.stats.images_hashed,
+                    self.stats.images_tagged,
+                    self.stats.duplicate_groups,
+                    self.stats.duplicate_images,
+                    self.stats.potential_savings_bytes,
+                    self.stats.high_quality_count,
+                    self.stats.medium_quality_count,
+                    self.stats.low_quality_count,
+                    self.stats.corrupted_count,
+                    self.stats.unsupported_count,
+                    self.stats.processing_time_seconds,
+                    self.stats.images_per_second,
+                    self.stats.no_date,
+                    self.stats.suspicious_dates,
+                    self.stats.problematic_files,
+                ),
+            )
 
             # Track total files and bytes (use files_processed for accurate stats)
             if self.perf_tracker:
                 self.perf_tracker.metrics.total_files_analyzed = self.files_processed
                 self.perf_tracker.metrics.bytes_processed = self.stats.total_size_bytes
-
-            # Save catalog with final statistics
-            self.catalog.save()
 
             logger.info(
                 f"Scan complete: {files_discovered} files discovered, "
@@ -241,10 +312,15 @@ class ImageScanner:
 
         with process_ctx:
             # Filter out files already in catalog
-            files_to_process = [
-                f for f in files if not self.catalog.has_image_by_path(f)
-            ]
-            self.files_skipped = len(files) - len(files_to_process)
+            files_to_process = []
+            for f in files:
+                existing_image = self.catalog.execute(
+                    "SELECT id FROM images WHERE source_path = ?", (str(f),)
+                ).fetchone()
+                if not existing_image:
+                    files_to_process.append(f)
+                else:
+                    self.files_skipped += 1
 
             if not files_to_process:
                 logger.info("All files already in catalog")
@@ -317,27 +393,98 @@ class ImageScanner:
                                 self.perf_tracker.metrics.bytes_processed += file_size
 
                             # Check if already in catalog (by checksum - for duplicates)
-                            if not self.catalog.get_image(image.checksum):
+                            existing_image_by_id = self.catalog.execute(
+                                "SELECT id FROM images WHERE id = ?", (image.checksum,)
+                            ).fetchone()
+
+                            if not existing_image_by_id:
                                 # Add to catalog
-                                self.catalog.add_image(image)
+                                self.catalog.execute(
+                                    """
+                                    INSERT INTO images (
+                                        id, source_path, file_size, file_hash, format,
+                                        width, height, created_at, modified_at, indexed_at,
+                                        date_taken, camera_make, camera_model, lens_model,
+                                        focal_length, aperture, shutter_speed, iso,
+                                        gps_latitude, gps_longitude, quality_score, is_corrupted,
+                                        perceptual_hash, features_vector
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    """,
+                                    (
+                                        image.id,
+                                        str(image.source_path),
+                                        image.file_size,
+                                        image.checksum,
+                                        image.metadata.format,
+                                        image.metadata.width,
+                                        image.metadata.height,
+                                        (
+                                            image.created_at.isoformat()
+                                            if image.created_at
+                                            else None
+                                        ),
+                                        (
+                                            image.modified_at.isoformat()
+                                            if image.modified_at
+                                            else None
+                                        ),
+                                        datetime.now().isoformat(),  # indexed_at
+                                        (
+                                            image.dates.selected_date.isoformat()
+                                            if image.dates and image.dates.selected_date
+                                            else None
+                                        ),
+                                        image.metadata.exif.get("Make"),
+                                        image.metadata.exif.get("Model"),
+                                        image.metadata.exif.get("LensModel"),
+                                        image.metadata.exif.get("FocalLength"),
+                                        image.metadata.exif.get("ApertureValue"),
+                                        image.metadata.exif.get("ExposureTime"),
+                                        image.metadata.exif.get("ISO"),
+                                        (
+                                            image.metadata.gps.latitude
+                                            if image.metadata.gps
+                                            else None
+                                        ),
+                                        (
+                                            image.metadata.gps.longitude
+                                            if image.metadata.gps
+                                            else None
+                                        ),
+                                        image.quality_score,
+                                        1 if image.is_corrupted else 0,
+                                        (
+                                            image.hashes.perceptual_hash
+                                            if image.hashes
+                                            else None
+                                        ),
+                                        None,  # features_vector not handled yet
+                                    ),
+                                )
                                 self.files_added += 1
 
                                 # Generate thumbnail if enabled
                                 if self.generate_thumbnails:
                                     thumb_path = get_thumbnail_path(
-                                        image.id, self.catalog.thumbnails_dir
+                                        image.id,
+                                        self.catalog.catalog_path / "thumbnails",
                                     )
                                     if generate_thumbnail(
                                         source_path=image.source_path,
                                         output_path=thumb_path,
                                     ):
                                         # Update image with thumbnail path (relative)
-                                        image.thumbnail_path = thumb_path.relative_to(
-                                            self.catalog.catalog_path
+                                        self.catalog.execute(
+                                            "UPDATE images SET thumbnail_path = ? WHERE id = ?",
+                                            (
+                                                str(
+                                                    thumb_path.relative_to(
+                                                        self.catalog.catalog_path
+                                                    )
+                                                ),
+                                                image.id,
+                                            ),
                                         )
-                                        self.catalog.add_image(
-                                            image
-                                        )  # Update with thumbnail path
 
                                 # Update statistics
                                 if image.file_type == FileType.IMAGE:
@@ -346,6 +493,8 @@ class ImageScanner:
                                     self.stats.total_videos += 1
 
                                 self.stats.total_size_bytes += file_size
+                                self.stats.images_scanned += 1  # Assuming scanned here
+                                self.stats.images_hashed += 1  # Assuming hashed here
 
                                 if not image.dates.selected_date:
                                     self.stats.no_date += 1
@@ -354,33 +503,54 @@ class ImageScanner:
 
                         # Checkpoint every 10 files for more frequent updates
                         if (i + 1) % 10 == 0:
-                            # Update statistics before checkpoint
-                            self.catalog.update_statistics(self.stats)
-
-                            # Update state
-                            state = self.catalog.get_state()
-                            state.images_processed = i + 1
-                            state.progress_percentage = (
-                                (i + 1) / len(files_to_process)
-                            ) * 100
-                            self.catalog.update_state(state)
-
-                            # Track checkpoint operation
-                            checkpoint_ctx = (
-                                self.perf_tracker.track_operation("checkpoint")
-                                if self.perf_tracker
-                                else nullcontext()
+                            # Insert new statistics snapshot
+                            self.catalog.execute(
+                                """
+                                INSERT INTO statistics (
+                                    timestamp, total_images, total_videos, total_size_bytes,
+                                    images_scanned, images_hashed, images_tagged,
+                                    duplicate_groups, duplicate_images, potential_savings_bytes,
+                                    high_quality_count, medium_quality_count, low_quality_count,
+                                    corrupted_count, unsupported_count,
+                                    processing_time_seconds, images_per_second,
+                                    no_date, suspicious_dates, problematic_files
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    datetime.now().isoformat(),
+                                    self.stats.total_images,
+                                    self.stats.total_videos,
+                                    self.stats.total_size_bytes,
+                                    self.stats.images_scanned,
+                                    self.stats.images_hashed,
+                                    self.stats.images_tagged,
+                                    self.stats.duplicate_groups,
+                                    self.stats.duplicate_images,
+                                    self.stats.potential_savings_bytes,
+                                    self.stats.high_quality_count,
+                                    self.stats.medium_quality_count,
+                                    self.stats.low_quality_count,
+                                    self.stats.corrupted_count,
+                                    self.stats.unsupported_count,
+                                    self.stats.processing_time_seconds,
+                                    self.stats.images_per_second,
+                                    self.stats.no_date,
+                                    self.stats.suspicious_dates,
+                                    self.stats.problematic_files,
+                                ),
                             )
-                            with checkpoint_ctx:
-                                self.catalog.checkpoint()
+
+                            # Update state (images_processed, progress_percentage) in catalog_config
+                            self.catalog.execute(
+                                "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                                ("images_processed", str(i + 1)),
+                            )
+                            self.catalog.execute(
+                                "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                                (
+                                    "progress_percentage",
+                                    str(((i + 1) / len(files_to_process)) * 100),
+                                ),
+                            )
 
                         progress.advance(task)
-
-            # Final checkpoint
-            final_checkpoint_ctx = (
-                self.perf_tracker.track_operation("final_checkpoint")
-                if self.perf_tracker
-                else nullcontext()
-            )
-            with final_checkpoint_ctx:
-                self.catalog.checkpoint(force=True)

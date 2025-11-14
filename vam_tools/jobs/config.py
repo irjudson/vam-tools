@@ -10,10 +10,10 @@ class CeleryConfig:
     """Celery configuration."""
 
     # Broker settings
-    broker_url: str = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+    broker_url: str = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/2")
 
     # Result backend settings
-    result_backend: str = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+    result_backend: str = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2")
 
     # Task settings
     task_serializer: str = "json"

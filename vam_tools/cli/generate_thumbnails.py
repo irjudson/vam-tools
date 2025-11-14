@@ -19,7 +19,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from ..core.catalog import CatalogDatabase
+from ..core.database import CatalogDatabase
 from ..shared.thumbnail_utils import generate_thumbnail, get_thumbnail_path
 from ..version import get_version_string
 
@@ -105,9 +105,8 @@ def generate(
 
     # Load catalog
     try:
-        catalog = CatalogDatabase(catalog_dir)
-        catalog.load()
-        console.print("[green]✓ Catalog loaded successfully[/green]\n")
+        with CatalogDatabase(catalog_dir) as catalog:
+            console.print("[green]✓ Catalog loaded successfully[/green]\n")
     except Exception as e:
         console.print(f"[red]Error loading catalog: {e}[/red]")
         if verbose:
@@ -115,7 +114,24 @@ def generate(
         sys.exit(1)
 
     # Get all images
-    images = catalog.list_images()
+    rows = catalog.execute(
+        "SELECT id, source_path, thumbnail_path FROM images"
+    ).fetchall()
+    images: List[ImageRecord] = []
+    for row in rows:
+        images.append(
+            ImageRecord(
+                id=row["id"],
+                source_path=Path(row["source_path"]),
+                # Minimal ImageRecord for thumbnail generation
+                file_type=FileType.IMAGE,  # Placeholder
+                checksum=row["id"],  # Placeholder
+                status=ImageStatus.COMPLETE,  # Placeholder
+                thumbnail_path=(
+                    Path(row["thumbnail_path"]) if row["thumbnail_path"] else None
+                ),
+            )
+        )
     total_images = len(images)
 
     if total_images == 0:
@@ -147,7 +163,11 @@ def generate(
             relative_thumb_path = thumb_path.relative_to(catalog_dir)
 
             # Skip if thumbnail exists and not forcing
-            if thumb_path.exists() and not force:
+            if (
+                not force
+                and image.thumbnail_path
+                and (catalog_dir / image.thumbnail_path).exists()
+            ):
                 skipped_count += 1
                 progress.update(task, advance=1)
                 continue
@@ -161,25 +181,18 @@ def generate(
             )
 
             if success:
-                # Update image record with thumbnail path
-                image.thumbnail_path = relative_thumb_path
-                catalog.add_image(image)  # This updates existing record
+                # Update image record with thumbnail path in DB
+                catalog.execute(
+                    "UPDATE images SET thumbnail_path = ? WHERE id = ?",
+                    (str(relative_thumb_path), image.id),
+                )
                 generated_count += 1
             else:
                 error_count += 1
 
             progress.update(task, advance=1)
 
-    # Save catalog with updated thumbnail paths
-    try:
-        catalog.save()
-        console.print("\n[green]✓ Catalog saved with thumbnail paths[/green]")
-    except Exception as e:
-        console.print(f"\n[red]Error saving catalog: {e}[/red]")
-        if verbose:
-            console.print_exception()
-        sys.exit(1)
-
+    # No need to call catalog.save() explicitly, as changes are committed via transaction
     # Print summary
     console.print("\n[bold cyan]Summary:[/bold cyan]")
     console.print(f"  Total images: {total_images:,}")

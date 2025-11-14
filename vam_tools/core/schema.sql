@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS images (
     gps_latitude REAL,                -- GPS coordinates
     gps_longitude REAL,
 
+    thumbnail_path TEXT,              -- Relative path to thumbnail in catalog/thumbnails/
+
     -- Analysis results
     quality_score REAL,               -- Overall quality score (0-100)
     is_corrupted INTEGER DEFAULT 0,   -- Boolean: file corrupted
@@ -162,7 +164,7 @@ CREATE TABLE IF NOT EXISTS review_queue (
     reviewed_at TEXT,
     action TEXT,                      -- keep, delete, move
     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
-    CHECK (reason IN ('duplicate', 'low_quality', 'corrupted', 'manual'))
+    CHECK (reason IN ('duplicate', 'low_quality', 'corrupted', 'manual', 'no_date', 'suspicious_date', 'date_conflict'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_review_queue_image ON review_queue(image_id);
@@ -205,6 +207,7 @@ CREATE TABLE IF NOT EXISTS statistics (
 
     -- File counts
     total_images INTEGER DEFAULT 0,
+    total_videos INTEGER DEFAULT 0,
     total_size_bytes INTEGER DEFAULT 0,
 
     -- Analysis progress
@@ -228,7 +231,11 @@ CREATE TABLE IF NOT EXISTS statistics (
 
     -- Performance
     processing_time_seconds REAL DEFAULT 0,
-    images_per_second REAL DEFAULT 0
+    images_per_second REAL DEFAULT 0,
+
+    no_date INTEGER DEFAULT 0,
+    suspicious_dates INTEGER DEFAULT 0,
+    problematic_files INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_statistics_timestamp ON statistics(timestamp);

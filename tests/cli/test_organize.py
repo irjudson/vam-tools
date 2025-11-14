@@ -6,7 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 from vam_tools.cli.organize import organize
-from vam_tools.core.catalog import CatalogDatabase
+from vam_tools.core.database import CatalogDatabase
 from vam_tools.core.types import DateInfo, FileType, ImageMetadata, ImageRecord
 
 
@@ -21,65 +21,155 @@ def test_catalog_with_images(tmp_path):
     source_dir.mkdir()
 
     with CatalogDatabase(catalog_dir) as db:
-        db.initialize(source_directories=[source_dir])
+        db.initialize()  # Initialize schema
+
+        # Store source directories in catalog_config
+        db.execute(
+            "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            (f"source_directory_{source_dir.name}", str(source_dir)),
+        )
+        db.execute(
+            "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            ("created", datetime.now().isoformat()),
+        )
+        db.execute(
+            "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            ("last_updated", datetime.now().isoformat()),
+        )
+        db.execute(
+            "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            ("catalog_id", "test-catalog-id"),
+        )
+        db.execute(
+            "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            ("version", "2.0.0"),
+        )
 
         # Image with date
         img1_path = source_dir / "photo1.jpg"
         img1_path.write_text("photo1 content")
-        db.add_image(
-            ImageRecord(
-                id="img1",
-                source_path=img1_path,
-                file_type=FileType.IMAGE,
-                checksum="d8175d4fcc6b88ab5449aa424540d1bdf8dc3bf34139983913b4a3dd0ec9b481",
-                metadata=ImageMetadata(
-                    size_bytes=100,
-                    format="JPEG",
-                ),
-                dates=DateInfo(
-                    selected_date=datetime(2023, 6, 15, 14, 30, 22),
-                    exif_dates={"DateTimeOriginal": datetime(2023, 6, 15, 14, 30, 22)},
-                ),
-            )
+        db.execute(
+            """
+            INSERT INTO images (
+                id, source_path, file_size, file_hash, format,
+                width, height, created_at, modified_at, indexed_at,
+                date_taken, camera_make, camera_model, lens_model,
+                focal_length, aperture, shutter_speed, iso,
+                gps_latitude, gps_longitude, quality_score, is_corrupted,
+                perceptual_hash, features_vector
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "img1",
+                str(img1_path),
+                100,
+                "d8175d4fcc6b88ab5449aa424540d1bdf8dc3bf34139983913b4a3dd0ec9b481",
+                "JPEG",
+                None,
+                None,  # width, height
+                datetime.now().isoformat(),
+                datetime.now().isoformat(),
+                datetime.now().isoformat(),
+                datetime(2023, 6, 15, 14, 30, 22).isoformat(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,  # exif, gps
+                None,  # quality_score
+                0,  # is_corrupted
+                None,
+                None,  # perceptual_hash, features_vector
+            ),
         )
 
         # Image with different date
         img2_path = source_dir / "photo2.jpg"
         img2_path.write_text("photo2 content")
-        db.add_image(
-            ImageRecord(
-                id="img2",
-                source_path=img2_path,
-                file_type=FileType.IMAGE,
-                checksum="9e27cc6a030bb7b59fa7e05cbabf94a679262b3fe4e52a07a594c98fbf36e6da",
-                metadata=ImageMetadata(
-                    size_bytes=200,
-                    format="JPEG",
-                ),
-                dates=DateInfo(
-                    selected_date=datetime(2023, 7, 20, 10, 0, 0),
-                    exif_dates={"DateTimeOriginal": datetime(2023, 7, 20, 10, 0, 0)},
-                ),
-            )
+        db.execute(
+            """
+            INSERT INTO images (
+                id, source_path, file_size, file_hash, format,
+                width, height, created_at, modified_at, indexed_at,
+                date_taken, camera_make, camera_model, lens_model,
+                focal_length, aperture, shutter_speed, iso,
+                gps_latitude, gps_longitude, quality_score, is_corrupted,
+                perceptual_hash, features_vector
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "img2",
+                str(img2_path),
+                200,
+                "9e27cc6a030bb7b59fa7e05cbabf94a679262b3fe4e52a07a594c98fbf36e6da",
+                "JPEG",
+                None,
+                None,  # width, height
+                datetime.now().isoformat(),
+                datetime.now().isoformat(),
+                datetime.now().isoformat(),
+                datetime(2023, 7, 20, 10, 0, 0).isoformat(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,  # exif, gps
+                None,  # quality_score
+                0,  # is_corrupted
+                None,
+                None,  # perceptual_hash, features_vector
+            ),
         )
 
         # Image without date
         img3_path = source_dir / "photo3.jpg"
         img3_path.write_text("photo3 content")
-        db.add_image(
-            ImageRecord(
-                id="img3",
-                source_path=img3_path,
-                file_type=FileType.IMAGE,
-                checksum="583f1f6c00dbb8689f31c002e9a7be6aaceaddf3d892f573e630bc51b5abd34f",
-                metadata=ImageMetadata(
-                    size_bytes=300,
-                    format="JPEG",
-                ),
-            )
+        db.execute(
+            """
+            INSERT INTO images (
+                id, source_path, file_size, file_hash, format,
+                width, height, created_at, modified_at, indexed_at,
+                date_taken, camera_make, camera_model, lens_model,
+                focal_length, aperture, shutter_speed, iso,
+                gps_latitude, gps_longitude, quality_score, is_corrupted,
+                perceptual_hash, features_vector
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "img3",
+                str(img3_path),
+                300,
+                "583f1f6c00dbb8689f31c002e9a7be6aaceaddf3d892f573e630bc51b5abd34f",
+                "JPEG",
+                None,
+                None,  # width, height
+                datetime.now().isoformat(),
+                datetime.now().isoformat(),
+                datetime.now().isoformat(),
+                None,  # date_taken
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,  # exif, gps
+                None,  # quality_score
+                0,  # is_corrupted
+                None,
+                None,  # perceptual_hash, features_vector
+            ),
         )
-
-        db.save()
 
     return catalog_dir
 

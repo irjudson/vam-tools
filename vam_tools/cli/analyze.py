@@ -6,6 +6,7 @@ This is a temporary CLI for testing the V2 analysis system.
 
 import logging
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
@@ -17,7 +18,7 @@ from rich.table import Table
 
 from vam_tools.analysis.perceptual_hash import HashMethod
 from vam_tools.analysis.scanner import ImageScanner
-from vam_tools.core.catalog import CatalogDatabase
+from vam_tools.core.database import CatalogDatabase
 from vam_tools.core.performance_stats import PerformanceTracker
 from vam_tools.core.types import Statistics
 from vam_tools.shared import format_bytes
@@ -177,7 +178,7 @@ def analyze(
     # Check if repair mode is requested
     if repair:
         console.print("[yellow]🔧 Repair mode enabled[/yellow]\n")
-        catalog_file = catalog_dir / "catalog.json"
+        catalog_file = catalog_dir / "catalog.db"
         if not catalog_file.exists():
             console.print("[red]Error: No catalog found to repair[/red]")
             console.print(f"  Catalog file: {catalog_file}")
@@ -185,16 +186,14 @@ def analyze(
 
         try:
             with CatalogDatabase(catalog_dir) as db:
-                console.print("[green]Repairing catalog...[/green]")
-                db.repair()
-                console.print("[green]✓ Catalog repaired successfully![/green]\n")
-
-                # Show repaired catalog info
-                state = db.get_state()
-                stats = db.get_statistics()
+                console.print("[green]Attempting to repair catalog...[/green]")
+                # The new CatalogDatabase does not have a repair method.
+                # This functionality needs to be re-implemented or removed.
+                # For now, we'll just report that it's not supported.
                 console.print(
-                    f"Catalog contains: {stats.total_images:,} images, {stats.total_videos:,} videos"
+                    "[red]Error: Catalog repair is not yet implemented for SQLite databases.[/red]"
                 )
+                sys.exit(1)
         except Exception as e:
             console.print(f"[red]Error during repair: {e}[/red]")
             if verbose:
@@ -203,24 +202,21 @@ def analyze(
         return
 
     # Check if clear mode is requested
-    catalog_file = catalog_dir / "catalog.json"
+    catalog_file = catalog_dir / "catalog.db"
     if clear and catalog_file.exists():
         console.print("[yellow]⚠ Clearing existing catalog...[/yellow]")
-        backup_file = catalog_dir / ".backup.json"
 
-        # Create backup before clearing
         try:
-            import shutil
+            with CatalogDatabase(catalog_dir) as db:
+                backup_name = db.create_backup()
+                console.print(f"[dim]Backup saved to: {backup_name.name}[/dim]")
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_name = catalog_dir / f".catalog.backup.{timestamp}.json"
-            shutil.copy2(catalog_file, backup_name)
-            console.print(f"[dim]Backup saved to: {backup_name.name}[/dim]")
-
-            # Remove current catalog
+            # Remove current catalog database file
             catalog_file.unlink()
-            if backup_file.exists():
-                backup_file.unlink()
+            # Also remove the old JSON backup if it exists
+            old_json_backup = catalog_dir / ".backup.json"
+            if old_json_backup.exists():
+                old_json_backup.unlink()
             console.print("[green]✓ Catalog cleared[/green]\n")
         except Exception as e:
             console.print(f"[red]Error clearing catalog: {e}[/red]")
@@ -230,33 +226,72 @@ def analyze(
     try:
         with CatalogDatabase(catalog_dir) as db:
             # Check if catalog exists
-            catalog_exists = (catalog_dir / "catalog.json").exists() and not clear
+            catalog_exists = (catalog_dir / "catalog.db").exists() and not clear
 
             if not catalog_exists:
                 console.print("[yellow]Initializing new catalog...[/yellow]")
-                db.initialize(source_directories=source_dirs)
+                db.initialize()  # Initialize schema
+
+                # Store source directories in catalog_config
+                for src_dir in source_dirs:
+                    db.execute(
+                        "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                        (f"source_directory_{src_dir.name}", str(src_dir)),
+                    )
+                db.execute(
+                    "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    ("created", datetime.now().isoformat()),
+                )
+                db.execute(
+                    "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    ("last_updated", datetime.now().isoformat()),
+                )
+                db.execute(
+                    "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    ("catalog_id", str(uuid.uuid4())),
+                )
+                db.execute(
+                    "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    ("version", "2.0.0"),
+                )
+                db.execute(
+                    "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    ("phase", "analyzing"),
+                )
+
             else:
                 console.print("[green]Loading existing catalog...[/green]")
-                state = db.get_state()
-                stats = db.get_statistics()
+                # Get state information from catalog_config table
+                config_rows = db.execute(
+                    "SELECT key, value FROM catalog_config"
+                ).fetchall()
+                config_dict = {row["key"]: row["value"] for row in config_rows}
 
-                console.print(f"[dim]Catalog ID: {state.catalog_id}[/dim]")
-                console.print(
-                    f"[dim]Created: {state.created.strftime('%Y-%m-%d %H:%M:%S') if state.created else 'Unknown'}[/dim]"
-                )
-                console.print(
-                    f"[dim]Last updated: {state.last_updated.strftime('%Y-%m-%d %H:%M:%S') if state.last_updated else 'Unknown'}[/dim]"
-                )
-                console.print(f"[dim]Current phase: {state.phase.value}[/dim]")
+                catalog_id = config_dict.get("catalog_id", "N/A")
+                created_at = config_dict.get("created", "Unknown")
+                last_updated_at = config_dict.get("last_updated", "Unknown")
+                phase = config_dict.get("phase", "unknown")
 
-                total_existing = stats.total_images + stats.total_videos
+                console.print(f"[dim]Catalog ID: {catalog_id}[/dim]")
+                console.print(f"[dim]Created: {created_at}[/dim]")
+                console.print(f"[dim]Last updated: {last_updated_at}[/dim]")
+                console.print(f"[dim]Current phase: {phase}[/dim]")
+
+                # Get statistics from the latest entry in the statistics table
+                stats_row = db.execute(
+                    "SELECT total_images, total_videos, total_size_bytes FROM statistics ORDER BY timestamp DESC LIMIT 1"
+                ).fetchone()
+
+                total_existing_images = stats_row["total_images"] if stats_row else 0
+                total_existing_videos = stats_row["total_videos"] if stats_row else 0
+                total_existing_size = stats_row["total_size_bytes"] if stats_row else 0
+
+                total_existing = total_existing_images + total_existing_videos
                 if total_existing > 0:
                     console.print("\n[cyan]Existing catalog contains:[/cyan]")
-                    console.print(f"  • {stats.total_images:,} images")
-                    console.print(f"  • {stats.total_videos:,} videos")
-                    console.print(
-                        f"  • {format_bytes(stats.total_size_bytes)} total size"
-                    )
+                    console.print(f"  • {total_existing_images:,} images")
+                    console.print(f"  • {total_existing_videos:,} videos")
+                    console.print(f"  • {format_bytes(total_existing_size)} total size")
                     console.print(
                         "\n[yellow]Scanning for new/changed files...[/yellow]"
                     )
@@ -266,20 +301,33 @@ def analyze(
             def performance_update_callback(stats_data: Dict) -> None:
                 """Write performance stats to catalog for polling endpoint."""
                 try:
-                    # Get existing stats or create new structure
-                    analysis_stats = db.get_performance_statistics() or {
-                        "last_run": None,
-                        "history": [],
-                        "total_runs": 0,
-                        "total_files_analyzed": 0,
-                        "total_time_seconds": 0.0,
-                        "average_throughput": 0.0,
-                    }
-                    # Update last_run with current metrics
-                    analysis_stats["last_run"] = stats_data
-                    db.store_performance_statistics(analysis_stats)
-                    # Save to disk so polling can read it
-                    db.save(create_backup=False)
+                    # Insert a new performance snapshot
+                    db.execute(
+                        """
+                        INSERT INTO performance_snapshots (
+                            timestamp, phase, files_processed, files_total, bytes_processed,
+                            cpu_percent, memory_mb, disk_read_mb, disk_write_mb,
+                            elapsed_seconds, rate_files_per_sec, rate_mb_per_sec,
+                            gpu_utilization, gpu_memory_mb
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            datetime.now().isoformat(),
+                            stats_data.get("phase"),
+                            stats_data.get("files_processed"),
+                            stats_data.get("files_total"),
+                            stats_data.get("bytes_processed"),
+                            stats_data.get("cpu_percent"),
+                            stats_data.get("memory_mb"),
+                            stats_data.get("disk_read_mb"),
+                            stats_data.get("disk_write_mb"),
+                            stats_data.get("elapsed_seconds"),
+                            stats_data.get("rate_files_per_sec"),
+                            stats_data.get("rate_mb_per_sec"),
+                            stats_data.get("gpu_utilization"),
+                            stats_data.get("gpu_memory_mb"),
+                        ),
+                    )
                 except Exception as e:
                     # Don't break analysis if performance tracking fails
                     logger.debug(f"Failed to write performance stats: {e}")
@@ -313,21 +361,10 @@ def analyze(
             )
             scanner.scan_directories(source_dirs)
 
-            # Store intermediate performance stats
-            metrics = perf_tracker.metrics
-            analysis_stats = db.get_performance_statistics() or {}
-            if "last_run" not in analysis_stats or analysis_stats["last_run"] is None:
-                analysis_stats = {
-                    "last_run": None,
-                    "history": [],
-                    "total_runs": 0,
-                    "total_files_analyzed": 0,
-                    "total_time_seconds": 0.0,
-                    "average_throughput": 0.0,
-                }
-            analysis_stats["last_run"] = metrics.model_dump(mode="json")
-            db.store_performance_statistics(analysis_stats)
-            db.save()
+            # Store intermediate performance stats (already handled by callback)
+            # The perf_tracker's callback will have already inserted the latest snapshot.
+            # We just need to ensure the final metrics are captured.
+            pass
 
             # Display results
             console.print("\n[green]✓ Scan complete![/green]\n")
@@ -400,26 +437,58 @@ def analyze(
                 detector.save_duplicate_groups()
                 detector.save_problematic_files()
 
-                # Store intermediate performance stats after duplicate detection
-                metrics = perf_tracker.metrics
-                analysis_stats = db.get_performance_statistics() or {}
-                if "last_run" not in analysis_stats:
-                    analysis_stats = {
-                        "last_run": None,
-                        "history": [],
-                        "total_runs": 0,
-                        "total_files_analyzed": 0,
-                        "total_time_seconds": 0.0,
-                        "average_throughput": 0.0,
-                    }
-                analysis_stats["last_run"] = metrics.model_dump(mode="json")
-                db.store_performance_statistics(analysis_stats)
-                db.save()
+                # Store intermediate performance stats (already handled by callback)
+                # The perf_tracker's callback will have already inserted the latest snapshot.
+                pass
 
                 # Update statistics with problematic files count
-                stats = db.get_statistics()
-                stats.problematic_files = len(detector.problematic_files)
-                db.update_statistics(stats)
+                # Fetch current stats
+                current_stats_row = db.execute(
+                    "SELECT * FROM statistics ORDER BY timestamp DESC LIMIT 1"
+                ).fetchone()
+                current_stats = (
+                    Statistics(**current_stats_row)
+                    if current_stats_row
+                    else Statistics()
+                )
+                current_stats.problematic_files = len(detector.problematic_files)
+
+                # Insert new statistics snapshot
+                db.execute(
+                    """
+                    INSERT INTO statistics (
+                        timestamp, total_images, total_videos, total_size_bytes,
+                        images_scanned, images_hashed, images_tagged,
+                        duplicate_groups, duplicate_images, potential_savings_bytes,
+                        high_quality_count, medium_quality_count, low_quality_count,
+                        corrupted_count, unsupported_count,
+                        processing_time_seconds, images_per_second,
+                        no_date, suspicious_dates, problematic_files
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        datetime.now().isoformat(),
+                        current_stats.total_images,
+                        current_stats.total_videos,
+                        current_stats.total_size_bytes,
+                        current_stats.images_scanned,
+                        current_stats.images_hashed,
+                        current_stats.images_tagged,
+                        current_stats.duplicate_groups,
+                        current_stats.duplicate_images,
+                        current_stats.potential_savings_bytes,
+                        current_stats.high_quality_count,
+                        current_stats.medium_quality_count,
+                        current_stats.low_quality_count,
+                        current_stats.corrupted_count,
+                        current_stats.unsupported_count,
+                        current_stats.processing_time_seconds,
+                        current_stats.images_per_second,
+                        current_stats.no_date,
+                        current_stats.suspicious_dates,
+                        current_stats.problematic_files,
+                    ),
+                )
 
                 # Display duplicate detection results
                 console.print("\n[green]✓ Duplicate detection complete![/green]\n")
@@ -490,43 +559,12 @@ def analyze(
             # Finalize performance tracking
             final_metrics = perf_tracker.finalize()
 
-            # Store final performance statistics in catalog
-            perf_stats_data = db.get_performance_statistics() or {}
-
-            # Initialize AnalysisStatistics if needed
-            if not perf_stats_data or "history" not in perf_stats_data:
-                perf_stats_data = {
-                    "last_run": None,
-                    "history": [],
-                    "total_runs": 0,
-                    "total_files_analyzed": 0,
-                    "total_time_seconds": 0.0,
-                    "average_throughput": 0.0,
-                }
-
-            # Add current run to history
-            perf_stats_data["last_run"] = final_metrics.model_dump(mode="json")
-            perf_stats_data["history"].insert(0, final_metrics.model_dump(mode="json"))
-            perf_stats_data["history"] = perf_stats_data["history"][:10]  # Keep last 10
-            perf_stats_data["total_runs"] = perf_stats_data.get("total_runs", 0) + 1
-            perf_stats_data["total_files_analyzed"] = (
-                perf_stats_data.get("total_files_analyzed", 0)
-                + final_metrics.total_files_analyzed
-            )
-            perf_stats_data["total_time_seconds"] = (
-                perf_stats_data.get("total_time_seconds", 0.0)
-                + final_metrics.total_duration_seconds
-            )
-            if perf_stats_data["total_time_seconds"] > 0:
-                perf_stats_data["average_throughput"] = (
-                    perf_stats_data["total_files_analyzed"]
-                    / perf_stats_data["total_time_seconds"]
-                )
-
-            db.store_performance_statistics(perf_stats_data)
-            db.save()
-
-            stats = db.get_statistics()
+            # The final metrics are already inserted into performance_snapshots by the callback.
+            # We just need to fetch the latest statistics for display.
+            stats_row = db.execute(
+                "SELECT * FROM statistics ORDER BY timestamp DESC LIMIT 1"
+            ).fetchone()
+            stats = Statistics(**stats_row) if stats_row else Statistics()
             display_statistics(stats)
 
             # Display performance summary

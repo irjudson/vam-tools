@@ -18,8 +18,8 @@ app = Celery("vam_tools")
 config = get_celery_config()
 app.config_from_object(config)
 
-# Auto-discover tasks in the jobs module
-app.autodiscover_tasks(["vam_tools.jobs"])
+# Explicitly import tasks to avoid circular dependency issues
+from .tasks import analyze_catalog_task, generate_thumbnails_task, organize_catalog_task
 
 
 @after_setup_logger.connect

@@ -6,7 +6,7 @@ services:
     image: redis:7-alpine
     container_name: vam-redis
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -27,8 +27,9 @@ services:
     volumes:
       # Mount catalog directory for persistence
       - ${CATALOG_PATH:-~/catalogs}:/app/catalogs
-      # Mount source photos directory (read-only recommended)
+      # Mount source photos directories (read-only recommended)
       - ${PHOTOS_PATH:-~/photos}:/app/photos:ro
+      - /home/irjudson/Xfer:/app/photos-xfer:ro
       # Development: mount source code for live reload
       - ./vam_tools:/app/vam_tools
     environment:
@@ -67,6 +68,7 @@ services:
       # Same mounts as web service
       - ${CATALOG_PATH:-~/catalogs}:/app/catalogs
       - ${PHOTOS_PATH:-~/photos}:/app/photos:ro
+      - /home/irjudson/Xfer:/app/photos-xfer:ro
       - ./vam_tools:/app/vam_tools
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -82,6 +84,8 @@ services:
         condition: service_healthy
     command: celery -A vam_tools.jobs.celery_app worker --loglevel=info --concurrency=2
     restart: unless-stopped
+    healthcheck:
+      disable: true  # Celery worker doesn't have a web endpoint to check
     deploy:
       resources:
         reservations:

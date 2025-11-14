@@ -157,6 +157,7 @@ class CatalogDatabase:
 
         # Load schema from file
         schema_file = Path(__file__).parent / "schema.sql"
+        print(f"DEBUG: Using schema file: {schema_file.absolute()}")
         with open(schema_file, "r") as f:
             schema_sql = f.read()
 

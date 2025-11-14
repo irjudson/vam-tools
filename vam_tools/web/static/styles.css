@@ -93,6 +93,65 @@ body {
     justify-content: center;
 }
 
+/* Worker Health Indicator */
+.worker-health {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    background: #1e293b;
+    border: 1px solid #334155;
+    font-size: 0.85rem;
+    margin-left: 1rem;
+}
+
+.health-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #6b7280;
+    animation: pulse-slow 3s ease-in-out infinite;
+}
+
+.health-healthy .health-dot {
+    background: #10b981;
+}
+
+.health-unhealthy .health-dot {
+    background: #f59e0b;
+}
+
+.health-error .health-dot {
+    background: #ef4444;
+}
+
+.health-text {
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.health-healthy .health-text {
+    color: #10b981;
+}
+
+.health-unhealthy .health-text {
+    color: #f59e0b;
+}
+
+.health-error .health-text {
+    color: #ef4444;
+}
+
+@keyframes pulse-slow {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
 /* Notifications */
 .notifications {
     position: fixed;
@@ -880,4 +939,74 @@ section h3 {
     border-radius: 0.25rem;
     font-size: 0.875rem;
     margin-bottom: 1rem;
+}
+
+/* Job result displays */
+.job-result-summary {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: #10b98126;
+    border: 1px solid #10b981;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+}
+
+.result-label {
+    color: #10b981;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.result-stats-inline {
+    color: #cbd5e1;
+    margin-top: 0.25rem;
+}
+
+.job-error-summary {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: #ef444426;
+    border: 1px solid #ef4444;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+}
+
+.error-label {
+    color: #ef4444;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.error-text {
+    color: #fca5a5;
+    font-size: 0.8125rem;
+}
+
+.text-success {
+    color: #10b981;
+    font-weight: 600;
+}
+
+.progress-message {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    color: #94a3b8;
+    font-style: italic;
+}
+
+.table-progress-message {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
+.table-result {
+    color: #cbd5e1;
+    font-size: 0.875rem;
+}
+
+.table-error {
+    color: #ef4444;
+    font-size: 0.875rem;
 }
