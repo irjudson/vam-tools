@@ -3,11 +3,17 @@ Pytest configuration and fixtures for vam_tools tests.
 """
 
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Generator
 
 import pytest
 from PIL import Image, ImageDraw
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session, sessionmaker
+
+from vam_tools.db import Base, Catalog, CatalogDB
+from vam_tools.db.config import settings
 
 # Try to import exiftool for setting EXIF data
 try:
@@ -171,3 +177,50 @@ def mixed_directory(
     """Create a directory with mixed file types."""
     # sample_images and non_image_files already created files in temp_dir
     return temp_dir
+
+
+# ==============================================================================
+# PostgreSQL Database Fixtures
+# ==============================================================================
+
+
+@pytest.fixture(scope="function")
+def test_db_session() -> Generator[Session, None, None]:
+    """Create a test database session with clean slate."""
+    # Use test database
+    test_db_url = settings.database_url.replace("vam-tools", "vam-tools-test")
+    engine = create_engine(test_db_url)
+
+    # Create all tables from SQLAlchemy models
+    Base.metadata.create_all(engine)
+
+    # Also execute the schema.sql to create additional tables (statistics, config, etc.)
+    from pathlib import Path
+    schema_file = Path(__file__).parent.parent / "vam_tools" / "db" / "schema.sql"
+    if schema_file.exists():
+        with open(schema_file) as f:
+            schema_sql = f.read()
+        # Execute schema (split by statement for better error handling)
+        with engine.connect() as conn:
+            # Simple approach: execute whole schema (tables are IF NOT EXISTS)
+            try:
+                conn.execute(text(schema_sql))
+                conn.commit()
+            except Exception as e:
+                # Ignore errors (tables might already exist from Base.metadata)
+                pass
+
+    # Create session
+    TestSessionLocal = sessionmaker(bind=engine)
+    session = TestSessionLocal()
+
+    try:
+        yield session
+    finally:
+        session.close()
+        # Clean up
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+# CatalogDB now handles both Path (for tests) and UUID str (for production) automatically

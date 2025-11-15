@@ -17,7 +17,7 @@ import logging
 from typing import Dict, List, Optional, Set, Tuple
 
 from vam_tools.analysis.tag_taxonomy import TagCategory, TagDefinition, TagTaxonomy
-from vam_tools.core.database import CatalogDatabase
+from vam_tools.db import CatalogDB as CatalogDatabase
 
 logger = logging.getLogger(__name__)
 

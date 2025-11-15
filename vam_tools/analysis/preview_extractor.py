@@ -21,7 +21,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from ..core.database import CatalogDatabase
+from ..db import CatalogDB as CatalogDatabase
 from ..core.types import FileType, ImageMetadata, ImageRecord, ImageStatus
 from ..shared.preview_cache import PreviewCache
 

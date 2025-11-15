@@ -6,7 +6,7 @@ import pytest
 
 from vam_tools.analysis.tag_manager import TagManager
 from vam_tools.analysis.tag_taxonomy import TagCategory
-from vam_tools.core.database import CatalogDatabase
+from vam_tools.db import CatalogDB as CatalogDatabase
 
 
 class TestTagManager:

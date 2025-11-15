@@ -21,7 +21,7 @@ from vam_tools.core.types import (
     Statistics,
 )
 
-from ..core.database import CatalogDatabase
+from ..db import CatalogDB as CatalogDatabase
 from ..organization import (
     FileOrganizer,
     OrganizationOperation,

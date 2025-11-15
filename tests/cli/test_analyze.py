@@ -386,7 +386,7 @@ class TestAnalyzeErrorHandling:
         catalog_file.write_text("{}")
 
         # Mock the repair method to raise an exception
-        from vam_tools.core.catalog import CatalogDatabase
+        from vam_tools.db import CatalogDB as CatalogDatabase
 
         original_repair = CatalogDatabase.repair
 

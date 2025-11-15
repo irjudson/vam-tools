@@ -163,6 +163,9 @@ class CatalogDB:
         if self.session is None:
             self.connect()
 
+        # SQLite to PostgreSQL syntax translations - do this BEFORE parameter conversion
+        sql = sql.replace("datetime('now')", "NOW()")
+
         # Convert SQLite ? to PostgreSQL :paramN
         param_dict = {}
         param_index = 0
@@ -180,14 +183,54 @@ class CatalogDB:
                 pg_sql += sql[i]
                 i += 1
 
-        # SQLite to PostgreSQL syntax translations
-        pg_sql = pg_sql.replace("datetime('now')", "NOW()")
-        pg_sql = pg_sql.replace("INSERT OR REPLACE", "INSERT ... ON CONFLICT DO UPDATE")  # Simplified
-
-        # Handle catalog_config table references
+        # Handle catalog_config table references first
         if "catalog_config" in pg_sql:
             pg_sql = pg_sql.replace("catalog_config", "config")
 
+        # Handle INSERT OR REPLACE for config table
+        # Pattern: INSERT INTO config (key, value, updated_at) VALUES (:param0, :param1, NOW())
+        # Becomes: INSERT INTO config (key, value, updated_at, catalog_id)
+        #          VALUES (:param0, :value_json::jsonb, NOW(), :catalog_id)
+        #          ON CONFLICT (catalog_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+        # Note: config.value is JSONB, so we need to JSON-encode string values
+        if "INSERT OR REPLACE INTO config" in pg_sql:
+            # Replace the INSERT OR REPLACE part
+            pg_sql = pg_sql.replace("INSERT OR REPLACE INTO config", "INSERT INTO config")
+
+            # Add catalog_id to the column list and VALUES
+            if "(key, value, updated_at)" in pg_sql:
+                pg_sql = pg_sql.replace(
+                    "(key, value, updated_at)",
+                    "(key, value, updated_at, catalog_id)"
+                )
+                # Find the VALUES clause - need to properly handle NOW() function
+                # Pattern: VALUES (:param0, :param1, NOW())
+                # The value parameter (:param1) needs to be JSON-encoded since config.value is JSONB
+                import re
+                # Match VALUES and its content - be careful with NOW()
+                # We want to add catalog_id before the closing paren of VALUES
+                values_pattern = r"VALUES\s*\((.+)\)$"
+                def add_catalog_id(match):
+                    values = match.group(1)
+                    result = f"VALUES ({values}, :catalog_id)"
+                    logger.debug(f"VALUES transformation: {match.group(0)} -> {result}")
+                    return result
+                pg_sql = re.sub(values_pattern, add_catalog_id, pg_sql)
+                param_dict['catalog_id'] = str(self.catalog_id)
+
+                # JSON-encode the value parameter (param1) since config.value is JSONB
+                if 'param1' in param_dict:
+                    # Convert plain string to JSON string (e.g., "analyzing" -> '"analyzing"')
+                    import json
+                    param_dict['param1'] = json.dumps(param_dict['param1'])
+
+                logger.debug(f"After INSERT OR REPLACE conversion: {pg_sql}")
+
+            # Add ON CONFLICT clause
+            pg_sql += " ON CONFLICT (catalog_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"
+
+        logger.debug(f"Final SQL: {pg_sql}")
+        logger.debug(f"Parameters: {param_dict}")
         return self.session.execute(text(pg_sql), param_dict)
 
     def list_images(self) -> List[str]:

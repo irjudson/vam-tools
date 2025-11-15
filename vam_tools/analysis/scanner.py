@@ -24,7 +24,7 @@ from rich.progress import (
 from vam_tools.shared import compute_checksum, get_file_type
 from vam_tools.shared.thumbnail_utils import generate_thumbnail, get_thumbnail_path
 
-from ..core.database import CatalogDatabase
+from ..db import CatalogDB as CatalogDatabase
 from ..core.performance_stats import PerformanceTracker
 from ..core.types import CatalogPhase, FileType, ImageRecord, ImageStatus, Statistics
 from .metadata import MetadataExtractor
@@ -104,7 +104,8 @@ class ImageScanner:
         self.generate_thumbnails = generate_thumbnails
         # Load existing statistics if catalog exists, otherwise start fresh
         latest_stats_row = self.catalog.execute(
-            "SELECT * FROM statistics ORDER BY timestamp DESC LIMIT 1"
+            "SELECT * FROM statistics WHERE catalog_id = ? ORDER BY timestamp DESC LIMIT 1",
+            (str(self.catalog.catalog_id),)
         ).fetchone()
         self.stats = (
             Statistics(**latest_stats_row) if latest_stats_row else Statistics()
@@ -171,16 +172,17 @@ class ImageScanner:
                         self.catalog.execute(
                             """
                             INSERT INTO statistics (
-                                timestamp, total_images, total_videos, total_size_bytes,
+                                catalog_id, timestamp, total_images, total_videos, total_size_bytes,
                                 images_scanned, images_hashed, images_tagged,
                                 duplicate_groups, duplicate_images, potential_savings_bytes,
                                 high_quality_count, medium_quality_count, low_quality_count,
                                 corrupted_count, unsupported_count,
                                 processing_time_seconds, images_per_second,
                                 no_date, suspicious_dates, problematic_files
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
+                                str(self.catalog.catalog_id),
                                 datetime.now().isoformat(),
                                 self.stats.total_images,
                                 self.stats.total_videos,
@@ -213,16 +215,17 @@ class ImageScanner:
             self.catalog.execute(
                 """
                 INSERT INTO statistics (
-                    timestamp, total_images, total_videos, total_size_bytes,
+                    catalog_id, timestamp, total_images, total_videos, total_size_bytes,
                     images_scanned, images_hashed, images_tagged,
                     duplicate_groups, duplicate_images, potential_savings_bytes,
                     high_quality_count, medium_quality_count, low_quality_count,
                     corrupted_count, unsupported_count,
                     processing_time_seconds, images_per_second,
                     no_date, suspicious_dates, problematic_files
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    str(self.catalog.catalog_id),
                     datetime.now().isoformat(),
                     self.stats.total_images,
                     self.stats.total_videos,
@@ -315,7 +318,8 @@ class ImageScanner:
             files_to_process = []
             for f in files:
                 existing_image = self.catalog.execute(
-                    "SELECT id FROM images WHERE source_path = ?", (str(f),)
+                    "SELECT id FROM images WHERE catalog_id = ? AND source_path = ?",
+                    (str(self.catalog.catalog_id), str(f))
                 ).fetchone()
                 if not existing_image:
                     files_to_process.append(f)
@@ -394,76 +398,12 @@ class ImageScanner:
 
                             # Check if already in catalog (by checksum - for duplicates)
                             existing_image_by_id = self.catalog.execute(
-                                "SELECT id FROM images WHERE id = ?", (image.checksum,)
+                                "SELECT id FROM images WHERE catalog_id = ? AND id = ?",
+                                (str(self.catalog.catalog_id), image.checksum)
                             ).fetchone()
 
                             if not existing_image_by_id:
-                                # Add to catalog
-                                self.catalog.execute(
-                                    """
-                                    INSERT INTO images (
-                                        id, source_path, file_size, file_hash, format,
-                                        width, height, created_at, modified_at, indexed_at,
-                                        date_taken, camera_make, camera_model, lens_model,
-                                        focal_length, aperture, shutter_speed, iso,
-                                        gps_latitude, gps_longitude, quality_score, is_corrupted,
-                                        perceptual_hash, features_vector
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    """,
-                                    (
-                                        image.id,
-                                        str(image.source_path),
-                                        image.file_size,
-                                        image.checksum,
-                                        image.metadata.format,
-                                        image.metadata.width,
-                                        image.metadata.height,
-                                        (
-                                            image.created_at.isoformat()
-                                            if image.created_at
-                                            else None
-                                        ),
-                                        (
-                                            image.modified_at.isoformat()
-                                            if image.modified_at
-                                            else None
-                                        ),
-                                        datetime.now().isoformat(),  # indexed_at
-                                        (
-                                            image.dates.selected_date.isoformat()
-                                            if image.dates and image.dates.selected_date
-                                            else None
-                                        ),
-                                        image.metadata.exif.get("Make"),
-                                        image.metadata.exif.get("Model"),
-                                        image.metadata.exif.get("LensModel"),
-                                        image.metadata.exif.get("FocalLength"),
-                                        image.metadata.exif.get("ApertureValue"),
-                                        image.metadata.exif.get("ExposureTime"),
-                                        image.metadata.exif.get("ISO"),
-                                        (
-                                            image.metadata.gps.latitude
-                                            if image.metadata.gps
-                                            else None
-                                        ),
-                                        (
-                                            image.metadata.gps.longitude
-                                            if image.metadata.gps
-                                            else None
-                                        ),
-                                        image.quality_score,
-                                        1 if image.is_corrupted else 0,
-                                        (
-                                            image.hashes.perceptual_hash
-                                            if image.hashes
-                                            else None
-                                        ),
-                                        None,  # features_vector not handled yet
-                                    ),
-                                )
-                                self.files_added += 1
-
-                                # Generate thumbnail if enabled
+                                # Generate thumbnail if enabled (before adding to catalog)
                                 if self.generate_thumbnails:
                                     thumb_path = get_thumbnail_path(
                                         image.id,
@@ -473,18 +413,14 @@ class ImageScanner:
                                         source_path=image.source_path,
                                         output_path=thumb_path,
                                     ):
-                                        # Update image with thumbnail path (relative)
-                                        self.catalog.execute(
-                                            "UPDATE images SET thumbnail_path = ? WHERE id = ?",
-                                            (
-                                                str(
-                                                    thumb_path.relative_to(
-                                                        self.catalog.catalog_path
-                                                    )
-                                                ),
-                                                image.id,
-                                            ),
+                                        # Set thumbnail path on image record (relative)
+                                        image.thumbnail_path = thumb_path.relative_to(
+                                            self.catalog.catalog_path
                                         )
+
+                                # Add to catalog using CatalogDB's add_image method
+                                self.catalog.add_image(image)
+                                self.files_added += 1
 
                                 # Update statistics
                                 if image.file_type == FileType.IMAGE:
@@ -507,16 +443,17 @@ class ImageScanner:
                             self.catalog.execute(
                                 """
                                 INSERT INTO statistics (
-                                    timestamp, total_images, total_videos, total_size_bytes,
+                                    catalog_id, timestamp, total_images, total_videos, total_size_bytes,
                                     images_scanned, images_hashed, images_tagged,
                                     duplicate_groups, duplicate_images, potential_savings_bytes,
                                     high_quality_count, medium_quality_count, low_quality_count,
                                     corrupted_count, unsupported_count,
                                     processing_time_seconds, images_per_second,
                                     no_date, suspicious_dates, problematic_files
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 (
+                                    str(self.catalog.catalog_id),
                                     datetime.now().isoformat(),
                                     self.stats.total_images,
                                     self.stats.total_videos,

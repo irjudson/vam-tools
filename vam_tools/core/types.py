@@ -338,7 +338,18 @@ class Statistics(BaseModel):
     burst_images: int = 0
     unique_images: int = 0
     problematic_files: int = 0
-    duplicate_images: int = 0  # Added
+    duplicate_images: int = 0
+
+    # Additional fields used by scanner
+    potential_savings_bytes: int = 0
+    high_quality_count: int = 0
+    medium_quality_count: int = 0
+    low_quality_count: int = 0
+    corrupted_count: int = 0
+    unsupported_count: int = 0
+    processing_time_seconds: float = 0.0
+    images_per_second: float = 0.0
+    suspicious_dates: int = 0
 
 
 class CatalogState(BaseModel):

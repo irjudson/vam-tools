@@ -9,7 +9,7 @@ from PIL import Image
 
 from vam_tools.analysis.duplicate_detector import DuplicateDetector
 from vam_tools.analysis.scanner import ImageScanner
-from vam_tools.core.catalog import CatalogDatabase
+from vam_tools.db import CatalogDB as CatalogDatabase
 
 
 class TestDuplicateDetector:
@@ -20,7 +20,7 @@ class TestDuplicateDetector:
         catalog_dir = tmp_path / "catalog"
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[])
+            db.initialize()
             detector = DuplicateDetector(db, similarity_threshold=5)
 
             assert detector.catalog == db
@@ -42,7 +42,7 @@ class TestDuplicateDetector:
 
         # Scan images into catalog
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -79,7 +79,7 @@ class TestDuplicateDetector:
 
         # Scan images
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -109,7 +109,7 @@ class TestDuplicateDetector:
 
         # Scan images
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -142,7 +142,7 @@ class TestDuplicateDetector:
 
         # Scan and detect duplicates
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -176,7 +176,7 @@ class TestDuplicateDetector:
             img.save(photos_dir / f"image{i}.jpg")
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -211,7 +211,7 @@ class TestDuplicateDetector:
         img.save(img_path)
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -245,7 +245,7 @@ class TestDuplicateDetector:
         img.save(photos_dir / "test.jpg")
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -278,7 +278,7 @@ class TestDuplicateDetector:
         img.save(photos_dir / "2023-06-20_photo.jpg")
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -297,7 +297,7 @@ class TestDuplicateDetector:
         catalog_dir = tmp_path / "catalog"
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[])
+            db.initialize()
 
             detector = DuplicateDetector(db, similarity_threshold=5)
             groups = detector.detect_duplicates()
@@ -320,7 +320,7 @@ class TestDuplicateDetector:
             img.save(photos_dir / f"gray{i}.jpg")
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -351,7 +351,7 @@ class TestDuplicateDetector:
         img2.save(photos_dir / "img2.jpg", quality=90)
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -401,7 +401,7 @@ class TestDuplicateDetector:
         """Test detection with empty catalog."""
         catalog_dir = tmp_path / "catalog"
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[])
+            db.initialize()
             detector = DuplicateDetector(db)
             groups = detector.detect_duplicates()
             assert groups == []
@@ -419,7 +419,7 @@ class TestDuplicateDetector:
         from vam_tools.core.types import FileType, ImageRecord
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
 
             record = ImageRecord(
                 id="single",
@@ -447,7 +447,7 @@ class TestDuplicateDetector:
         from vam_tools.core.types import FileType, ImageRecord
 
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
 
             # Create images with different patterns (not solid colors)
             # Each image has distinct features
