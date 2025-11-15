@@ -7,9 +7,10 @@ Handles bidirectional conversion:
 """
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
-from vam_tools.core.types import DateInfo, ImageMetadata, ImageRecord
+from vam_tools.core.types import DateInfo, ImageMetadata, ImageRecord, FileType, ImageStatus
 
 
 def _safe_deserialize_datetime(iso_string: Optional[str]) -> Optional[datetime]:
@@ -155,4 +156,64 @@ def deserialize_image_metadata(data: Dict[str, Any]) -> ImageMetadata:
         perceptual_hash_ahash=data.get("perceptual_hash_ahash"),
         perceptual_hash_whash=data.get("perceptual_hash_whash"),
         merged_from=data.get("merged_from", []),
+    )
+
+
+def serialize_image_record(record: ImageRecord) -> Dict[str, Any]:
+    """
+    Serialize ImageRecord to JSON-serializable dict.
+
+    Args:
+        record: ImageRecord object to serialize
+
+    Returns:
+        Dictionary suitable for JSONB storage
+    """
+    return {
+        "id": record.id,
+        "source_path": str(record.source_path),
+        "file_type": record.file_type.value if record.file_type else None,
+        "checksum": record.checksum,
+        "status": record.status.value if record.status else None,
+        "dates": serialize_date_info(record.dates) if record.dates else {},
+        "metadata": serialize_image_metadata(record.metadata) if record.metadata else {},
+    }
+
+
+def deserialize_image_record(data: Dict[str, Any]) -> ImageRecord:
+    """
+    Deserialize dict to ImageRecord object.
+
+    Args:
+        data: Dictionary from JSONB storage
+
+    Returns:
+        ImageRecord object
+    """
+    # Deserialize nested objects
+    dates = None
+    if data.get("dates"):
+        dates = deserialize_date_info(data["dates"])
+
+    metadata = None
+    if data.get("metadata"):
+        metadata = deserialize_image_metadata(data["metadata"])
+
+    # Deserialize enums
+    file_type = None
+    if data.get("file_type"):
+        file_type = FileType(data["file_type"])
+
+    status = None
+    if data.get("status"):
+        status = ImageStatus(data["status"])
+
+    return ImageRecord(
+        id=data["id"],
+        source_path=Path(data["source_path"]),
+        file_type=file_type,
+        checksum=data["checksum"],
+        status=status,
+        dates=dates,
+        metadata=metadata,
     )
