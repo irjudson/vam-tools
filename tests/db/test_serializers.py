@@ -4,12 +4,16 @@ from datetime import datetime
 
 import pytest
 
-from vam_tools.core.types import DateInfo, ImageMetadata
+from pathlib import Path
+
+from vam_tools.core.types import DateInfo, ImageMetadata, FileType, ImageStatus, ImageRecord
 from vam_tools.db.serializers import (
     serialize_date_info,
     deserialize_date_info,
     serialize_image_metadata,
     deserialize_image_metadata,
+    serialize_image_record,
+    deserialize_image_record,
 )
 
 
@@ -168,3 +172,132 @@ def test_round_trip_image_metadata():
     assert deserialized.height == original.height
     assert deserialized.size_bytes == original.size_bytes
     assert deserialized.iso == original.iso
+
+
+def test_serialize_image_record_complete():
+    """Test serializing complete ImageRecord with all nested objects."""
+    date_info = DateInfo(
+        selected_date=datetime(2023, 6, 15, 14, 30, 22),
+        selected_source="exif",
+        confidence=90,
+    )
+
+    metadata = ImageMetadata(
+        exif={"Make": "Canon"},
+        camera_make="Canon",
+        camera_model="EOS R5",
+        size_bytes=1024000,
+        resolution=(1920, 1080),
+    )
+
+    record = ImageRecord(
+        id="test123",
+        source_path=Path("/path/to/image.jpg"),
+        file_type=FileType.IMAGE,
+        checksum="abc123def456",
+        status=ImageStatus.PENDING,
+        dates=date_info,
+        metadata=metadata,
+    )
+
+    result = serialize_image_record(record)
+
+    assert isinstance(result, dict)
+    assert result["id"] == "test123"
+    assert result["source_path"] == "/path/to/image.jpg"
+    assert result["file_type"] == "image"
+    assert result["checksum"] == "abc123def456"
+    assert result["status"] == "pending"
+
+    # Nested objects should be serialized dicts
+    assert isinstance(result["dates"], dict)
+    assert result["dates"]["selected_date"] == "2023-06-15T14:30:22"
+    assert isinstance(result["metadata"], dict)
+    assert result["metadata"]["camera_make"] == "Canon"
+
+
+def test_serialize_image_record_minimal():
+    """Test serializing minimal ImageRecord."""
+    record = ImageRecord(
+        id="minimal",
+        source_path=Path("/test.jpg"),
+        file_type=FileType.IMAGE,
+        checksum="abc",
+        status=ImageStatus.PENDING,
+    )
+
+    result = serialize_image_record(record)
+
+    assert result["id"] == "minimal"
+    # dates and metadata should be serialized empty DateInfo/ImageMetadata
+    assert isinstance(result["dates"], dict)
+    assert result["dates"]["confidence"] == 0
+    assert result["dates"]["selected_date"] is None
+    assert isinstance(result["metadata"], dict)
+    assert result["metadata"]["format"] is None
+
+
+def test_deserialize_image_record():
+    """Test deserializing ImageRecord from dict."""
+    data = {
+        "id": "test123",
+        "source_path": "/path/to/image.jpg",
+        "file_type": "image",
+        "checksum": "abc123",
+        "status": "pending",
+        "dates": {
+            "selected_date": "2023-06-15T14:30:22",
+            "selected_source": "exif",
+            "confidence": 90,
+        },
+        "metadata": {
+            "camera_make": "Canon",
+            "camera_model": "EOS R5",
+            "size_bytes": 1024000,
+            "resolution": [1920, 1080],
+        },
+    }
+
+    result = deserialize_image_record(data)
+
+    assert isinstance(result, ImageRecord)
+    assert result.id == "test123"
+    assert str(result.source_path) == "/path/to/image.jpg"
+    assert result.file_type == FileType.IMAGE
+    assert result.status == ImageStatus.PENDING
+
+    # Nested objects should be deserialized
+    assert isinstance(result.dates, DateInfo)
+    assert result.dates.selected_date == datetime(2023, 6, 15, 14, 30, 22)
+    assert isinstance(result.metadata, ImageMetadata)
+    assert result.metadata.camera_make == "Canon"
+
+
+def test_round_trip_image_record():
+    """Test round-trip serialization preserves all data."""
+    original = ImageRecord(
+        id="roundtrip",
+        source_path=Path("/test/image.jpg"),
+        file_type=FileType.VIDEO,
+        checksum="hash123",
+        status=ImageStatus.COMPLETE,
+        dates=DateInfo(
+            selected_date=datetime(2023, 1, 1, 12, 0, 0),
+            confidence=85,
+        ),
+        metadata=ImageMetadata(
+            size_bytes=2048000,
+            resolution=(3840, 2160),
+        ),
+    )
+
+    serialized = serialize_image_record(original)
+    deserialized = deserialize_image_record(serialized)
+
+    assert deserialized.id == original.id
+    assert deserialized.source_path == original.source_path
+    assert deserialized.file_type == original.file_type
+    assert deserialized.checksum == original.checksum
+    assert deserialized.status == original.status
+    assert deserialized.dates.selected_date == original.dates.selected_date
+    assert deserialized.metadata.size_bytes == original.metadata.size_bytes
