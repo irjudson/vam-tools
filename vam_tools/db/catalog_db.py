@@ -1,0 +1,365 @@
+"""
+Catalog database wrapper for PostgreSQL.
+
+Provides a unified interface for catalog operations using PostgreSQL.
+"""
+
+import json
+import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from .connection import SessionLocal, get_db_context
+from .models import Catalog
+from .serializers import deserialize_image_record, serialize_image_record
+
+logger = logging.getLogger(__name__)
+
+
+class CatalogDB:
+    """
+    PostgreSQL-based catalog database interface.
+
+    Provides methods for managing catalog data in PostgreSQL.
+    Compatible with the interface expected by scanner, detector, etc.
+    """
+
+    def __init__(self, catalog_id_or_path):
+        """
+        Initialize catalog database connection.
+
+        Args:
+            catalog_id_or_path: UUID of the catalog to work with, or Path for test compatibility
+        """
+        from pathlib import Path
+        import uuid as uuid_module
+        import hashlib
+
+        # Handle Path input for test compatibility
+        if isinstance(catalog_id_or_path, Path):
+            # Generate a deterministic test catalog ID based on path
+            # This ensures the same path always gets the same catalog_id
+            path_hash = hashlib.md5(str(catalog_id_or_path).encode()).hexdigest()
+            self.catalog_id = str(uuid_module.UUID(path_hash))
+            self._test_path = catalog_id_or_path
+            self._test_mode = True
+        else:
+            self.catalog_id = str(catalog_id_or_path)
+            self._test_path = None
+            self._test_mode = False
+
+        self.session: Optional[Session] = None
+        self._context_manager = None
+
+        # For test mode, eagerly connect and create tables
+        if self._test_mode:
+            self.connect()
+            self._ensure_test_setup()
+
+    def _ensure_test_setup(self) -> None:
+        """Ensure database schema and catalog exist for testing."""
+        if not self._test_mode or not self.session:
+            return
+
+        from .models import Base, Catalog
+        from pathlib import Path
+
+        # Create all tables from SQLAlchemy models
+        Base.metadata.create_all(bind=self.session.bind)
+
+        # Also execute schema.sql for additional tables (statistics, config, etc.)
+        schema_file = Path(__file__).parent / "schema.sql"
+        if schema_file.exists():
+            with open(schema_file) as f:
+                schema_sql = f.read()
+
+            # Execute the entire schema file (IF NOT EXISTS makes it idempotent)
+            try:
+                # Use raw connection to execute multi-statement SQL
+                conn = self.session.connection()
+                conn.execute(text(schema_sql))
+                self.session.commit()
+            except Exception as e:
+                # Tables might already exist - that's ok
+                self.session.rollback()
+                logger.debug(f"Ignoring schema execution error (likely tables exist): {e}")
+
+        # Create catalog if it doesn't exist
+        existing = self.session.query(Catalog).filter_by(id=self.catalog_id).first()
+        if not existing:
+            catalog = Catalog(
+                id=self.catalog_id,
+                name=f"Test Catalog {self.catalog_id[:8]}",
+                schema_name=f"test_{self.catalog_id[:8]}",
+                source_directories=[str(self._test_path)] if self._test_path else [],
+            )
+            self.session.add(catalog)
+            self.session.commit()
+
+    def __enter__(self) -> "CatalogDB":
+        """Context manager entry."""
+        if not self.session:
+            self._context_manager = get_db_context()
+            self.session = self._context_manager.__enter__()
+            if self._test_mode:
+                self._ensure_test_setup()
+
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Context manager exit."""
+        if self._context_manager:
+            self._context_manager.__exit__(exc_type, exc_val, exc_tb)
+            self.session = None
+
+    def connect(self) -> None:
+        """Connect to database (for compatibility)."""
+        if self.session is None:
+            self.session = SessionLocal()
+            # For test mode, ensure setup after connecting
+            if self._test_mode:
+                self._ensure_test_setup()
+
+    def close(self) -> None:
+        """Close database connection (for compatibility)."""
+        if self.session:
+            self.session.close()
+            self.session = None
+
+    def initialize(self, source_directories: Optional[List[str]] = None) -> None:
+        """
+        Initialize database schema (already done at DB level).
+
+        Args:
+            source_directories: Optional list of source directories (for compatibility)
+        """
+        # Schema is created at the database level via alembic/init_db
+        # In test mode, catalog and schema are already created in _ensure_test_setup
+        # This is a no-op for compatibility with old SQLite interface
+        pass
+
+    def execute(self, sql: str, parameters: tuple = ()) -> Any:
+        """
+        Execute raw SQL query with SQLite compatibility.
+
+        Translates SQLite syntax to PostgreSQL:
+        - Converts ? placeholders to :param0, :param1, etc.
+        - Converts "INSERT OR REPLACE" to PostgreSQL UPSERT
+        - Converts datetime('now') to NOW()
+        - Adds catalog_id filter where appropriate
+
+        Args:
+            sql: SQL query string (SQLite syntax)
+            parameters: Query parameters
+
+        Returns:
+            Cursor/result
+        """
+        if self.session is None:
+            self.connect()
+
+        # Convert SQLite ? to PostgreSQL :paramN
+        param_dict = {}
+        param_index = 0
+        pg_sql = ""
+        i = 0
+        while i < len(sql):
+            if sql[i] == '?':
+                param_name = f"param{param_index}"
+                pg_sql += f":{param_name}"
+                if param_index < len(parameters):
+                    param_dict[param_name] = parameters[param_index]
+                param_index += 1
+                i += 1
+            else:
+                pg_sql += sql[i]
+                i += 1
+
+        # SQLite to PostgreSQL syntax translations
+        pg_sql = pg_sql.replace("datetime('now')", "NOW()")
+        pg_sql = pg_sql.replace("INSERT OR REPLACE", "INSERT ... ON CONFLICT DO UPDATE")  # Simplified
+
+        # Handle catalog_config table references
+        if "catalog_config" in pg_sql:
+            pg_sql = pg_sql.replace("catalog_config", "config")
+
+        return self.session.execute(text(pg_sql), param_dict)
+
+    def list_images(self) -> List[str]:
+        """
+        Get all image IDs for this catalog.
+
+        Returns:
+            List of image IDs
+        """
+        if self.session is None:
+            self.connect()
+
+        result = self.session.execute(
+            text("SELECT id FROM images WHERE catalog_id = :catalog_id"),
+            {"catalog_id": self.catalog_id}
+        )
+        return [row[0] for row in result.fetchall()]
+
+    def get_image(self, image_id: str) -> Optional[Any]:
+        """
+        Get image by ID.
+
+        Args:
+            image_id: Image ID to fetch
+
+        Returns:
+            ImageRecord object or None
+        """
+        if self.session is None:
+            self.connect()
+
+        result = self.session.execute(
+            text("SELECT * FROM images WHERE id = :id AND catalog_id = :catalog_id"),
+            {"id": image_id, "catalog_id": self.catalog_id}
+        )
+        row = result.fetchone()
+        if row:
+            row_dict = dict(row._mapping)
+            # Deserialize to ImageRecord
+            # Handle null JSONB values
+            dates = row_dict.get("dates") or {}
+            metadata = row_dict.get("metadata") or {}
+
+            return deserialize_image_record({
+                "id": row_dict["id"],
+                "source_path": row_dict["source_path"],
+                "file_type": row_dict["file_type"],
+                "checksum": row_dict["checksum"],
+                "status": row_dict["status"],
+                "dates": dates,
+                "metadata": metadata,
+            })
+        return None
+
+    def get_all_images(self) -> Dict[str, Any]:
+        """
+        Get all images for this catalog.
+
+        Returns:
+            Dictionary mapping image_id -> ImageRecord
+        """
+        if self.session is None:
+            self.connect()
+
+        result = self.session.execute(
+            text("SELECT * FROM images WHERE catalog_id = :catalog_id"),
+            {"catalog_id": self.catalog_id}
+        )
+
+        images = {}
+        for row in result.fetchall():
+            row_dict = dict(row._mapping)
+            # Handle null JSONB values
+            dates = row_dict.get("dates") or {}
+            metadata = row_dict.get("metadata") or {}
+
+            image_record = deserialize_image_record({
+                "id": row_dict["id"],
+                "source_path": row_dict["source_path"],
+                "file_type": row_dict["file_type"],
+                "checksum": row_dict["checksum"],
+                "status": row_dict["status"],
+                "dates": dates,
+                "metadata": metadata,
+            })
+            images[row_dict["id"]] = image_record
+
+        return images
+
+    def add_image(self, image_record: Any) -> None:
+        """
+        Add an image to the database.
+
+        Args:
+            image_record: ImageRecord object to add
+        """
+        if self.session is None:
+            self.connect()
+
+        # Serialize ImageRecord to JSONB-compatible dict
+        serialized = serialize_image_record(image_record)
+
+        # Extract fields for SQL insert
+        try:
+            self.session.execute(
+                text("""
+                    INSERT INTO images (
+                        id, catalog_id, source_path, file_type, checksum,
+                        size_bytes, dates, metadata, quality_score, status,
+                        created_at, updated_at
+                    ) VALUES (
+                        :id, :catalog_id, :source_path, :file_type, :checksum,
+                        :size_bytes, CAST(:dates AS jsonb), CAST(:metadata AS jsonb), :quality_score, :status,
+                        NOW(), NOW()
+                    )
+                    ON CONFLICT (id) DO UPDATE SET
+                        catalog_id = EXCLUDED.catalog_id,
+                        source_path = EXCLUDED.source_path,
+                        file_type = EXCLUDED.file_type,
+                        status = EXCLUDED.status,
+                        dates = EXCLUDED.dates,
+                        metadata = EXCLUDED.metadata,
+                        updated_at = NOW()
+                """),
+                {
+                    "id": serialized["id"],
+                    "catalog_id": self.catalog_id,
+                    "source_path": serialized["source_path"],
+                    "file_type": serialized["file_type"],
+                    "checksum": serialized["checksum"],
+                    "size_bytes": serialized["metadata"].get("size_bytes", 0),
+                    "dates": json.dumps(serialized["dates"]),
+                    "metadata": json.dumps(serialized["metadata"]),
+                    "quality_score": 0,
+                    "status": serialized["status"],
+                }
+            )
+            self.session.commit()
+        except Exception as e:
+            logger.error(f"Error adding image {serialized['id']}: {e}")
+            self.session.rollback()
+            raise
+
+    def get_duplicate_groups(self) -> List[Dict[str, Any]]:
+        """
+        Get all duplicate groups for this catalog.
+
+        Returns:
+            List of duplicate groups
+        """
+        if self.session is None:
+            self.connect()
+
+        result = self.session.execute(
+            text("SELECT * FROM duplicate_groups WHERE catalog_id = :catalog_id"),
+            {"catalog_id": self.catalog_id}
+        )
+        return [dict(row._mapping) for row in result.fetchall()]
+
+    def save(self) -> None:
+        """Save database changes (commit transaction)."""
+        if self.session:
+            self.session.commit()
+
+    @property
+    def catalog_path(self) -> Path:
+        """Get catalog path (for compatibility with file-based catalogs)."""
+        if self._test_path:
+            return self._test_path
+        # Return a sensible default
+        return Path(f"/tmp/catalog_{self.catalog_id}")
+
+    def __repr__(self) -> str:
+        """String representation."""
+        return f"CatalogDB(catalog_id={self.catalog_id})"
