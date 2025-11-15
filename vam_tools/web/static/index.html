@@ -63,9 +63,9 @@
                             <div v-for="catalog in catalogs" :key="catalog.id"
                                  :class="['catalog-item', {active: currentCatalog && currentCatalog.id === catalog.id}]">
                                 <div class="catalog-color" :style="{background: catalog.color}"></div>
-                                <div class="catalog-info" @click="switchCatalog(catalog.id); showCatalogManager = false">
+                                <div class="catalog-info" @click="switchCatalog(catalog); showCatalogManager = false">
                                     <div class="catalog-name">{{ catalog.name }}</div>
-                                    <div class="catalog-path">{{ displayPath(catalog.catalog_path) }}</div>
+                                    <div class="catalog-path">{{ catalog.source_directories.map(d => displayPath(d)).join(', ') }}</div>
                                 </div>
                                 <button
                                     @click.stop="deleteCatalog(catalog.id)"
@@ -370,6 +370,12 @@
                                                 title="Rerun job">
                                                 🔄
                                             </button>
+                                            <button
+                                                @click="showJobStream(job.id)"
+                                                class="btn-secondary btn-small"
+                                                title="View streaming output">
+                                                📺
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -586,7 +592,7 @@
                 <form @submit.prevent="submitAddCatalog">
                     <div class="form-group">
                         <label>Catalog Name</label>
-                        <input v-model="addCatalogForm.name" type="text" required 
+                        <input v-model="addCatalogForm.name" type="text" required
                                placeholder="My Photo Collection" />
                     </div>
                     <div class="form-group">
@@ -604,7 +610,7 @@
                     </div>
                     <div class="form-group">
                         <label>Description (optional)</label>
-                        <input v-model="addCatalogForm.description" type="text" 
+                        <input v-model="addCatalogForm.description" type="text"
                                placeholder="Family photos from 2023-2024" />
                     </div>
                     <div class="form-group">
@@ -622,10 +628,48 @@
                 </form>
             </div>
         </div>
+
+        <!-- Job Stream Modal -->
+        <div v-if="streamingJob" class="modal-overlay" @click="closeJobStream">
+            <div class="modal-content modal-large" @click.stop>
+                <div class="modal-header">
+                    <h3>📺 Job Output: {{ streamingJob.name || streamingJob.id }}</h3>
+                    <button @click="closeJobStream" class="modal-close">×</button>
+                </div>
+                <div class="job-stream-container">
+                    <div class="stream-status">
+                        <span :class="['status-badge', getJobStatusClass(streamingJob.status)]">
+                            {{ streamingJob.status }}
+                        </span>
+                        <span v-if="streamingJob.progress !== undefined" class="stream-progress">
+                            {{ streamingJob.progress }}%
+                        </span>
+                        <span v-if="streamConnectionStatus" class="stream-connection-status" :class="streamConnectionStatus">
+                            {{ streamConnectionStatusText }}
+                        </span>
+                    </div>
+                    <div class="stream-output" ref="streamOutput">
+                        <div v-for="(event, index) in streamEvents" :key="index" class="stream-event">
+                            <span class="stream-timestamp">{{ formatTime(event.timestamp) }}</span>
+                            <span class="stream-message">{{ event.message }}</span>
+                        </div>
+                        <div v-if="streamEvents.length === 0" class="stream-empty">
+                            Waiting for job output...
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button @click="clearStreamEvents" class="btn-secondary btn-small">
+                        Clear
+                    </button>
+                    <button @click="closeJobStream" class="btn-primary">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
-        </div>
-
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=4"></script>
 </body>
 </html>

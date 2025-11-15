@@ -11,7 +11,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from ..core.database import CatalogDatabase
+from ..db import CatalogDB as CatalogDatabase
 from ..organization import (
     DirectoryStructure,
     FileOrganizer,

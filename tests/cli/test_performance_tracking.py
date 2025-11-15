@@ -134,7 +134,7 @@ class TestPerformancePollingEndpoint:
         """Test performance endpoint returns no_data when no analysis has run."""
         from fastapi.testclient import TestClient
 
-        from vam_tools.core.catalog import CatalogDatabase
+        from vam_tools.db import CatalogDB as CatalogDatabase
         from vam_tools.web.api import app, init_catalog
 
         catalog_dir = tmp_path / "catalog"
@@ -142,7 +142,7 @@ class TestPerformancePollingEndpoint:
 
         # Create empty catalog
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[tmp_path / "source"])
+            db.initialize()
             db.save()
 
         init_catalog(catalog_dir)
@@ -159,7 +159,7 @@ class TestPerformancePollingEndpoint:
         """Test performance endpoint returns idle status for completed analysis."""
         from fastapi.testclient import TestClient
 
-        from vam_tools.core.catalog import CatalogDatabase
+        from vam_tools.db import CatalogDB as CatalogDatabase
         from vam_tools.web.api import app, init_catalog
 
         catalog_dir = tmp_path / "catalog"
@@ -167,7 +167,7 @@ class TestPerformancePollingEndpoint:
 
         # Create catalog with completed performance stats
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[tmp_path / "source"])
+            db.initialize()
 
             # Store performance statistics with completed timestamp
             perf_stats = {
@@ -199,7 +199,7 @@ class TestPerformancePollingEndpoint:
         """Test performance endpoint returns running status for in-progress analysis."""
         from fastapi.testclient import TestClient
 
-        from vam_tools.core.catalog import CatalogDatabase
+        from vam_tools.db import CatalogDB as CatalogDatabase
         from vam_tools.web.api import app, init_catalog
 
         catalog_dir = tmp_path / "catalog"
@@ -207,7 +207,7 @@ class TestPerformancePollingEndpoint:
 
         # Create catalog with running performance stats (no completed_at)
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[tmp_path / "source"])
+            db.initialize()
 
             perf_stats = {
                 "last_run": {

@@ -67,9 +67,8 @@ def test_create_catalog(client):
     assert "id" in data
     assert "schema_name" in data
 
-    # Verify schema was actually created
-    schema_name = data["schema_name"]
-    assert schema_exists(schema_name)
+    # Verify main schema exists (single schema for all catalogs)
+    assert schema_exists()
 
 
 def test_list_catalogs(client):
@@ -129,10 +128,9 @@ def test_delete_catalog(client):
         },
     )
     catalog_id = create_response.json()["id"]
-    schema_name = create_response.json()["schema_name"]
 
-    # Verify schema exists
-    assert schema_exists(schema_name)
+    # Verify main schema exists
+    assert schema_exists()
 
     # Delete it
     response = client.delete(f"/api/catalogs/{catalog_id}")
@@ -142,8 +140,9 @@ def test_delete_catalog(client):
     response = client.get(f"/api/catalogs/{catalog_id}")
     assert response.status_code == 404
 
-    # Verify schema was also deleted
-    assert not schema_exists(schema_name)
+    # Note: Main schema persists (it's shared by all catalogs)
+    # Only the catalog data is deleted
+    assert schema_exists()
 
 
 def test_create_catalog_validation(client):

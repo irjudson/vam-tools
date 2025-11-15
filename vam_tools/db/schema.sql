@@ -35,13 +35,13 @@ CREATE TABLE IF NOT EXISTS images (
     CONSTRAINT unique_catalog_checksum UNIQUE (catalog_id, checksum)
 );
 
-CREATE INDEX idx_images_catalog_id ON images(catalog_id);
-CREATE INDEX idx_images_checksum ON images(checksum);
-CREATE INDEX idx_images_dhash ON images(dhash);
-CREATE INDEX idx_images_ahash ON images(ahash);
-CREATE INDEX idx_images_status ON images(status);
-CREATE INDEX idx_images_dates ON images USING GIN (dates);
-CREATE INDEX idx_images_metadata ON images USING GIN (metadata);
+CREATE INDEX IF NOT EXISTS idx_images_catalog_id ON images(catalog_id);
+CREATE INDEX IF NOT EXISTS idx_images_checksum ON images(checksum);
+CREATE INDEX IF NOT EXISTS idx_images_dhash ON images(dhash);
+CREATE INDEX IF NOT EXISTS idx_images_ahash ON images(ahash);
+CREATE INDEX IF NOT EXISTS idx_images_status ON images(status);
+CREATE INDEX IF NOT EXISTS idx_images_dates ON images USING GIN (dates);
+CREATE INDEX IF NOT EXISTS idx_images_metadata ON images USING GIN (metadata);
 
 -- ============================================================================
 -- TAGS TABLE
@@ -59,9 +59,9 @@ CREATE TABLE IF NOT EXISTS tags (
     CONSTRAINT unique_catalog_tag UNIQUE (catalog_id, name)
 );
 
-CREATE INDEX idx_tags_catalog_id ON tags(catalog_id);
-CREATE INDEX idx_tags_name ON tags(name);
-CREATE INDEX idx_tags_parent_id ON tags(parent_id);
+CREATE INDEX IF NOT EXISTS idx_tags_catalog_id ON tags(catalog_id);
+CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
+CREATE INDEX IF NOT EXISTS idx_tags_parent_id ON tags(parent_id);
 
 -- ============================================================================
 -- IMAGE_TAGS TABLE (Many-to-Many)
@@ -78,8 +78,8 @@ CREATE TABLE IF NOT EXISTS image_tags (
     FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_image_tags_image_id ON image_tags(image_id);
-CREATE INDEX idx_image_tags_tag_id ON image_tags(tag_id);
+CREATE INDEX IF NOT EXISTS idx_image_tags_image_id ON image_tags(image_id);
+CREATE INDEX IF NOT EXISTS idx_image_tags_tag_id ON image_tags(tag_id);
 
 -- ============================================================================
 -- DUPLICATE_GROUPS TABLE
@@ -97,9 +97,9 @@ CREATE TABLE IF NOT EXISTS duplicate_groups (
     FOREIGN KEY (primary_image_id) REFERENCES images(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_duplicate_groups_catalog_id ON duplicate_groups(catalog_id);
-CREATE INDEX idx_duplicate_groups_primary_image_id ON duplicate_groups(primary_image_id);
-CREATE INDEX idx_duplicate_groups_reviewed ON duplicate_groups(reviewed);
+CREATE INDEX IF NOT EXISTS idx_duplicate_groups_catalog_id ON duplicate_groups(catalog_id);
+CREATE INDEX IF NOT EXISTS idx_duplicate_groups_primary_image_id ON duplicate_groups(primary_image_id);
+CREATE INDEX IF NOT EXISTS idx_duplicate_groups_reviewed ON duplicate_groups(reviewed);
 
 -- ============================================================================
 -- DUPLICATE_MEMBERS TABLE
@@ -114,8 +114,8 @@ CREATE TABLE IF NOT EXISTS duplicate_members (
     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_duplicate_members_group_id ON duplicate_members(group_id);
-CREATE INDEX idx_duplicate_members_image_id ON duplicate_members(image_id);
+CREATE INDEX IF NOT EXISTS idx_duplicate_members_group_id ON duplicate_members(group_id);
+CREATE INDEX IF NOT EXISTS idx_duplicate_members_image_id ON duplicate_members(image_id);
 
 -- ============================================================================
 -- JOBS TABLE (per-catalog job tracking)
@@ -136,9 +136,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_jobs_catalog_id ON jobs(catalog_id);
-CREATE INDEX idx_jobs_status ON jobs(status);
-CREATE INDEX idx_jobs_job_type ON jobs(job_type);
+CREATE INDEX IF NOT EXISTS idx_jobs_catalog_id ON jobs(catalog_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_jobs_job_type ON jobs(job_type);
 
 -- ============================================================================
 -- CONFIG TABLE (per-catalog configuration)
@@ -153,4 +153,47 @@ CREATE TABLE IF NOT EXISTS config (
     FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_config_catalog_id ON config(catalog_id);
+CREATE INDEX IF NOT EXISTS idx_config_catalog_id ON config(catalog_id);
+
+-- ============================================================================
+-- STATISTICS TABLE (per-catalog statistics tracking)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS statistics (
+    id SERIAL PRIMARY KEY,
+    catalog_id UUID NOT NULL,               -- References catalogs.id
+    timestamp TIMESTAMP DEFAULT NOW(),
+
+    -- Image counts
+    total_images INTEGER DEFAULT 0,
+    total_videos INTEGER DEFAULT 0,
+    total_size_bytes BIGINT DEFAULT 0,
+    images_scanned INTEGER DEFAULT 0,
+    images_hashed INTEGER DEFAULT 0,
+    images_tagged INTEGER DEFAULT 0,
+
+    -- Duplicate stats
+    duplicate_groups INTEGER DEFAULT 0,
+    duplicate_images INTEGER DEFAULT 0,
+    potential_savings_bytes BIGINT DEFAULT 0,
+
+    -- Quality stats
+    high_quality_count INTEGER DEFAULT 0,
+    medium_quality_count INTEGER DEFAULT 0,
+    low_quality_count INTEGER DEFAULT 0,
+    corrupted_count INTEGER DEFAULT 0,
+    unsupported_count INTEGER DEFAULT 0,
+
+    -- Performance metrics
+    processing_time_seconds REAL DEFAULT 0,
+    images_per_second REAL DEFAULT 0,
+
+    -- Date analysis
+    no_date INTEGER DEFAULT 0,
+    suspicious_dates INTEGER DEFAULT 0,
+    problematic_files INTEGER DEFAULT 0,
+
+    FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_statistics_catalog_id ON statistics(catalog_id);
+CREATE INDEX IF NOT EXISTS idx_statistics_timestamp ON statistics(timestamp);

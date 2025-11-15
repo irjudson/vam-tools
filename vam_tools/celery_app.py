@@ -17,7 +17,7 @@ app = Celery(
 )
 
 # Import tasks to register them
-from .tasks import duplicates, organize, scan  # noqa: E402, F401
+from .jobs import tasks  # noqa: E402, F401
 
 # Celery configuration
 app.conf.update(
@@ -37,12 +37,6 @@ app.conf.update(
     # Worker settings
     worker_prefetch_multiplier=1,  # Take one task at a time
     worker_max_tasks_per_child=10,  # Restart worker after 10 tasks (prevent memory leaks)
-    # Routing
-    task_routes={
-        "vam_tools.tasks.scan.*": {"queue": "scanner"},
-        "vam_tools.tasks.duplicates.*": {"queue": "analyzer"},
-        "vam_tools.tasks.organize.*": {"queue": "organizer"},
-    },
 )
 
 

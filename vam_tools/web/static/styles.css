@@ -1010,3 +1010,134 @@ section h3 {
     color: #ef4444;
     font-size: 0.875rem;
 }
+
+/* Job Streaming Modal */
+.modal-large {
+    max-width: 800px;
+    max-height: 80vh;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #334155;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+}
+
+.modal-close:hover {
+    background: #334155;
+    color: #e2e8f0;
+}
+
+.job-stream-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.stream-status {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.75rem;
+    background: #1e293b;
+    border-radius: 0.375rem;
+}
+
+.stream-progress {
+    font-weight: 600;
+    color: #10b981;
+}
+
+.stream-connection-status {
+    margin-left: auto;
+    font-size: 0.875rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.25rem;
+}
+
+.stream-connection-status.connecting {
+    color: #fbbf24;
+    background: #78350f26;
+}
+
+.stream-connection-status.connected {
+    color: #10b981;
+    background: #10b98126;
+}
+
+.stream-connection-status.completed {
+    color: #60a5fa;
+    background: #1e3a8a26;
+}
+
+.stream-connection-status.error {
+    color: #ef4444;
+    background: #ef444426;
+}
+
+.stream-output {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 0.875rem;
+}
+
+.stream-event {
+    padding: 0.375rem 0;
+    border-bottom: 1px solid #1e293b;
+    display: flex;
+    gap: 1rem;
+}
+
+.stream-event:last-child {
+    border-bottom: none;
+}
+
+.stream-timestamp {
+    color: #64748b;
+    flex-shrink: 0;
+    font-size: 0.8125rem;
+}
+
+.stream-message {
+    color: #cbd5e1;
+    flex: 1;
+}
+
+.stream-empty {
+    color: #64748b;
+    text-align: center;
+    padding: 2rem;
+    font-style: italic;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #334155;
+}

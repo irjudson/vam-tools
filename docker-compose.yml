@@ -1,20 +1,4 @@
-version: '3.8'
-
 services:
-  # Redis - Message broker and result backend for Celery
-  redis:
-    image: redis:7-alpine
-    container_name: vam-redis
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
 
   # Web API server
   web:
@@ -27,36 +11,46 @@ services:
     volumes:
       # Mount catalog directory for persistence
       - ${CATALOG_PATH:-~/catalogs}:/app/catalogs
-      # Mount source photos directories (read-only recommended)
-      - ${PHOTOS_PATH:-~/photos}:/app/photos:ro
-      - /home/irjudson/Xfer:/app/photos-xfer:ro
+      # Mount host directories to access user files
+      - /home:/host/home:ro
+      - /mnt/synology:/host/synology:ro
+      # Mount test photos for development
+      - ./test-photos:/app/test-photos:ro
       # Development: mount source code for live reload
       - ./vam_tools:/app/vam_tools
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=pg
+      - POSTGRES_PASSWORD=buffalo-jump
+      - POSTGRES_DB=vam-tools
+      - CELERY_BROKER_URL=redis://:buffalo-jump@redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://:buffalo-jump@redis:6379/2
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_PASSWORD=buffalo-jump
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: uvicorn vam_tools.web.api:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn vam_tools.api.app:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 3
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # GPU support - commented out temporarily due to driver selection issue
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
 
   # Celery worker - Handles background jobs
   celery-worker:
@@ -67,32 +61,43 @@ services:
     volumes:
       # Same mounts as web service
       - ${CATALOG_PATH:-~/catalogs}:/app/catalogs
-      - ${PHOTOS_PATH:-~/photos}:/app/photos:ro
-      - /home/irjudson/Xfer:/app/photos-xfer:ro
+      # Mount host directories to access user files
+      - /home:/host/home:ro
+      - /mnt/synology:/host/synology:ro
+      # Mount test photos for development
+      - ./test-photos:/app/test-photos:ro
       - ./vam_tools:/app/vam_tools
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=pg
+      - POSTGRES_PASSWORD=buffalo-jump
+      - POSTGRES_DB=vam-tools
+      - CELERY_BROKER_URL=redis://:buffalo-jump@redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://:buffalo-jump@redis:6379/2
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_PASSWORD=buffalo-jump
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - C_FORCE_ROOT=true  # Allow Celery to run as root (only for Docker)
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: celery -A vam_tools.jobs.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A vam_tools.celery_app worker --loglevel=info --concurrency=2
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     healthcheck:
       disable: true  # Celery worker doesn't have a web endpoint to check
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # GPU support - commented out temporarily due to driver selection issue
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
 
   # Celery Flower - Web UI for monitoring Celery jobs (optional)
   flower:
@@ -105,18 +110,12 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: celery -A vam_tools.jobs.celery_app flower --port=5555
+    command: celery -A vam_tools.celery_app flower --port=5555
     restart: unless-stopped
     profiles:
       - monitoring  # Only start with: docker-compose --profile monitoring up
 
-volumes:
-  redis-data:
-    driver: local
-
 networks:
   default:
-    name: vam-network
+    external: true
+    name: shared-infrastructure_default

@@ -1,4 +1,4 @@
-// VAM Tools - Unified Application with Multi-Catalog Support
+// VAM Tools - Complete MVP Application
 const { createApp } = Vue;
 
 createApp({
@@ -6,33 +6,23 @@ createApp({
         return {
             // Navigation
             currentView: 'dashboard',
-            
+
             // Catalog management
             catalogs: [],
             currentCatalog: null,
             showCatalogManager: false,
             showAddCatalogForm: false,
-            
+
             addCatalogForm: {
                 name: '',
-                catalog_path: '',
-                source_directories: '',
-                description: '',
-                color: '#60a5fa'
+                source_directories: ''
             },
-            
-            // Catalog data
-            catalogInfo: null,
-            dashboardStats: null,
-            images: [],
-            loading: false,
-            error: null,
-            
+
             // Jobs data
             allJobs: [],
-            jobsLoading: false,
-            jobsRefreshInterval: null,
             jobDetailsCache: {},
+            jobsRefreshInterval: null,
+            jobWebSockets: {}, // WebSocket connections by job ID
 
             // Worker health
             workerHealth: {
@@ -42,39 +32,19 @@ createApp({
                 message: 'Checking...'
             },
 
-            // Filters and search
-            currentFilter: 'all',
-            searchQuery: '',
-            sortBy: 'captured_date_desc',
-            
             // Quick action forms
             showAnalyzeForm: false,
-            showOrganizeForm: false,
-            showThumbnailsForm: false,
-            
+
             analyzeForm: {
                 catalog_id: null,
                 detect_duplicates: false,
                 force_reanalyze: false
             },
-            organizeForm: {
-                catalog_id: null,
-                output_directory: '',
-                dry_run: true,
-                operation: 'copy',
-                pattern: '{year}/{month}'
-            },
-            thumbnailsForm: {
-                catalog_id: null,
-                sizes: '200, 400',
-                quality: 85,
-                skip_existing: true
-            },
-            
+
             // Notifications
             notifications: [],
 
-            // Review Queue
+            // Review Queue (placeholder)
             reviewQueue: [],
             reviewQueueStats: {
                 total_needing_review: 0,
@@ -82,61 +52,49 @@ createApp({
                 no_date: 0,
                 suspicious_dates: 0,
             },
+
+            // Browse (placeholder)
+            images: [],
+            currentFilter: 'all',
+            searchQuery: '',
+
+            // Job streaming
+            streamingJob: null,
+            streamEvents: [],
+            streamEventSource: null,
+            streamConnectionStatus: null,
+            streamConnectionStatusText: '',
         };
     },
-    
+
     computed: {
         filteredImages() {
-            let filtered = this.images;
-            
-            if (this.currentFilter !== 'all') {
-                filtered = filtered.filter(img => {
-                    switch(this.currentFilter) {
-                        case 'duplicates': return img.is_duplicate;
-                        case 'no_date': return !img.captured_date;
-                        case 'videos': return img.file_type === 'video';
-                        default: return true;
-                    }
-                });
-            }
-            
-            if (this.searchQuery) {
-                const query = this.searchQuery.toLowerCase();
-                filtered = filtered.filter(img => 
-                    img.file_name.toLowerCase().includes(query) ||
-                    (img.tags && img.tags.some(t => t.toLowerCase().includes(query)))
-                );
-            }
-            
-            return filtered;
+            return this.images;
         },
-        
+
         jobs() {
             return this.allJobs.map(jobId => {
                 const details = this.jobDetailsCache[jobId] || {};
                 return {
                     id: jobId,
-                    name: this.getJobName(jobId, details),
                     status: details.status || 'PENDING',
-                    progress: details.progress?.percent || 0,
-                    progressData: details.progress, // Keep full progress object
-                    result: details.result,
-                    error: details.error
+                    progress: details.progress || {},
+                    result: details.result || {},
                 };
             });
         },
-        
+
         activeJobs() {
-            return this.jobs.filter(job => 
+            return this.jobs.filter(job =>
                 job.status === 'PENDING' || job.status === 'PROGRESS'
             );
         },
-        
+
         hasActiveJobs() {
             return this.activeJobs.length > 0;
         }
     },
-    
+
     methods: {
         // Navigation
         setView(view) {
@@ -144,176 +102,154 @@ createApp({
             if (view === 'jobs') {
                 this.startJobsRefresh();
             }
-            if (view === 'browse' && this.images.length === 0) {
-                this.loadImages();
-            }
-            if (view === 'review') {
-                this.loadReviewQueueStats();
-                this.loadReviewQueue();
-            }
         },
-        
+
         // Catalog Management
         async loadCatalogs() {
             try {
-                const response = await axios.get('/api/catalogs');
+                const response = await axios.get('/api/catalogs/');
                 this.catalogs = response.data;
-                
-                // Load current catalog
-                const currentResponse = await axios.get('/api/catalogs/current');
-                this.currentCatalog = currentResponse.data;
-                
-                // Set form defaults to current catalog if available
+
+                // Set first catalog as current if available
+                if (this.catalogs.length > 0 && !this.currentCatalog) {
+                    this.currentCatalog = this.catalogs[0];
+                }
+
+                // Set form defaults
                 if (this.currentCatalog) {
                     this.analyzeForm.catalog_id = this.currentCatalog.id;
-                    this.organizeForm.catalog_id = this.currentCatalog.id;
-                    this.thumbnailsForm.catalog_id = this.currentCatalog.id;
                 }
             } catch (error) {
                 console.error('Error loading catalogs:', error);
+                this.addNotification('Failed to load catalogs', 'error');
             }
         },
-        
-        async switchCatalog(catalogId) {
-            try {
-                await axios.post('/api/catalogs/current', { catalog_id: catalogId });
-                await this.loadCatalogs();
-                this.addNotification(`Switched to catalog: ${this.currentCatalog.name}`, 'success');
-                
-                // Reload dashboard stats for new catalog
-                this.loadDashboardStats();
-            } catch (error) {
-                this.addNotification('Failed to switch catalog', 'error');
-                console.error(error);
-            }
+
+        switchCatalog(catalog) {
+            this.currentCatalog = catalog;
+            this.analyzeForm.catalog_id = catalog.id;
+            this.addNotification(`Switched to catalog: ${catalog.name}`, 'success');
         },
-        
+
         async submitAddCatalog() {
             try {
                 const sourceDirs = this.addCatalogForm.source_directories
                     .split('\n')
                     .map(s => s.trim())
                     .filter(s => s.length > 0);
-                
-                const response = await axios.post('/api/catalogs', {
+
+                await axios.post('/api/catalogs/', {
                     name: this.addCatalogForm.name,
-                    catalog_path: this.addCatalogForm.catalog_path,
-                    source_directories: sourceDirs,
-                    description: this.addCatalogForm.description,
-                    color: this.addCatalogForm.color
+                    source_directories: sourceDirs
                 });
-                
+
                 this.addNotification('Catalog added successfully', 'success');
                 this.showAddCatalogForm = false;
-                
+
                 // Reset form
                 this.addCatalogForm = {
                     name: '',
-                    catalog_path: '',
-                    source_directories: '',
-                    description: '',
-                    color: '#60a5fa'
+                    source_directories: ''
                 };
-                
+
                 await this.loadCatalogs();
             } catch (error) {
                 this.addNotification('Failed to add catalog: ' + (error.response?.data?.detail || error.message), 'error');
                 console.error(error);
             }
         },
-        
+
         async deleteCatalog(catalogId) {
-            if (!confirm('Are you sure you want to delete this catalog configuration? This will not delete any files.')) {
+            if (!confirm('Are you sure you want to delete this catalog? This will delete all catalog data.')) {
                 return;
             }
-            
+
             try {
                 await axios.delete(`/api/catalogs/${catalogId}`);
                 this.addNotification('Catalog deleted', 'info');
+                if (this.currentCatalog && this.currentCatalog.id === catalogId) {
+                    this.currentCatalog = null;
+                }
                 await this.loadCatalogs();
             } catch (error) {
                 this.addNotification('Failed to delete catalog', 'error');
                 console.error(error);
             }
         },
-        
-        getJobName(jobId, details) {
-            if (details.result && details.result.catalog_path) {
-                return 'Catalog Job';
-            }
-            return jobId.substring(0, 8) + '...';
-        },
-        
-        // Catalog data methods
-        async loadCatalogInfo() {
-            try {
-                const response = await axios.get('/api/catalog/info');
-                this.catalogInfo = response.data;
-            } catch (error) {
-                console.log('No catalog info available');
-            }
-        },
-        
-        async loadDashboardStats() {
-            this.loading = true;
-            try {
-                const response = await axios.get('/api/dashboard/stats');
-                this.dashboardStats = response.data;
-            } catch (error) {
-                this.dashboardStats = {
-                    total_images: 0,
-                    total_videos: 0,
-                    total_size_bytes: 0,
-                    duplicates: 0
-                };
-            } finally {
-                this.loading = false;
-            }
-        },
-        
-        async loadImages() {
-            this.loading = true;
-            try {
-                const response = await axios.get('/api/images');
-                this.images = response.data.images || [];
-            } catch (error) {
-                console.error('Failed to load images:', error);
-                this.images = [];
-            } finally {
-                this.loading = false;
-            }
-        },
-        
-        // Job methods
-        async loadJobs() {
-            try {
-                const response = await axios.get('/api/jobs');
-                const jobsList = response.data.jobs || [];
 
-                // API now returns full job objects with details
-                if (Array.isArray(jobsList)) {
-                    // Extract job IDs and cache the full details
-                    this.allJobs = jobsList.map(job => {
-                        if (typeof job === 'string') {
-                            return job;
-                        } else {
-                            // Cache the full job details
-                            this.jobDetailsCache[job.job_id] = job;
-                            return job.job_id;
-                        }
-                    });
-                }
-            } catch (error) {
-                console.error('Error loading jobs:', error);
-            }
-        },
-        
+        // Job methods
         async loadJobDetails(jobId) {
             try {
                 const response = await axios.get(`/api/jobs/${jobId}`);
                 this.jobDetailsCache[jobId] = response.data;
+
+                // Connect WebSocket for active jobs
+                const jobData = response.data;
+                if ((jobData.status === 'PENDING' || jobData.status === 'PROGRESS') && !this.jobWebSockets[jobId]) {
+                    this.connectJobWebSocket(jobId);
+                }
             } catch (error) {
                 console.error(`Error loading job ${jobId}:`, error);
+            }
+        },
+
+        connectJobWebSocket(jobId) {
+            // Don't reconnect if already connected
+            if (this.jobWebSockets[jobId]) return;
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/api/jobs/${jobId}/stream`;
+
+            console.log(`Connecting WebSocket for job ${jobId}...`);
+            const ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log(`WebSocket connected for job ${jobId}`);
+            };
+
+            ws.onmessage = (event) => {
+                const update = JSON.parse(event.data);
+                console.log(`Job ${jobId} update:`, update);
+
+                // Update job details cache
+                this.jobDetailsCache[jobId] = {
+                    job_id: update.job_id,
+                    status: update.status,
+                    progress: update.progress || {},
+                    result: update.result || {}
+                };
+
+                // Close WebSocket if job is done
+                if (update.status === 'SUCCESS' || update.status === 'FAILURE') {
+                    this.disconnectJobWebSocket(jobId);
+
+                    // Show notification
+                    if (update.status === 'SUCCESS') {
+                        this.addNotification(`Job ${jobId.substring(0, 8)} completed successfully`, 'success');
+                    } else {
+                        this.addNotification(`Job ${jobId.substring(0, 8)} failed`, 'error');
+                    }
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error(`WebSocket error for job ${jobId}:`, error);
+                this.disconnectJobWebSocket(jobId);
+            };
+
+            ws.onclose = () => {
+                console.log(`WebSocket closed for job ${jobId}`);
+                delete this.jobWebSockets[jobId];
+            };
+
+            this.jobWebSockets[jobId] = ws;
+        },
+
+        disconnectJobWebSocket(jobId) {
+            const ws = this.jobWebSockets[jobId];
+            if (ws) {
+                ws.close();
+                delete this.jobWebSockets[jobId];
             }
         },
 
@@ -330,7 +266,7 @@ createApp({
                 };
             }
         },
-        
+
         async submitAnalyzeJob() {
             try {
                 const catalog = this.catalogs.find(c => c.id === this.analyzeForm.catalog_id);
@@ -338,160 +274,49 @@ createApp({
                     this.addNotification('Please select a catalog', 'error');
                     return;
                 }
-                
+
                 const response = await axios.post('/api/jobs/analyze', {
-                    catalog_path: catalog.catalog_path,
+                    catalog_id: catalog.id,
                     source_directories: catalog.source_directories,
                     detect_duplicates: this.analyzeForm.detect_duplicates,
                     force_reanalyze: this.analyzeForm.force_reanalyze
                 });
-                
+
                 this.addNotification('Analysis job submitted successfully', 'success');
                 this.showAnalyzeForm = false;
-                
+
                 if (response.data.job_id) {
                     this.allJobs.unshift(response.data.job_id);
                     this.loadJobDetails(response.data.job_id);
                 }
-                
+
                 this.setView('jobs');
             } catch (error) {
                 this.addNotification('Failed to submit analysis job: ' + (error.response?.data?.detail || error.message), 'error');
                 console.error(error);
             }
         },
-        
-        async submitOrganizeJob() {
-            try {
-                const catalog = this.catalogs.find(c => c.id === this.organizeForm.catalog_id);
-                if (!catalog) {
-                    this.addNotification('Please select a catalog', 'error');
-                    return;
-                }
-                
-                const response = await axios.post('/api/jobs/organize', {
-                    catalog_path: catalog.catalog_path,
-                    output_directory: this.organizeForm.output_directory,
-                    dry_run: this.organizeForm.dry_run,
-                    operation: this.organizeForm.operation,
-                    pattern: this.organizeForm.pattern
-                });
-                
-                this.addNotification('Organization job submitted successfully', 'success');
-                this.showOrganizeForm = false;
-                
-                if (response.data.job_id) {
-                    this.allJobs.unshift(response.data.job_id);
-                    this.loadJobDetails(response.data.job_id);
-                }
-                
-                this.setView('jobs');
-            } catch (error) {
-                this.addNotification('Failed to submit organization job: ' + (error.response?.data?.detail || error.message), 'error');
-                console.error(error);
-            }
-        },
-        
-        async submitThumbnailsJob() {
-            try {
-                const catalog = this.catalogs.find(c => c.id === this.thumbnailsForm.catalog_id);
-                if (!catalog) {
-                    this.addNotification('Please select a catalog', 'error');
-                    return;
-                }
-                
-                const sizes = this.thumbnailsForm.sizes
-                    .split(',')
-                    .map(s => parseInt(s.trim()))
-                    .filter(n => !isNaN(n));
-                
-                const response = await axios.post('/api/jobs/thumbnails', {
-                    catalog_path: catalog.catalog_path,
-                    sizes: sizes,
-                    quality: this.thumbnailsForm.quality,
-                    skip_existing: this.thumbnailsForm.skip_existing
-                });
-                
-                this.addNotification('Thumbnail generation job submitted successfully', 'success');
-                this.showThumbnailsForm = false;
-                
-                if (response.data.job_id) {
-                    this.allJobs.unshift(response.data.job_id);
-                    this.loadJobDetails(response.data.job_id);
-                }
-                
-                this.setView('jobs');
-            } catch (error) {
-                this.addNotification('Failed to submit thumbnails job: ' + (error.response?.data?.detail || error.message), 'error');
-                console.error(error);
-            }
-        },
-        
-        async cancelJob(jobId) {
-            try {
-                await axios.delete(`/api/jobs/${jobId}`);
-                this.addNotification('Job cancelled', 'info');
-                this.loadJobDetails(jobId);
-            } catch (error) {
-                this.addNotification('Failed to cancel job: ' + (error.response?.data?.detail || error.message), 'error');
-                console.error(error);
-            }
-        },
 
-        async killJob(jobId) {
-            if (!confirm('Force kill this job? This may leave files in an incomplete state.')) {
-                return;
-            }
-
-            try {
-                await axios.post(`/api/jobs/${jobId}/kill`);
-                this.addNotification('Job force-killed. Check catalog integrity.', 'warning');
-                this.loadJobDetails(jobId);
-            } catch (error) {
-                this.addNotification('Failed to kill job: ' + (error.response?.data?.detail || error.message), 'error');
-                console.error(error);
-            }
-        },
-
-        async rerunJob(jobId) {
-            try {
-                const response = await axios.post(`/api/jobs/${jobId}/rerun`);
-                this.addNotification(`Job resubmitted: ${response.data.job_id.substring(0, 8)}...`, 'success');
-                this.loadJobs();
-            } catch (error) {
-                this.addNotification('Failed to rerun job: ' + (error.response?.data?.detail || error.message), 'error');
-                console.error(error);
-            }
-        },
-        
-        isJobStuck(job) {
-            // Consider a job stuck if it's been in PROGRESS for > 5 minutes without completion
-            if (job.status !== 'PROGRESS') return false;
-            
-            // Simple heuristic: if no progress change for extended time
-            // In a real implementation, you'd track last progress update time
-            return false; // Placeholder
-        },
-        
         startJobsRefresh() {
             if (this.jobsRefreshInterval) return;
 
-            this.loadJobs();
             this.loadWorkerHealth();
             this.jobsRefreshInterval = setInterval(() => {
-                // Reload all jobs to get updated status
-                this.loadJobs();
+                // Reload job details for tracked jobs
+                this.allJobs.forEach(jobId => {
+                    this.loadJobDetails(jobId);
+                });
                 this.loadWorkerHealth();
             }, 2000);
         },
-        
+
         stopJobsRefresh() {
             if (this.jobsRefreshInterval) {
                 clearInterval(this.jobsRefreshInterval);
                 this.jobsRefreshInterval = null;
             }
         },
-        
+
         getJobStatusClass(status) {
             const statusClasses = {
                 'PENDING': 'status-pending',
@@ -501,7 +326,114 @@ createApp({
             };
             return statusClasses[status] || 'status-unknown';
         },
-        
+
+        // Stub methods for features not yet implemented
+        cancelJob(jobId) {
+            this.addNotification('Job cancel not yet implemented', 'info');
+        },
+
+        killJob(jobId) {
+            this.addNotification('Job kill not yet implemented', 'info');
+        },
+
+        rerunJob(jobId) {
+            this.addNotification('Job rerun not yet implemented', 'info');
+        },
+
+        loadImages() {
+            this.addNotification('Image browsing not yet implemented', 'info');
+        },
+
+        resolveReviewItem(itemId) {
+            this.addNotification('Review queue not yet implemented', 'info');
+        },
+
+        skipReviewItem(itemId) {
+            this.addNotification('Review queue not yet implemented', 'info');
+        },
+
+        // Job Streaming
+        showJobStream(jobId) {
+            const job = this.jobs.find(j => j.id === jobId);
+            if (!job) return;
+
+            this.streamingJob = job;
+            this.streamEvents = [];
+            this.streamConnectionStatus = 'connecting';
+            this.streamConnectionStatusText = 'Connecting...';
+
+            // Connect to Server-Sent Events endpoint
+            const eventSource = new EventSource(`/api/jobs/${jobId}/stream`);
+
+            eventSource.onopen = () => {
+                this.streamConnectionStatus = 'connected';
+                this.streamConnectionStatusText = '● Connected';
+            };
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    // Update job status in streaming modal
+                    if (data.status) {
+                        this.streamingJob.status = data.status;
+                    }
+                    if (data.progress !== undefined) {
+                        this.streamingJob.progress = data.progress.percent || 0;
+                    }
+
+                    // Add event to stream
+                    const message = data.progress?.message || data.status || 'Update';
+                    this.streamEvents.push({
+                        timestamp: new Date(),
+                        message: message,
+                        status: data.status
+                    });
+
+                    // Auto-scroll to bottom
+                    this.$nextTick(() => {
+                        const output = this.$refs.streamOutput;
+                        if (output) {
+                            output.scrollTop = output.scrollHeight;
+                        }
+                    });
+
+                    // Close stream if job complete
+                    if (data.status === 'SUCCESS' || data.status === 'FAILURE') {
+                        this.streamConnectionStatus = 'completed';
+                        this.streamConnectionStatusText = '● Completed';
+                        setTimeout(() => {
+                            eventSource.close();
+                        }, 1000);
+                    }
+                } catch (e) {
+                    console.error('Error parsing stream event:', e);
+                }
+            };
+
+            eventSource.onerror = () => {
+                this.streamConnectionStatus = 'error';
+                this.streamConnectionStatusText = '● Connection Error';
+                eventSource.close();
+            };
+
+            this.streamEventSource = eventSource;
+        },
+
+        closeJobStream() {
+            if (this.streamEventSource) {
+                this.streamEventSource.close();
+                this.streamEventSource = null;
+            }
+            this.streamingJob = null;
+            this.streamEvents = [];
+            this.streamConnectionStatus = null;
+        },
+
+        clearStreamEvents() {
+            this.streamEvents = [];
+        },
+
         // Notifications
         addNotification(message, type = 'info') {
             const id = Date.now();
@@ -510,100 +442,57 @@ createApp({
                 this.notifications = this.notifications.filter(n => n.id !== id);
             }, 5000);
         },
-        
+
         removeNotification(id) {
             this.notifications = this.notifications.filter(n => n.id !== id);
         },
-        
+
+        // Formatting
+        formatTime(date) {
+            if (!date) return '';
+            return new Date(date).toLocaleTimeString();
+        },
+
         // Formatting
         formatNumber(num) {
             return new Intl.NumberFormat().format(num || 0);
         },
-        
-        formatBytes(bytes) {
-            if (!bytes) return '0 B';
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-        },
-        
+
         formatDate(dateStr) {
             if (!dateStr) return 'Unknown';
             return new Date(dateStr).toLocaleString();
         },
 
         displayPath(path) {
-            // Strip /app prefix to show user-friendly paths
-            // /app/catalogs/my-catalog -> ~/catalogs/my-catalog
-            // /app/photos/vacation -> ~/photos/vacation
+            // Display user-friendly paths
             if (!path) return '';
             if (path.startsWith('/app/')) {
                 return '~/' + path.substring(5);
             }
+            if (path.startsWith('/host/home/')) {
+                return path.replace('/host/home/', '/home/');
+            }
+            if (path.startsWith('/host/synology/')) {
+                return '/mnt/synology/' + path.substring(15);
+            }
             return path;
-        },
-
-        // Review Queue Methods
-        async loadReviewQueueStats() {
-            try {
-                const response = await axios.get('/api/review/stats');
-                this.reviewQueueStats = response.data;
-            } catch (error) {
-                console.error('Error loading review queue stats:', error);
-                this.reviewQueueStats = {
-                    total_needing_review: 0,
-                    date_conflicts: 0,
-                    no_date: 0,
-                    suspicious_dates: 0,
-                };
-            }
-        },
-
-        async loadReviewQueue() {
-            this.loading = true;
-            try {
-                const response = await axios.get('/api/review/queue');
-                this.reviewQueue = response.data.items || [];
-            } catch (error) {
-                console.error('Error loading review queue:', error);
-                this.reviewQueue = [];
-            } finally {
-                this.loading = false;
-            }
-        },
-
-        async resolveReviewItem(itemId) {
-            // Placeholder for actual resolution logic
-            this.addNotification(`Resolved item: ${itemId}`, 'success');
-            // After resolution, reload queue
-            await this.loadReviewQueueStats();
-            await this.loadReviewQueue();
-        },
-
-        async skipReviewItem(itemId) {
-            // Placeholder for actual skip logic
-            this.addNotification(`Skipped item: ${itemId}`, 'info');
-            // After skipping, reload queue
-            await this.loadReviewQueueStats();
-            await this.loadReviewQueue();
         }
     },
-    
+
     mounted() {
         // Load catalogs first
         this.loadCatalogs().then(() => {
-            // Then load other data
-            this.loadCatalogInfo();
-            this.loadDashboardStats();
-            this.loadJobs();
-            
-            // Start monitoring active jobs
+            // Start monitoring worker health
             this.startJobsRefresh();
         });
     },
-    
+
     beforeUnmount() {
         this.stopJobsRefresh();
+
+        // Close all WebSocket connections
+        Object.keys(this.jobWebSockets).forEach(jobId => {
+            this.disconnectJobWebSocket(jobId);
+        });
     }
 }).mount('#app');

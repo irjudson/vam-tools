@@ -18,7 +18,7 @@ from rich.table import Table
 
 from vam_tools.analysis.perceptual_hash import HashMethod
 from vam_tools.analysis.scanner import ImageScanner
-from vam_tools.core.database import CatalogDatabase
+from vam_tools.db import CatalogDB as CatalogDatabase
 from vam_tools.core.performance_stats import PerformanceTracker
 from vam_tools.core.types import Statistics
 from vam_tools.shared import format_bytes

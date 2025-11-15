@@ -19,7 +19,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from ..core.database import CatalogDatabase
+from ..db import CatalogDB as CatalogDatabase
 from ..shared.thumbnail_utils import generate_thumbnail, get_thumbnail_path
 from ..version import get_version_string
 

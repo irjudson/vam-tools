@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from vam_tools.analysis.scanner import ImageScanner
-from vam_tools.core.catalog import CatalogDatabase
+from vam_tools.db import CatalogDB as CatalogDatabase
 
 
 class TestImageScanner:
@@ -29,7 +29,7 @@ class TestImageScanner:
 
         # Initialize catalog
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
 
         # Run scanner
         with CatalogDatabase(catalog_dir) as db:
@@ -75,7 +75,7 @@ class TestImageScanner:
 
         # Initialize catalog
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
 
         # Run scanner with multiple workers
         with CatalogDatabase(catalog_dir) as db:
@@ -107,7 +107,7 @@ class TestImageScanner:
 
         # Initialize and first scan
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -153,7 +153,7 @@ class TestImageScanner:
 
         # Initialize and scan
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -185,7 +185,7 @@ class TestImageScanner:
 
         # Initialize and scan
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -210,7 +210,7 @@ class TestImageScanner:
 
         # Initialize and scan
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -233,7 +233,7 @@ class TestImageScanner:
 
         # Initialize and scan
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -262,7 +262,7 @@ class TestImageScanner:
 
         # Initialize and scan
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -288,7 +288,7 @@ class TestImageScanner:
         try:
             # Initialize and scan
             with CatalogDatabase(catalog_dir) as db:
-                db.initialize(source_directories=[photos_dir])
+                db.initialize()
                 scanner = ImageScanner(db, workers=1)
                 scanner.scan_directories([photos_dir])
 
@@ -314,7 +314,7 @@ class TestImageScanner:
 
         # Initialize and scan
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -340,7 +340,7 @@ class TestImageScanner:
 
         # Initialize and scan
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -367,7 +367,7 @@ class TestImageScanner:
 
         # Initialize and scan
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
 
@@ -394,7 +394,7 @@ class TestIncrementalFileDiscovery:
         # Initialize catalog and scanner
         catalog_dir = tmp_path / "catalog"
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
 
             # Collect files from incremental discovery
@@ -429,7 +429,7 @@ class TestIncrementalFileDiscovery:
         # Initialize catalog and scanner
         catalog_dir = tmp_path / "catalog"
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
 
             # Collect files
@@ -458,7 +458,7 @@ class TestIncrementalFileDiscovery:
         # Initialize catalog and scanner
         catalog_dir = tmp_path / "catalog"
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
 
             # Collect files
@@ -492,7 +492,7 @@ class TestIncrementalFileDiscovery:
         # Initialize catalog and scanner
         catalog_dir = tmp_path / "catalog"
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
 
             # Collect files
@@ -521,7 +521,7 @@ class TestIncrementalFileDiscovery:
         # Initialize catalog and scanner
         catalog_dir = tmp_path / "catalog"
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
 
             # Test that we can iterate and get results immediately
@@ -554,7 +554,7 @@ class TestIncrementalFileDiscovery:
         # Initialize catalog and scanner
         catalog_dir = tmp_path / "catalog"
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=1)
 
             # Collect files
@@ -583,7 +583,7 @@ class TestIncrementalFileDiscovery:
         # Initialize catalog and scan
         catalog_dir = tmp_path / "catalog"
         with CatalogDatabase(catalog_dir) as db:
-            db.initialize(source_directories=[photos_dir])
+            db.initialize()
             scanner = ImageScanner(db, workers=2)
             scanner.scan_directories([photos_dir])
 
