@@ -4,8 +4,13 @@ from datetime import datetime
 
 import pytest
 
-from vam_tools.core.types import DateInfo
-from vam_tools.db.serializers import serialize_date_info, deserialize_date_info
+from vam_tools.core.types import DateInfo, ImageMetadata
+from vam_tools.db.serializers import (
+    serialize_date_info,
+    deserialize_date_info,
+    serialize_image_metadata,
+    deserialize_image_metadata,
+)
 
 
 def test_serialize_date_info_with_all_fields():
@@ -78,3 +83,88 @@ def test_deserialize_date_info_empty():
     assert isinstance(result, DateInfo)
     assert result.selected_date is None
     assert result.confidence == 0
+
+
+def test_serialize_image_metadata_with_all_fields():
+    """Test serializing ImageMetadata with all fields."""
+    metadata = ImageMetadata(
+        exif={"Make": "Canon", "Model": "EOS 5D"},
+        format="JPEG",
+        resolution=(1920, 1080),
+        width=1920,
+        height=1080,
+        size_bytes=1024000,
+        camera_make="Canon",
+        camera_model="EOS 5D",
+        lens_model="24-70mm",
+        focal_length=50.0,
+        aperture=2.8,
+        shutter_speed="1/200",
+        iso=400,
+        gps_latitude=37.7749,
+        gps_longitude=-122.4194,
+        perceptual_hash_dhash="abc123",
+        perceptual_hash_ahash="def456",
+        perceptual_hash_whash="ghi789",
+        merged_from=["img1", "img2"],
+    )
+
+    result = serialize_image_metadata(metadata)
+
+    assert isinstance(result, dict)
+    assert result["format"] == "JPEG"
+    assert result["width"] == 1920
+    assert result["height"] == 1080
+    assert result["camera_make"] == "Canon"
+    assert result["gps_latitude"] == 37.7749
+    assert result["perceptual_hash_dhash"] == "abc123"
+    assert result["merged_from"] == ["img1", "img2"]
+
+
+def test_serialize_image_metadata_empty():
+    """Test serializing empty ImageMetadata."""
+    metadata = ImageMetadata()
+    result = serialize_image_metadata(metadata)
+
+    assert result["exif"] == {}
+    assert result["format"] is None
+    assert result["size_bytes"] is None
+
+
+def test_deserialize_image_metadata():
+    """Test deserializing dict to ImageMetadata."""
+    data = {
+        "format": "JPEG",
+        "width": 1920,
+        "height": 1080,
+        "size_bytes": 1024000,
+        "camera_make": "Canon",
+        "perceptual_hash_dhash": "abc123",
+    }
+
+    result = deserialize_image_metadata(data)
+
+    assert isinstance(result, ImageMetadata)
+    assert result.format == "JPEG"
+    assert result.width == 1920
+    assert result.camera_make == "Canon"
+
+
+def test_round_trip_image_metadata():
+    """Test that serialize→deserialize is lossless."""
+    original = ImageMetadata(
+        format="PNG",
+        width=3840,
+        height=2160,
+        size_bytes=2048000,
+        iso=800,
+    )
+
+    serialized = serialize_image_metadata(original)
+    deserialized = deserialize_image_metadata(serialized)
+
+    assert deserialized.format == original.format
+    assert deserialized.width == original.width
+    assert deserialized.height == original.height
+    assert deserialized.size_bytes == original.size_bytes
+    assert deserialized.iso == original.iso
