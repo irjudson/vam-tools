@@ -10,7 +10,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from vam_tools.core.types import DateInfo, ImageMetadata, ImageRecord, FileType, ImageStatus
+from vam_tools.core.types import (
+    DateInfo,
+    FileType,
+    ImageMetadata,
+    ImageRecord,
+    ImageStatus,
+)
 
 
 def _safe_deserialize_datetime(iso_string: Optional[str]) -> Optional[datetime]:
@@ -48,11 +54,23 @@ def serialize_date_info(date_info: DateInfo) -> Dict[str, Any]:
 
     return {
         "exif_dates": exif_dates,
-        "filename_date": date_info.filename_date.isoformat() if date_info.filename_date else None,
+        "filename_date": (
+            date_info.filename_date.isoformat() if date_info.filename_date else None
+        ),
         "directory_date": date_info.directory_date,
-        "filesystem_created": date_info.filesystem_created.isoformat() if date_info.filesystem_created else None,
-        "filesystem_modified": date_info.filesystem_modified.isoformat() if date_info.filesystem_modified else None,
-        "selected_date": date_info.selected_date.isoformat() if date_info.selected_date else None,
+        "filesystem_created": (
+            date_info.filesystem_created.isoformat()
+            if date_info.filesystem_created
+            else None
+        ),
+        "filesystem_modified": (
+            date_info.filesystem_modified.isoformat()
+            if date_info.filesystem_modified
+            else None
+        ),
+        "selected_date": (
+            date_info.selected_date.isoformat() if date_info.selected_date else None
+        ),
         "selected_source": date_info.selected_source,
         "confidence": date_info.confidence,
         "suspicious": date_info.suspicious,
@@ -176,7 +194,9 @@ def serialize_image_record(record: ImageRecord) -> Dict[str, Any]:
         "checksum": record.checksum,
         "status": record.status.value if record.status else None,
         "dates": serialize_date_info(record.dates) if record.dates else {},
-        "metadata": serialize_image_metadata(record.metadata) if record.metadata else {},
+        "metadata": (
+            serialize_image_metadata(record.metadata) if record.metadata else {}
+        ),
     }
 
 

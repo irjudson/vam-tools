@@ -233,23 +233,35 @@ body {
 
 .mini-job {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 0.5rem;
     font-size: 0.875rem;
+    background: rgba(255,255,255,0.05);
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(255,255,255,0.1);
 }
 
-.mini-progress-bar {
-    width: 100px;
-    height: 8px;
-    background: rgba(255,255,255,0.2);
-    border-radius: 4px;
-    overflow: hidden;
+.mini-job-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
 }
 
-.mini-progress-fill {
-    height: 100%;
-    background: #10b981;
-    transition: width 0.3s ease;
+.mini-job-name {
+    font-weight: 500;
+    color: #e2e8f0;
+}
+
+.mini-job-stats {
+    display: flex;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+}
+
+.status-badge-small {
+    font-size: 0.75rem;
+    padding: 0.125rem 0.5rem;
 }
 
 /* View Container */
@@ -1062,9 +1074,13 @@ section h3 {
     border-radius: 0.375rem;
 }
 
-.stream-progress {
-    font-weight: 600;
-    color: #10b981;
+.stream-stats {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding: 0.75rem;
+    background: rgba(255,255,255,0.05);
+    border-radius: 0.375rem;
 }
 
 .stream-connection-status {
@@ -1140,4 +1156,183 @@ section h3 {
     gap: 0.5rem;
     padding-top: 1rem;
     border-top: 1px solid #334155;
+}
+
+/* Job Progress Stats (live updates while running) */
+.job-progress-stats {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 0.375rem;
+}
+
+.progress-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 0.75rem;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0.75rem 0.5rem;
+    background: rgba(30, 41, 59, 0.6);
+    border-radius: 0.25rem;
+    min-height: 60px;
+}
+
+.stat-label {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.stat-value {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    line-height: 1.2 !important;
+    display: block !important;
+}
+
+.stat-value.text-success {
+    color: #10b981 !important;
+}
+
+.stat-value.text-muted {
+    color: #94a3b8 !important;
+}
+
+.stat-value.text-warning {
+    color: #fbbf24 !important;
+}
+
+.stat-value.text-danger {
+    color: #ef4444 !important;
+}
+
+/* Job Result Stats (final stats after completion) */
+.job-result-stats {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 0.375rem;
+}
+
+.result-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 0.75rem;
+}
+
+/* Table Result Stats (compact badges for table cells) */
+.table-result-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    align-items: center;
+}
+
+.result-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-success {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.badge-muted {
+    background: rgba(148, 163, 184, 0.2);
+    color: #94a3b8;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.badge-warning {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
+.badge-danger {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.badge-info {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+/* Actions Panel */
+.actions-panel {
+    margin-bottom: 2rem;
+}
+
+.actions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+}
+
+.action-btn {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+    color: inherit;
+    font-size: inherit;
+    font-family: inherit;
+}
+
+.action-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(96, 165, 250, 0.5);
+    transform: translateY(-2px);
+}
+
+.action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.action-icon {
+    font-size: 2rem;
+    flex-shrink: 0;
+}
+
+.action-text {
+    flex: 1;
+}
+
+.action-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.action-desc {
+    font-size: 0.875rem;
+    opacity: 0.7;
 }

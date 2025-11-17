@@ -233,8 +233,11 @@ We welcome contributions! Please see our **[Contributing Guide](./docs/CONTRIBUT
 # Install with development dependencies
 pip install -e ".[dev]"
 
-# Run tests
+# Run tests (skips integration tests by default)
 pytest -n auto
+
+# Run integration tests (requires docker-compose services running)
+pytest -m integration
 
 # Run code quality checks
 black vam_tools/ tests/

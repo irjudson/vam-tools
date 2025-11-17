@@ -17,8 +17,9 @@ from vam_tools.db.models import Base
 @pytest.fixture
 def test_db():
     """Create a test database."""
-    test_db_url = settings.database_url.replace("vam-tools", "vam-tools-test")
-    engine = create_engine(test_db_url)
+    # Use the already-patched settings and engine from conftest.py
+    # conftest.py ensures settings.database_url points to test database
+    engine = create_engine(settings.database_url)
     Base.metadata.create_all(engine)
 
     TestSessionLocal = sessionmaker(bind=engine)
@@ -32,7 +33,13 @@ def test_db():
 
     yield override_get_db
 
-    Base.metadata.drop_all(engine)
+    # Use CASCADE to drop tables with foreign key constraints
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+        conn.commit()
 
 
 @pytest.fixture

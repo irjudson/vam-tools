@@ -6,16 +6,13 @@ Provides a unified interface for catalog operations using PostgreSQL.
 
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .connection import SessionLocal, get_db_context
-from .models import Catalog
 from .serializers import deserialize_image_record, serialize_image_record
 
 logger = logging.getLogger(__name__)
@@ -36,9 +33,9 @@ class CatalogDB:
         Args:
             catalog_id_or_path: UUID of the catalog to work with, or Path for test compatibility
         """
-        from pathlib import Path
-        import uuid as uuid_module
         import hashlib
+        import uuid as uuid_module
+        from pathlib import Path
 
         # Handle Path input for test compatibility
         if isinstance(catalog_id_or_path, Path):
@@ -66,8 +63,9 @@ class CatalogDB:
         if not self._test_mode or not self.session:
             return
 
-        from .models import Base, Catalog
         from pathlib import Path
+
+        from .models import Base, Catalog
 
         # Create all tables from SQLAlchemy models
         Base.metadata.create_all(bind=self.session.bind)
@@ -87,7 +85,9 @@ class CatalogDB:
             except Exception as e:
                 # Tables might already exist - that's ok
                 self.session.rollback()
-                logger.debug(f"Ignoring schema execution error (likely tables exist): {e}")
+                logger.debug(
+                    f"Ignoring schema execution error (likely tables exist): {e}"
+                )
 
         # Create catalog if it doesn't exist
         existing = self.session.query(Catalog).filter_by(id=self.catalog_id).first()
@@ -172,7 +172,7 @@ class CatalogDB:
         pg_sql = ""
         i = 0
         while i < len(sql):
-            if sql[i] == '?':
+            if sql[i] == "?":
                 param_name = f"param{param_index}"
                 pg_sql += f":{param_name}"
                 if param_index < len(parameters):
@@ -187,6 +187,56 @@ class CatalogDB:
         if "catalog_config" in pg_sql:
             pg_sql = pg_sql.replace("catalog_config", "config")
 
+        # Auto-inject catalog_id filters for images table queries
+        # This maintains SQLite compatibility where each catalog was a separate DB
+        import re
+
+        # SELECT from images: Add WHERE catalog_id = ... clause
+        if re.search(r"\bFROM\s+images\b", pg_sql, re.IGNORECASE):
+            # Check if there's already a WHERE clause
+            if re.search(r"\bWHERE\b", pg_sql, re.IGNORECASE):
+                # Add AND catalog_id = :catalog_id after existing WHERE
+                pg_sql = re.sub(
+                    r"(\bWHERE\b)",
+                    r"\1 catalog_id = :catalog_id AND",
+                    pg_sql,
+                    flags=re.IGNORECASE,
+                )
+            else:
+                # Add WHERE catalog_id = :catalog_id before ORDER BY, LIMIT, etc.
+                # Match end of FROM clause or subquery, before ORDER/LIMIT/GROUP
+                pg_sql = re.sub(
+                    r"(\bFROM\s+images\b)(\s+(?:ORDER|LIMIT|GROUP|\)|$))",
+                    r"\1 WHERE catalog_id = :catalog_id\2",
+                    pg_sql,
+                    flags=re.IGNORECASE,
+                )
+                # If no ORDER/LIMIT/GROUP, add at end
+                if not re.search(r"\bWHERE\s+catalog_id\b", pg_sql, re.IGNORECASE):
+                    pg_sql = re.sub(
+                        r"(\bFROM\s+images\b)(?!\s+WHERE)",
+                        r"\1 WHERE catalog_id = :catalog_id",
+                        pg_sql,
+                        flags=re.IGNORECASE,
+                    )
+            param_dict["catalog_id"] = str(self.catalog_id)
+
+        # UPDATE images: Add WHERE catalog_id = ... clause
+        if re.search(r"\bUPDATE\s+images\b", pg_sql, re.IGNORECASE):
+            # Check if there's already a WHERE clause
+            if re.search(r"\bWHERE\b", pg_sql, re.IGNORECASE):
+                # Add AND catalog_id = :catalog_id after existing WHERE
+                pg_sql = re.sub(
+                    r"(\bWHERE\b)",
+                    r"\1 catalog_id = :catalog_id AND",
+                    pg_sql,
+                    flags=re.IGNORECASE,
+                )
+            else:
+                # Add WHERE catalog_id = :catalog_id at end
+                pg_sql += " WHERE catalog_id = :catalog_id"
+            param_dict["catalog_id"] = str(self.catalog_id)
+
         # Handle INSERT OR REPLACE for config table
         # Pattern: INSERT INTO config (key, value, updated_at) VALUES (:param0, :param1, NOW())
         # Becomes: INSERT INTO config (key, value, updated_at, catalog_id)
@@ -195,34 +245,39 @@ class CatalogDB:
         # Note: config.value is JSONB, so we need to JSON-encode string values
         if "INSERT OR REPLACE INTO config" in pg_sql:
             # Replace the INSERT OR REPLACE part
-            pg_sql = pg_sql.replace("INSERT OR REPLACE INTO config", "INSERT INTO config")
+            pg_sql = pg_sql.replace(
+                "INSERT OR REPLACE INTO config", "INSERT INTO config"
+            )
 
             # Add catalog_id to the column list and VALUES
             if "(key, value, updated_at)" in pg_sql:
                 pg_sql = pg_sql.replace(
-                    "(key, value, updated_at)",
-                    "(key, value, updated_at, catalog_id)"
+                    "(key, value, updated_at)", "(key, value, updated_at, catalog_id)"
                 )
                 # Find the VALUES clause - need to properly handle NOW() function
                 # Pattern: VALUES (:param0, :param1, NOW())
                 # The value parameter (:param1) needs to be JSON-encoded since config.value is JSONB
                 import re
+
                 # Match VALUES and its content - be careful with NOW()
                 # We want to add catalog_id before the closing paren of VALUES
                 values_pattern = r"VALUES\s*\((.+)\)$"
+
                 def add_catalog_id(match):
                     values = match.group(1)
                     result = f"VALUES ({values}, :catalog_id)"
                     logger.debug(f"VALUES transformation: {match.group(0)} -> {result}")
                     return result
+
                 pg_sql = re.sub(values_pattern, add_catalog_id, pg_sql)
-                param_dict['catalog_id'] = str(self.catalog_id)
+                param_dict["catalog_id"] = str(self.catalog_id)
 
                 # JSON-encode the value parameter (param1) since config.value is JSONB
-                if 'param1' in param_dict:
+                if "param1" in param_dict:
                     # Convert plain string to JSON string (e.g., "analyzing" -> '"analyzing"')
                     import json
-                    param_dict['param1'] = json.dumps(param_dict['param1'])
+
+                    param_dict["param1"] = json.dumps(param_dict["param1"])
 
                 logger.debug(f"After INSERT OR REPLACE conversion: {pg_sql}")
 
@@ -245,7 +300,7 @@ class CatalogDB:
 
         result = self.session.execute(
             text("SELECT id FROM images WHERE catalog_id = :catalog_id"),
-            {"catalog_id": self.catalog_id}
+            {"catalog_id": self.catalog_id},
         )
         return [row[0] for row in result.fetchall()]
 
@@ -264,7 +319,7 @@ class CatalogDB:
 
         result = self.session.execute(
             text("SELECT * FROM images WHERE id = :id AND catalog_id = :catalog_id"),
-            {"id": image_id, "catalog_id": self.catalog_id}
+            {"id": image_id, "catalog_id": self.catalog_id},
         )
         row = result.fetchone()
         if row:
@@ -274,15 +329,17 @@ class CatalogDB:
             dates = row_dict.get("dates") or {}
             metadata = row_dict.get("metadata") or {}
 
-            return deserialize_image_record({
-                "id": row_dict["id"],
-                "source_path": row_dict["source_path"],
-                "file_type": row_dict["file_type"],
-                "checksum": row_dict["checksum"],
-                "status": row_dict["status"],
-                "dates": dates,
-                "metadata": metadata,
-            })
+            return deserialize_image_record(
+                {
+                    "id": row_dict["id"],
+                    "source_path": row_dict["source_path"],
+                    "file_type": row_dict["file_type"],
+                    "checksum": row_dict["checksum"],
+                    "status": row_dict["status"],
+                    "dates": dates,
+                    "metadata": metadata,
+                }
+            )
         return None
 
     def get_all_images(self) -> Dict[str, Any]:
@@ -297,7 +354,7 @@ class CatalogDB:
 
         result = self.session.execute(
             text("SELECT * FROM images WHERE catalog_id = :catalog_id"),
-            {"catalog_id": self.catalog_id}
+            {"catalog_id": self.catalog_id},
         )
 
         images = {}
@@ -307,15 +364,17 @@ class CatalogDB:
             dates = row_dict.get("dates") or {}
             metadata = row_dict.get("metadata") or {}
 
-            image_record = deserialize_image_record({
-                "id": row_dict["id"],
-                "source_path": row_dict["source_path"],
-                "file_type": row_dict["file_type"],
-                "checksum": row_dict["checksum"],
-                "status": row_dict["status"],
-                "dates": dates,
-                "metadata": metadata,
-            })
+            image_record = deserialize_image_record(
+                {
+                    "id": row_dict["id"],
+                    "source_path": row_dict["source_path"],
+                    "file_type": row_dict["file_type"],
+                    "checksum": row_dict["checksum"],
+                    "status": row_dict["status"],
+                    "dates": dates,
+                    "metadata": metadata,
+                }
+            )
             images[row_dict["id"]] = image_record
 
         return images
@@ -336,7 +395,8 @@ class CatalogDB:
         # Extract fields for SQL insert
         try:
             self.session.execute(
-                text("""
+                text(
+                    """
                     INSERT INTO images (
                         id, catalog_id, source_path, file_type, checksum,
                         size_bytes, dates, metadata, quality_score, status,
@@ -354,7 +414,8 @@ class CatalogDB:
                         dates = EXCLUDED.dates,
                         metadata = EXCLUDED.metadata,
                         updated_at = NOW()
-                """),
+                """
+                ),
                 {
                     "id": serialized["id"],
                     "catalog_id": self.catalog_id,
@@ -366,7 +427,7 @@ class CatalogDB:
                     "metadata": json.dumps(serialized["metadata"]),
                     "quality_score": 0,
                     "status": serialized["status"],
-                }
+                },
             )
             self.session.commit()
         except Exception as e:
@@ -386,7 +447,7 @@ class CatalogDB:
 
         result = self.session.execute(
             text("SELECT * FROM duplicate_groups WHERE catalog_id = :catalog_id"),
-            {"catalog_id": self.catalog_id}
+            {"catalog_id": self.catalog_id},
         )
         return [dict(row._mapping) for row in result.fetchall()]
 

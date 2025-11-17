@@ -24,9 +24,9 @@ from rich.progress import (
 from vam_tools.shared import compute_checksum, get_file_type
 from vam_tools.shared.thumbnail_utils import generate_thumbnail, get_thumbnail_path
 
-from ..db import CatalogDB as CatalogDatabase
 from ..core.performance_stats import PerformanceTracker
 from ..core.types import CatalogPhase, FileType, ImageRecord, ImageStatus, Statistics
+from ..db import CatalogDB as CatalogDatabase
 from .metadata import MetadataExtractor
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ class ImageScanner:
         # Load existing statistics if catalog exists, otherwise start fresh
         latest_stats_row = self.catalog.execute(
             "SELECT * FROM statistics WHERE catalog_id = ? ORDER BY timestamp DESC LIMIT 1",
-            (str(self.catalog.catalog_id),)
+            (str(self.catalog.catalog_id),),
         ).fetchone()
         self.stats = (
             Statistics(**latest_stats_row) if latest_stats_row else Statistics()
@@ -319,7 +319,7 @@ class ImageScanner:
             for f in files:
                 existing_image = self.catalog.execute(
                     "SELECT id FROM images WHERE catalog_id = ? AND source_path = ?",
-                    (str(self.catalog.catalog_id), str(f))
+                    (str(self.catalog.catalog_id), str(f)),
                 ).fetchone()
                 if not existing_image:
                     files_to_process.append(f)
@@ -399,7 +399,7 @@ class ImageScanner:
                             # Check if already in catalog (by checksum - for duplicates)
                             existing_image_by_id = self.catalog.execute(
                                 "SELECT id FROM images WHERE catalog_id = ? AND id = ?",
-                                (str(self.catalog.catalog_id), image.checksum)
+                                (str(self.catalog.catalog_id), image.checksum),
                             ).fetchone()
 
                             if not existing_image_by_id:

@@ -1,7 +1,7 @@
 """Pydantic schemas for API request/response validation."""
 
 from datetime import datetime
-from typing import List
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,3 +27,19 @@ class CatalogResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)  # Pydantic v2: allow ORM mode
+
+
+class JobListResponse(BaseModel):
+    """Schema for job list item in API responses."""
+
+    id: str
+    catalog_id: Optional[UUID]
+    job_type: str
+    status: str
+    parameters: Optional[Dict[str, Any]]
+    result: Optional[Dict[str, Any]]
+    error: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

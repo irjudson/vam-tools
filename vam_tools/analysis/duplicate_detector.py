@@ -23,7 +23,6 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from ..db import CatalogDB as CatalogDatabase
 from ..core.performance_stats import PerformanceTracker
 from ..core.types import (
     DateInfo,
@@ -36,6 +35,7 @@ from ..core.types import (
     ProblematicFileCategory,
     SimilarityMetrics,
 )
+from ..db import CatalogDB as CatalogDatabase
 from .perceptual_hash import (
     HashMethod,
     combined_hash,
