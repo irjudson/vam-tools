@@ -17,20 +17,30 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from vam_tools.core.types import DateInfo, FileType, ImageMetadata, ImageRecord, ImageStatus
+from vam_tools.core.types import (
+    DateInfo,
+    FileType,
+    ImageMetadata,
+    ImageRecord,
+    ImageStatus,
+)
 from vam_tools.db import CatalogDB as CatalogDatabase
 from vam_tools.web.api import app, get_catalog, init_catalog
 
 
-def add_test_image(db: CatalogDatabase, source_path: Path, image_id: str = None, **kwargs):
+def add_test_image(
+    db: CatalogDatabase, source_path: Path, image_id: str = None, **kwargs
+):
     """Helper to add a test image to the catalog without using scanner."""
     if image_id is None:
         import hashlib
+
         image_id = hashlib.sha256(str(source_path).encode()).hexdigest()[:16]
 
     # Get image info if file exists
     if source_path.exists():
         from PIL import Image as PILImage
+
         try:
             with PILImage.open(source_path) as img:
                 width, height = img.size
@@ -50,12 +60,15 @@ def add_test_image(db: CatalogDatabase, source_path: Path, image_id: str = None,
         file_type=kwargs.get("file_type", FileType.IMAGE),
         checksum=kwargs.get("checksum", f"checksum_{image_id}"),
         status=kwargs.get("status", ImageStatus.COMPLETE),
-        metadata=kwargs.get("metadata", ImageMetadata(
-            format=format_name,
-            width=width,
-            height=height,
-            size_bytes=size_bytes,
-        )),
+        metadata=kwargs.get(
+            "metadata",
+            ImageMetadata(
+                format=format_name,
+                width=width,
+                height=height,
+                size_bytes=size_bytes,
+            ),
+        ),
         dates=kwargs.get("dates", DateInfo()),
     )
     db.add_image(record)
@@ -235,7 +248,9 @@ class TestAPI:
             db.initialize(source_directories=[photos_dir])
             for i in range(3):
                 img_path = photos_dir / f"photo{i}.jpg"
-                Image.new("RGB", (100 + i * 10, 100 + i * 10), color=(i * 80, 0, 0)).save(img_path)
+                Image.new(
+                    "RGB", (100 + i * 10, 100 + i * 10), color=(i * 80, 0, 0)
+                ).save(img_path)
                 add_test_image(db, img_path)
 
         init_catalog(catalog_dir)
@@ -463,6 +478,7 @@ class TestAPIModels:
             format="JPEG",
             resolution=(1920, 1080),
             size_bytes=1024000,
+            thumbnail_path=None,
         )
         assert summary.id == "test123"
         assert summary.file_type == "image"

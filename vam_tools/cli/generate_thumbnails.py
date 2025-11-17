@@ -117,20 +117,16 @@ def generate(
     rows = catalog.execute(
         "SELECT id, source_path, thumbnail_path FROM images"
     ).fetchall()
-    images: List[ImageRecord] = []
+    images = []
     for row in rows:
         images.append(
-            ImageRecord(
-                id=row["id"],
-                source_path=Path(row["source_path"]),
-                # Minimal ImageRecord for thumbnail generation
-                file_type=FileType.IMAGE,  # Placeholder
-                checksum=row["id"],  # Placeholder
-                status=ImageStatus.COMPLETE,  # Placeholder
-                thumbnail_path=(
+            {
+                "id": row["id"],
+                "source_path": Path(row["source_path"]),
+                "thumbnail_path": (
                     Path(row["thumbnail_path"]) if row["thumbnail_path"] else None
                 ),
-            )
+            }
         )
     total_images = len(images)
 
@@ -159,14 +155,14 @@ def generate(
 
         for image in images:
             # Get thumbnail path
-            thumb_path = get_thumbnail_path(image.id, thumbnails_dir)
+            thumb_path = get_thumbnail_path(image["id"], thumbnails_dir)
             relative_thumb_path = thumb_path.relative_to(catalog_dir)
 
             # Skip if thumbnail exists and not forcing
             if (
                 not force
-                and image.thumbnail_path
-                and (catalog_dir / image.thumbnail_path).exists()
+                and image["thumbnail_path"]
+                and (catalog_dir / image["thumbnail_path"]).exists()
             ):
                 skipped_count += 1
                 progress.update(task, advance=1)
@@ -174,7 +170,7 @@ def generate(
 
             # Generate thumbnail
             success = generate_thumbnail(
-                source_path=image.source_path,
+                source_path=image["source_path"],
                 output_path=thumb_path,
                 size=(size, size),
                 quality=quality,
@@ -184,7 +180,7 @@ def generate(
                 # Update image record with thumbnail path in DB
                 catalog.execute(
                     "UPDATE images SET thumbnail_path = ? WHERE id = ?",
-                    (str(relative_thumb_path), image.id),
+                    (str(relative_thumb_path), image["id"]),
                 )
                 generated_count += 1
             else:

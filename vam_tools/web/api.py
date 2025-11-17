@@ -17,8 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
-from ..db import CatalogDB as CatalogDatabase
 from ..core.types import ImageRecord
+from ..db import CatalogDB as CatalogDatabase
 from ..shared.preview_cache import PreviewCache
 from .catalogs_api import router as catalogs_router
 from .jobs_api import router as jobs_router

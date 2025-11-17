@@ -6,6 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: vam-web
+    runtime: nvidia
     ports:
       - "8765:8000"
     volumes:
@@ -43,14 +44,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-    # GPU support - commented out temporarily due to driver selection issue
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
 
   # Celery worker - Handles background jobs
   celery-worker:
@@ -58,6 +51,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: vam-celery-worker
+    runtime: nvidia
     volumes:
       # Same mounts as web service
       - ${CATALOG_PATH:-~/catalogs}:/app/catalogs
@@ -90,14 +84,6 @@ services:
         hard: 65536
     healthcheck:
       disable: true  # Celery worker doesn't have a web endpoint to check
-    # GPU support - commented out temporarily due to driver selection issue
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
 
   # Celery Flower - Web UI for monitoring Celery jobs (optional)
   flower:
@@ -118,4 +104,4 @@ services:
 networks:
   default:
     external: true
-    name: shared-infrastructure_default
+    name: shared-infra

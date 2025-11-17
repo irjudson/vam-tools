@@ -2,18 +2,85 @@
 Pytest configuration and fixtures for vam_tools tests.
 """
 
-import tempfile
-import uuid
-from pathlib import Path
-from typing import Generator
+# ==============================================================================
+# Test Database Isolation - MUST RUN BEFORE ANY IMPORTS
+# ==============================================================================
+import os
+import sys
 
-import pytest
-from PIL import Image, ImageDraw
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
+# Set environment variable BEFORE any vam_tools imports
+os.environ["POSTGRES_DB"] = "vam-tools-test"
 
-from vam_tools.db import Base, Catalog, CatalogDB
-from vam_tools.db.config import settings
+# Remove any already-imported vam_tools modules to force reload with test settings
+modules_to_remove = [name for name in sys.modules if name.startswith("vam_tools")]
+for module_name in modules_to_remove:
+    del sys.modules[module_name]
+
+import tempfile  # noqa: E402
+import uuid  # noqa: E402
+from pathlib import Path  # noqa: E402
+from typing import Generator  # noqa: E402
+
+import pytest  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
+from sqlalchemy import create_engine, event, text  # noqa: E402
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+
+# Now import vam_tools with test environment variable set
+from vam_tools.db.config import Settings  # noqa: E402
+
+# Create test settings and verify it's using test database
+test_settings = Settings()
+assert test_settings.postgres_db == "vam-tools-test", (
+    f"CRITICAL: Expected test database 'vam-tools-test', got '{test_settings.postgres_db}'. "
+    f"Tests would write to production database!"
+)
+
+# Patch the global settings object
+import vam_tools.db.config as config_module  # noqa: E402
+
+config_module.settings = test_settings
+
+# Create test database engine and session
+test_engine = create_engine(
+    test_settings.database_url,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+    echo=test_settings.sql_echo,
+)
+
+
+# Add safety check: verify we're NEVER connecting to production database
+@event.listens_for(test_engine, "connect")
+def receive_connect(dbapi_conn, connection_record):
+    """Safety check: ensure we're connecting to test database."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("SELECT current_database()")
+    db_name = cursor.fetchone()[0]
+    cursor.close()
+    if db_name != "vam-tools-test":
+        raise RuntimeError(
+            f"CRITICAL SAFETY VIOLATION: Attempted to connect to '{db_name}' "
+            f"instead of test database 'vam-tools-test'!"
+        )
+
+
+TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+# Patch connection module to use test database
+import vam_tools.db.connection as connection_module  # noqa: E402
+
+connection_module.engine = test_engine
+connection_module.SessionLocal = TestSessionLocal
+
+# Patch catalog_schema module to use test SessionLocal
+import vam_tools.db.catalog_schema as catalog_schema_module  # noqa: E402
+
+# Now import the rest
+from vam_tools.db import Base, Catalog, CatalogDB  # noqa: E402
+
+catalog_schema_module.SessionLocal = TestSessionLocal
 
 # Try to import exiftool for setting EXIF data
 try:
@@ -180,47 +247,60 @@ def mixed_directory(
 
 
 # ==============================================================================
-# PostgreSQL Database Fixtures
+# PostgreSQL Database Fixtures - Optimized with proper scoping
 # ==============================================================================
 
 
-@pytest.fixture(scope="function")
-def test_db_session() -> Generator[Session, None, None]:
-    """Create a test database session with clean slate."""
-    # Use test database
-    test_db_url = settings.database_url.replace("vam-tools", "vam-tools-test")
-    engine = create_engine(test_db_url)
+@pytest.fixture(scope="session")
+def session_engine():
+    """
+    Session-scoped database engine (created once for all tests).
 
-    # Create all tables from SQLAlchemy models
-    Base.metadata.create_all(engine)
+    This is the most expensive operation - creating the database connection and
+    tables. We only do this ONCE for the entire test run.
+    """
+    # The test_engine is already created at module level with safety checks
+    # Create all tables once
+    # Base.metadata.create_all() creates: catalogs, images, tags, image_tags,
+    # duplicate_groups, duplicate_members, jobs, config, statistics
+    Base.metadata.create_all(test_engine)
 
-    # Also execute the schema.sql to create additional tables (statistics, config, etc.)
-    from pathlib import Path
-    schema_file = Path(__file__).parent.parent / "vam_tools" / "db" / "schema.sql"
-    if schema_file.exists():
-        with open(schema_file) as f:
-            schema_sql = f.read()
-        # Execute schema (split by statement for better error handling)
-        with engine.connect() as conn:
-            # Simple approach: execute whole schema (tables are IF NOT EXISTS)
-            try:
-                conn.execute(text(schema_sql))
-                conn.commit()
-            except Exception as e:
-                # Ignore errors (tables might already exist from Base.metadata)
-                pass
+    yield test_engine
 
-    # Create session
-    TestSessionLocal = sessionmaker(bind=engine)
-    session = TestSessionLocal()
+    # Cleanup: just dispose the engine, transactions handle data cleanup
+    test_engine.dispose()
 
-    try:
-        yield session
-    finally:
-        session.close()
-        # Clean up
-        Base.metadata.drop_all(engine)
-        engine.dispose()
+
+@pytest.fixture
+def db_session(session_engine):
+    """
+    Function-scoped database session (one per test).
+
+    Uses transactions to isolate tests:
+    - Each test gets a fresh transaction
+    - Changes are automatically rolled back after the test
+    - Tests don't interfere with each other
+    - Much faster than dropping/creating tables for every test
+    """
+    connection = session_engine.connect()
+    transaction = connection.begin()
+
+    # Create session bound to this specific transaction
+    session = TestSessionLocal(bind=connection)
+
+    yield session
+
+    # Cleanup: rollback all changes and close
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
+# Keep backward compatibility with old fixture name
+@pytest.fixture
+def test_db_session(db_session):
+    """Alias for db_session - for backward compatibility."""
+    return db_session
 
 
 # CatalogDB now handles both Path (for tests) and UUID str (for production) automatically

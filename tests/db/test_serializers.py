@@ -1,19 +1,24 @@
 """Tests for PostgreSQL ↔ Pydantic serializers."""
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
-from pathlib import Path
-
-from vam_tools.core.types import DateInfo, ImageMetadata, FileType, ImageStatus, ImageRecord
+from vam_tools.core.types import (
+    DateInfo,
+    FileType,
+    ImageMetadata,
+    ImageRecord,
+    ImageStatus,
+)
 from vam_tools.db.serializers import (
-    serialize_date_info,
     deserialize_date_info,
-    serialize_image_metadata,
     deserialize_image_metadata,
-    serialize_image_record,
     deserialize_image_record,
+    serialize_date_info,
+    serialize_image_metadata,
+    serialize_image_record,
 )
 
 

@@ -23,8 +23,8 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from ..db import CatalogDB as CatalogDatabase
 from ..core.types import ImageRecord
+from ..db import CatalogDB as CatalogDatabase
 from ..shared.media_utils import compute_checksum
 from .strategy import OrganizationStrategy
 from .transaction import TransactionLog, TransactionStatus

@@ -4,8 +4,14 @@ from datetime import datetime
 
 import pytest
 
+from vam_tools.core.types import (
+    DateInfo,
+    FileType,
+    ImageMetadata,
+    ImageRecord,
+    ImageStatus,
+)
 from vam_tools.db import CatalogDB as CatalogDatabase
-from vam_tools.core.types import DateInfo, FileType, ImageMetadata, ImageRecord, ImageStatus
 from vam_tools.organization.file_organizer import (
     FileOrganizer,
     OrganizationOperation,

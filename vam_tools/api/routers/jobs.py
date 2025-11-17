@@ -6,15 +6,28 @@ import uuid
 from typing import Any, Dict, List
 
 from celery.result import AsyncResult
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from ...celery_app import app as celery_app
-from ...jobs.tasks import analyze_catalog_task
+from ...db import get_db
+from ...db.models import Job
+from ...db.schemas import JobListResponse
+from ...jobs.tasks import analyze_catalog_task, scan_catalog_task
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/", response_model=List[JobListResponse])
+def list_jobs(limit: int = 100, offset: int = 0, db: Session = Depends(get_db)):
+    """List all jobs with pagination."""
+    jobs = (
+        db.query(Job).order_by(Job.created_at.desc()).limit(limit).offset(offset).all()
+    )
+    return jobs
 
 
 class ScanJobRequest(BaseModel):
@@ -43,17 +56,32 @@ class JobResponse(BaseModel):
 
 
 @router.post("/scan", response_model=JobResponse, status_code=202)
-def start_scan(request: ScanJobRequest):
-    """Start a directory scan job."""
+def start_scan(request: ScanJobRequest, db: Session = Depends(get_db)):
+    """Start a simple directory scan job (metadata extraction + thumbnails only)."""
     logger.info(f"Starting scan for catalog {request.catalog_id}")
 
-    # Submit Celery task - scan is now part of analyze
-    task = analyze_catalog_task.delay(
-        catalog_path=str(request.catalog_id),
+    # Submit Celery task - simple scan (no duplicate detection)
+    task = scan_catalog_task.delay(
+        catalog_id=str(request.catalog_id),
         source_directories=request.directories,
-        detect_duplicates=False,
-        force_reanalyze=False,
+        force_rescan=False,
+        generate_previews=True,
     )
+
+    # Save job to database
+    job = Job(
+        id=task.id,
+        catalog_id=request.catalog_id,
+        job_type="scan",
+        status="PENDING",
+        parameters={
+            "directories": request.directories,
+            "force_rescan": False,
+            "generate_previews": True,
+        },
+    )
+    db.add(job)
+    db.commit()
 
     return JobResponse(
         job_id=task.id,
@@ -64,17 +92,32 @@ def start_scan(request: ScanJobRequest):
 
 
 @router.post("/analyze", response_model=JobResponse, status_code=202)
-def start_analyze(request: AnalyzeJobRequest):
+def start_analyze(request: AnalyzeJobRequest, db: Session = Depends(get_db)):
     """Start an analyze job (scan directories for a catalog)."""
     logger.info(f"Starting analyze for catalog {request.catalog_id}")
 
     # Submit Celery task
     task = analyze_catalog_task.delay(
-        catalog_path=str(request.catalog_id),
+        catalog_id=str(request.catalog_id),
         source_directories=request.source_directories,
         detect_duplicates=request.detect_duplicates,
         force_reanalyze=request.force_reanalyze,
     )
+
+    # Save job to database
+    job = Job(
+        id=task.id,
+        catalog_id=request.catalog_id,
+        job_type="analyze",
+        status="PENDING",
+        parameters={
+            "source_directories": request.source_directories,
+            "detect_duplicates": request.detect_duplicates,
+            "force_reanalyze": request.force_reanalyze,
+        },
+    )
+    db.add(job)
+    db.commit()
 
     return JobResponse(
         job_id=task.id,
@@ -100,23 +143,18 @@ def get_worker_health():
                 "status": "healthy",
                 "workers": worker_count,
                 "active_tasks": active_count,
-                "message": f"{worker_count} worker(s) online"
+                "message": f"{worker_count} worker(s) online",
             }
         else:
             return {
                 "status": "unhealthy",
                 "workers": 0,
                 "active_tasks": 0,
-                "message": "No workers available"
+                "message": "No workers available",
             }
     except Exception as e:
         logger.error(f"Error checking worker health: {e}")
-        return {
-            "status": "error",
-            "workers": 0,
-            "active_tasks": 0,
-            "message": str(e)
-        }
+        return {"status": "error", "workers": 0, "active_tasks": 0, "message": str(e)}
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -145,6 +183,41 @@ def get_job_status(job_id: str):
     return response
 
 
+@router.delete("/{job_id}", status_code=204)
+def revoke_job(job_id: str, terminate: bool = False, db: Session = Depends(get_db)):
+    """Revoke/cancel a job.
+
+    Args:
+        job_id: The job ID to revoke
+        terminate: If True, forcefully terminate the task (default: False)
+    """
+    logger.info(f"Revoking job {job_id} (terminate={terminate})")
+
+    try:
+        # Revoke the task in Celery
+        celery_app.control.revoke(
+            job_id, terminate=terminate, signal="SIGKILL" if terminate else "SIGTERM"
+        )
+
+        # Also mark it as revoked in the result backend
+        task = AsyncResult(job_id, app=celery_app)
+        if task:
+            # This doesn't actually revoke it but marks it for cleanup
+            task.forget()
+
+        # Update database record to reflect revocation
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job:
+            job.status = "REVOKED"
+            job.error = "Job was manually cancelled"
+            db.commit()
+
+        return {"status": "revoked", "job_id": job_id}
+    except Exception as e:
+        logger.error(f"Error revoking job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to revoke job: {str(e)}")
+
+
 @router.websocket("/{job_id}/stream")
 async def stream_job_updates(websocket: WebSocket, job_id: str):
     """Stream real-time job updates via WebSocket."""
@@ -153,6 +226,7 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
     try:
         task = AsyncResult(job_id, app=celery_app)
         last_state = None
+        last_progress = None
 
         while True:
             current_state = task.state
@@ -162,7 +236,7 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
                 "job_id": job_id,
                 "status": current_state,
                 "progress": {},
-                "result": {}
+                "result": {},
             }
 
             # Get progress/result based on state
@@ -177,10 +251,12 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
                 await websocket.send_json(update)
                 break  # Job failed, close connection
 
-            # Send update if state changed
-            if current_state != last_state:
+            # Send update if state changed OR progress data changed
+            current_progress = str(update.get("progress", {}))
+            if current_state != last_state or current_progress != last_progress:
                 await websocket.send_json(update)
                 last_state = current_state
+                last_progress = current_progress
 
             # Poll every 500ms
             await asyncio.sleep(0.5)
@@ -192,5 +268,5 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
     finally:
         try:
             await websocket.close()
-        except:
+        except Exception:  # noqa: E722
             pass

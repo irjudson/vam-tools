@@ -1,10 +1,17 @@
 """Tests for CatalogDB integration with serializers."""
 
-import pytest
 from datetime import datetime
 from pathlib import Path
 
-from vam_tools.core.types import DateInfo, FileType, ImageMetadata, ImageRecord, ImageStatus
+import pytest
+
+from vam_tools.core.types import (
+    DateInfo,
+    FileType,
+    ImageMetadata,
+    ImageRecord,
+    ImageStatus,
+)
 from vam_tools.db import CatalogDB
 
 
@@ -99,8 +106,20 @@ def test_get_all_images_returns_image_records(tmp_path):
 
 def test_list_images_returns_ids(tmp_path):
     """Test that list_images returns list of image IDs."""
-    record1 = ImageRecord(id="img1", source_path=Path("/test/img1.jpg"), file_type=FileType.IMAGE, checksum="h1", status=ImageStatus.PENDING)
-    record2 = ImageRecord(id="img2", source_path=Path("/test/img2.jpg"), file_type=FileType.IMAGE, checksum="h2", status=ImageStatus.PENDING)
+    record1 = ImageRecord(
+        id="img1",
+        source_path=Path("/test/img1.jpg"),
+        file_type=FileType.IMAGE,
+        checksum="h1",
+        status=ImageStatus.PENDING,
+    )
+    record2 = ImageRecord(
+        id="img2",
+        source_path=Path("/test/img2.jpg"),
+        file_type=FileType.IMAGE,
+        checksum="h2",
+        status=ImageStatus.PENDING,
+    )
 
     with CatalogDB(tmp_path) as db:
         db.add_image(record1)

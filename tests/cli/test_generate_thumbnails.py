@@ -159,6 +159,12 @@ class TestGenerateThumbnailsCLI:
         mock_db = Mock()
         mock_catalog_cls.return_value.__enter__.return_value = mock_db
 
+        # Create actual thumbnail file for first image so it gets skipped
+        thumbnails_dir = catalog_dir / "thumbnails"
+        thumbnails_dir.mkdir(exist_ok=True)
+        first_thumb = thumbnails_dir / f"{sample_images[0].id}.jpg"
+        first_thumb.write_bytes(b"fake thumbnail")
+
         # Mock db.execute for image retrieval
         # First image has thumbnail, second doesn't
         mock_db.execute.return_value.fetchall.return_value = [

@@ -75,12 +75,13 @@ fi
 echo ""
 echo -e "${YELLOW}4. Running tests...${NC}"
 # Use venv pytest explicitly to ensure correct environment
-# Skip integration and jobs tests as they need rework/require running services
+# Integration tests are automatically skipped (marked with @pytest.mark.integration)
+# Run them separately with: pytest -m integration (requires docker-compose services)
 PYTEST_BIN="${VIRTUAL_ENV:-venv}/bin/pytest"
 if [ ! -f "$PYTEST_BIN" ]; then
     PYTEST_BIN="venv/bin/pytest"
 fi
-if "$PYTEST_BIN" tests/test_catalog_schema.py tests/test_scanner.py tests/test_integration.py -x --tb=short -q; then
+if "$PYTEST_BIN" -x --tb=short -q; then
     echo -e "${GREEN}  ✓ All tests passed${NC}"
 else
     echo -e "${RED}  ✗ Tests failed${NC}"

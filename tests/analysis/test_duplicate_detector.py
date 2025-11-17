@@ -5,11 +5,53 @@ Tests for duplicate detection system.
 import json
 from pathlib import Path
 
+import numpy as np
+import pytest
 from PIL import Image
 
 from vam_tools.analysis.duplicate_detector import DuplicateDetector
 from vam_tools.analysis.scanner import ImageScanner
 from vam_tools.db import CatalogDB as CatalogDatabase
+
+# ==============================================================================
+# Module-scoped fixtures - Create test images once for entire test file
+# ==============================================================================
+
+
+@pytest.fixture(scope="module")
+def shared_test_images(tmp_path_factory):
+    """
+    Create a shared directory with test images used by multiple tests.
+
+    This fixture creates images ONCE for the entire module, making tests
+    100x faster than creating images in each test.
+    """
+    images_dir = tmp_path_factory.mktemp("shared_images")
+
+    # Basic colored images (10x10 for speed)
+    Image.new("RGB", (10, 10), color="red").save(images_dir / "red.jpg")
+    Image.new("RGB", (10, 10), color="green").save(images_dir / "green.jpg")
+    Image.new("RGB", (10, 10), color="blue").save(images_dir / "blue.jpg")
+    Image.new("RGB", (10, 10), color="purple").save(images_dir / "purple.jpg")
+    Image.new("RGB", (10, 10), color="orange").save(images_dir / "orange.jpg")
+
+    # Gradient images (for similarity testing)
+    gradient1 = np.arange(0, 100, 10).reshape(10, 1) * np.ones((1, 10))
+    Image.fromarray(gradient1.astype("uint8"), mode="L").save(
+        images_dir / "gradient1.jpg"
+    )
+
+    gradient2 = (np.arange(0, 100, 10).reshape(10, 1) + 10) * np.ones((1, 10))
+    gradient2 = np.clip(gradient2, 0, 255)
+    Image.fromarray(gradient2.astype("uint8"), mode="L").save(
+        images_dir / "gradient2.jpg"
+    )
+
+    # Different sizes (for quality testing)
+    Image.new("RGB", (10, 10), color="red").save(images_dir / "small.jpg")
+    Image.new("RGB", (20, 20), color="red").save(images_dir / "large.jpg")
+
+    return images_dir
 
 
 class TestDuplicateDetector:
@@ -34,8 +76,8 @@ class TestDuplicateDetector:
         photos_dir = tmp_path / "photos"
         photos_dir.mkdir()
 
-        # Create identical images with different names
-        img = Image.new("RGB", (100, 100), color="red")
+        # Create identical images with different names (10x10 for speed)
+        img = Image.new("RGB", (10, 10), color="red")
         img.save(photos_dir / "photo1.jpg")
         img.save(photos_dir / "photo2.jpg")
         img.save(photos_dir / "photo3.jpg")
@@ -52,30 +94,12 @@ class TestDuplicateDetector:
             assert scanner.files_added == 1
             assert scanner.files_skipped == 2
 
-    def test_detect_similar_images(self, tmp_path: Path) -> None:
+    def test_detect_similar_images(
+        self, tmp_path: Path, shared_test_images: Path
+    ) -> None:
         """Test detection of similar images using perceptual hashing."""
         catalog_dir = tmp_path / "catalog"
-        photos_dir = tmp_path / "photos"
-        photos_dir.mkdir()
-
-        # Create slightly different images
-        # Base image
-        img1 = Image.new("L", (100, 100))
-        for x in range(100):
-            for y in range(100):
-                img1.putpixel((x, y), x * 2)
-        img1.save(photos_dir / "gradient1.jpg")
-
-        # Very similar gradient (shifted by 1 pixel)
-        img2 = Image.new("L", (100, 100))
-        for x in range(100):
-            for y in range(100):
-                img2.putpixel((x, y), (x + 1) * 2)
-        img2.save(photos_dir / "gradient2.jpg")
-
-        # Completely different image
-        img3 = Image.new("RGB", (100, 100), color="blue")
-        img3.save(photos_dir / "different.jpg")
+        photos_dir = shared_test_images  # Use pre-created images!
 
         # Scan images
         with CatalogDatabase(catalog_dir) as db:
@@ -94,18 +118,10 @@ class TestDuplicateDetector:
             image_ids = db.list_images()
             assert len(image_ids) == 3  # All 3 unique by checksum
 
-    def test_quality_scoring(self, tmp_path: Path) -> None:
+    def test_quality_scoring(self, tmp_path: Path, shared_test_images: Path) -> None:
         """Test that quality scoring selects the best image."""
         catalog_dir = tmp_path / "catalog"
-        photos_dir = tmp_path / "photos"
-        photos_dir.mkdir()
-
-        # Create images of different sizes (higher res = better quality)
-        small_img = Image.new("RGB", (100, 100), color="red")
-        small_img.save(photos_dir / "small.jpg")
-
-        large_img = Image.new("RGB", (200, 200), color="red")
-        large_img.save(photos_dir / "large.jpg")
+        photos_dir = shared_test_images  # Use pre-created images!
 
         # Scan images
         with CatalogDatabase(catalog_dir) as db:
@@ -137,7 +153,7 @@ class TestDuplicateDetector:
 
         # Create test images
         for i in range(3):
-            img = Image.new("RGB", (100, 100), color=(i * 80, 0, 0))
+            img = Image.new("RGB", (10, 10), color=(i * 80, 0, 0))
             img.save(photos_dir / f"photo{i}.jpg")
 
         # Scan and detect duplicates
@@ -172,7 +188,7 @@ class TestDuplicateDetector:
 
         # Create some test images
         for i in range(5):
-            img = Image.new("RGB", (100, 100), color=(i * 50, 0, 0))
+            img = Image.new("RGB", (10, 10), color=(i * 50, 0, 0))
             img.save(photos_dir / f"image{i}.jpg")
 
         with CatalogDatabase(catalog_dir) as db:
@@ -206,7 +222,7 @@ class TestDuplicateDetector:
         photos_dir.mkdir()
 
         # Create test image
-        img = Image.new("RGB", (100, 100), color="green")
+        img = Image.new("RGB", (10, 10), color="green")
         img_path = photos_dir / "test.jpg"
         img.save(img_path)
 
@@ -241,7 +257,7 @@ class TestDuplicateDetector:
         photos_dir.mkdir()
 
         # Create test image
-        img = Image.new("RGB", (100, 100), color="purple")
+        img = Image.new("RGB", (10, 10), color="purple")
         img.save(photos_dir / "test.jpg")
 
         with CatalogDatabase(catalog_dir) as db:
@@ -273,7 +289,7 @@ class TestDuplicateDetector:
         photos_dir.mkdir()
 
         # Create images with different dates in filenames
-        img = Image.new("RGB", (100, 100), color="orange")
+        img = Image.new("RGB", (10, 10), color="orange")
         img.save(photos_dir / "2023-01-15_photo.jpg")
         img.save(photos_dir / "2023-06-20_photo.jpg")
 
@@ -316,7 +332,7 @@ class TestDuplicateDetector:
 
         # Create slightly different images
         for i in range(3):
-            img = Image.new("RGB", (100, 100), color=(i * 10, i * 10, i * 10))
+            img = Image.new("RGB", (10, 10), color=(i * 10, i * 10, i * 10))
             img.save(photos_dir / f"gray{i}.jpg")
 
         with CatalogDatabase(catalog_dir) as db:
@@ -343,11 +359,11 @@ class TestDuplicateDetector:
 
         # Create two visually similar but not identical images
         # (different checksums to avoid exact duplicate detection)
-        img1 = Image.new("RGB", (100, 100), color="red")
+        img1 = Image.new("RGB", (10, 10), color="red")
         img1.save(photos_dir / "img1.jpg", quality=95)
 
         # Slightly different quality to get different checksum
-        img2 = Image.new("RGB", (100, 100), color="red")
+        img2 = Image.new("RGB", (10, 10), color="red")
         img2.save(photos_dir / "img2.jpg", quality=90)
 
         with CatalogDatabase(catalog_dir) as db:
@@ -412,7 +428,7 @@ class TestDuplicateDetector:
         photos_dir = tmp_path / "photos"
         photos_dir.mkdir()
 
-        img = Image.new("RGB", (100, 100), color="red")
+        img = Image.new("RGB", (10, 10), color="red")
         path = photos_dir / "single.jpg"
         img.save(path)
 
@@ -452,7 +468,7 @@ class TestDuplicateDetector:
             # Create images with different patterns (not solid colors)
             # Each image has distinct features
             for i in range(5):
-                img = Image.new("L", (100, 100))
+                img = Image.new("L", (10, 10))
                 # Create different patterns for each image
                 for x in range(100):
                     for y in range(100):

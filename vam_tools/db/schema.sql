@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS images (
     -- Metadata (JSONB for flexibility)
     metadata JSONB NOT NULL DEFAULT '{}',   -- {width, height, format, camera, gps, etc.}
 
+    -- Thumbnail
+    thumbnail_path TEXT,                    -- Relative path to thumbnail
+
     -- Perceptual hashes
     dhash TEXT,                             -- Difference hash (for duplicates)
     ahash TEXT,                             -- Average hash (for duplicates)
@@ -118,20 +121,18 @@ CREATE INDEX IF NOT EXISTS idx_duplicate_members_group_id ON duplicate_members(g
 CREATE INDEX IF NOT EXISTS idx_duplicate_members_image_id ON duplicate_members(image_id);
 
 -- ============================================================================
--- JOBS TABLE (per-catalog job tracking)
+-- JOBS TABLE (job tracking across catalogs)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS jobs (
-    id TEXT PRIMARY KEY,                    -- Job UUID or Celery task ID
-    catalog_id UUID NOT NULL,               -- References catalogs.id
+    id TEXT PRIMARY KEY,                    -- Celery task ID
+    catalog_id UUID,                        -- Optional: References catalogs.id
     job_type TEXT NOT NULL,                 -- scan, analyze, organize
-    status TEXT NOT NULL,                   -- pending, running, complete, failed
-    progress INTEGER DEFAULT 0,             -- 0-100
-    message TEXT,                           -- Current status message
+    status TEXT NOT NULL,                   -- PENDING, PROGRESS, SUCCESS, FAILURE
+    parameters JSONB,                       -- Job parameters (directories, options, etc.)
     result JSONB,                           -- Job result data
     error TEXT,                             -- Error message if failed
     created_at TIMESTAMP DEFAULT NOW(),
-    started_at TIMESTAMP,
-    completed_at TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT NOW(),
 
     FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE
 );
@@ -139,6 +140,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_catalog_id ON jobs(catalog_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_job_type ON jobs(job_type);
+CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
 
 -- ============================================================================
 -- CONFIG TABLE (per-catalog configuration)

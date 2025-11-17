@@ -6,6 +6,7 @@
     <title>VAM Tools - Media Catalog Management</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="/static/dark-theme.css">
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -15,46 +16,18 @@
             <div class="nav-container">
                 <div class="nav-brand">
                     <h1>VAM Tools</h1>
-                    <span class="tagline">Media Catalog Management</span>
                 </div>
-                <div class="nav-menu">
-                    <button 
-                        @click="setView('dashboard')" 
-                        :class="{'active': currentView === 'dashboard'}"
-                        class="nav-button">
-                        📊 Dashboard
-                    </button>
-                    <button 
-                        @click="setView('browse')" 
-                        :class="{'active': currentView === 'browse'}"
-                        class="nav-button">
-                        🖼️ Browse
-                    </button>
-                    <button 
-                        @click="setView('jobs')" 
-                        :class="{'active': currentView === 'jobs'}"
-                        class="nav-button">
-                        ⚙️ Jobs
-                        <span v-if="hasActiveJobs" class="badge">{{ activeJobs.length }}</span>
-                    </button>
-                    <button 
-                        @click="setView('review')" 
-                        :class="{'active': currentView === 'review'}"
-                        class="nav-button">
-                        📝 Review
-                        <span v-if="reviewQueueStats.total_needing_review > 0" class="badge">{{ reviewQueueStats.total_needing_review }}</span>
-                    </button>
-                
-                <!-- Catalog Selector -->
+
+                <!-- Catalog Selector (primary position) -->
                 <div class="catalog-selector">
                     <button @click="showCatalogManager = !showCatalogManager" class="catalog-button">
                         <span v-if="currentCatalog" :style="{color: currentCatalog.color}">
                             📁 {{ currentCatalog.name }}
                         </span>
-                        <span v-else>📁 No Catalog</span>
+                        <span v-else>📁 Select Catalog</span>
                         <span class="dropdown-arrow">▼</span>
                     </button>
-                    
+
                     <div v-if="showCatalogManager" class="catalog-dropdown">
                         <div class="catalog-list">
                             <div v-if="catalogs.length === 0" class="empty-catalogs">
@@ -67,6 +40,13 @@
                                     <div class="catalog-name">{{ catalog.name }}</div>
                                     <div class="catalog-path">{{ catalog.source_directories.map(d => displayPath(d)).join(', ') }}</div>
                                 </div>
+                                <button
+                                    @click.stop="openEditCatalog(catalog)"
+                                    class="catalog-edit-btn"
+                                    title="Edit catalog"
+                                    style="margin-right: 4px;">
+                                    ✎
+                                </button>
                                 <button
                                     @click.stop="deleteCatalog(catalog.id)"
                                     class="catalog-delete-btn"
@@ -83,11 +63,26 @@
                     </div>
                 </div>
 
-                <!-- Worker Health Indicator -->
-                <div class="worker-health" :class="'health-' + workerHealth.status" :title="workerHealth.message">
-                    <span class="health-dot"></span>
-                    <span class="health-text">{{ workerHealth.workers }} worker{{ workerHealth.workers !== 1 ? 's' : '' }}</span>
-                </div>
+                <div class="nav-menu">
+                    <button
+                        @click="setView('browse')"
+                        :class="{'active': currentView === 'browse'}"
+                        class="nav-button">
+                        🏠 Home
+                    </button>
+                    <button
+                        @click="setView('jobs')"
+                        :class="{'active': currentView === 'jobs'}"
+                        class="nav-button">
+                        ⚙️ Jobs
+                        <span v-if="hasActiveJobs" class="badge">{{ activeJobs.length }}</span>
+                    </button>
+
+                    <!-- Worker Health Indicator -->
+                    <div class="worker-health" :class="'health-' + workerHealth.status" :title="workerHealth.message">
+                        <span class="health-dot"></span>
+                        <span class="health-text">{{ workerHealth.workers }} worker{{ workerHealth.workers !== 1 ? 's' : '' }}</span>
+                    </div>
                 </div>
             </div>
         </nav>
@@ -101,140 +96,104 @@
             </div>
         </div>
 
-        <!-- Active Jobs Banner (visible on all views when jobs are running) -->
-        <div v-if="hasActiveJobs && currentView !== 'jobs'" class="active-jobs-banner">
-            <div class="banner-content">
-                <strong>{{ activeJobs.length }} Active Job(s)</strong>
-                <div class="mini-progress-list">
-                    <div v-for="job in activeJobs.slice(0, 2)" :key="job.id" class="mini-job">
-                        <span>{{ job.name }}</span>
-                        <div class="mini-progress-bar">
-                            <div class="mini-progress-fill" :style="{width: job.progress + '%'}"></div>
-                        </div>
-                        <span>{{ job.progress }}%</span>
-                    </div>
-                </div>
-                <button @click="setView('jobs')" class="btn-small">View All</button>
-            </div>
-        </div>
-
-        <!-- Dashboard View -->
-        <div v-if="currentView === 'dashboard'" class="view-container">
-            <div class="content-wrapper">
-                <h2>Dashboard</h2>
-
-                <!-- Quick Actions -->
-                <section class="quick-actions">
-                    <h3>Quick Actions</h3>
-                    <div class="action-grid">
-                        <div class="action-card" @click="showAnalyzeForm = true">
-                            <div class="action-icon">🔍</div>
-                            <h4>Analyze Catalog</h4>
-                            <p>Scan and extract metadata from your photos</p>
-                        </div>
-                        <div class="action-card" @click="showOrganizeForm = true">
-                            <div class="action-icon">📁</div>
-                            <h4>Organize Files</h4>
-                            <p>Organize photos by date or custom pattern</p>
-                        </div>
-                        <div class="action-card" @click="showThumbnailsForm = true">
-                            <div class="action-icon">🖼️</div>
-                            <h4>Generate Thumbnails</h4>
-                            <p>Create preview images for faster browsing</p>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Catalog Statistics -->
-                <section class="catalog-stats">
-                    <h3>Catalog Overview</h3>
-                    <div v-if="dashboardStats" class="stats-grid">
-                        <div class="stat-card">
-                            <h4>Total Images</h4>
-                            <div class="stat-value">{{ formatNumber(dashboardStats.total_images) }}</div>
-                        </div>
-                        <div class="stat-card">
-                            <h4>Total Videos</h4>
-                            <div class="stat-value">{{ formatNumber(dashboardStats.total_videos) }}</div>
-                        </div>
-                        <div class="stat-card">
-                            <h4>Total Size</h4>
-                            <div class="stat-value">{{ formatBytes(dashboardStats.total_size_bytes) }}</div>
-                        </div>
-                        <div class="stat-card">
-                            <h4>Duplicates</h4>
-                            <div class="stat-value">{{ formatNumber(dashboardStats.duplicates) }}</div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Recent Jobs -->
-                <section class="recent-jobs">
-                    <h3>Recent Activity</h3>
-                    <div v-if="jobs.length > 0" class="jobs-list">
-                        <div v-for="job in jobs.slice(0, 5)" :key="job.id" class="job-item">
-                            <div class="job-info">
-                                <strong>{{ job.name || job.id }}</strong>
-                                <span :class="['job-status', getJobStatusClass(job.status)]">
-                                    {{ job.status }}
-                                </span>
-                            </div>
-                            <div v-if="job.status === 'PROGRESS'" class="progress-bar">
-                                <div class="progress-fill" :style="{width: job.progress + '%'}"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <p v-else class="empty-state">No recent jobs</p>
-                </section>
-            </div>
-        </div>
-
-        <!-- Browse Catalog View -->
+        <!-- Main Browse View (default home page) -->
         <div v-if="currentView === 'browse'" class="view-container">
             <div class="content-wrapper">
-                <h2>Browse Catalog</h2>
-                
-                <!-- Filters and Search -->
-                <div class="controls">
-                    <input 
-                        v-model="searchQuery" 
-                        type="text" 
-                        placeholder="Search by filename or tags..."
-                        class="search-input"
-                    />
-                    <select v-model="currentFilter">
-                        <option value="all">All Media</option>
-                        <option value="duplicates">Duplicates Only</option>
-                        <option value="no_date">Missing Date</option>
-                        <option value="videos">Videos Only</option>
-                    </select>
-                    <button @click="loadImages" class="btn-primary">Refresh</button>
+                <!-- Actions Panel -->
+                <div v-if="currentCatalog" class="actions-panel">
+                    <div class="actions-grid">
+                        <button @click="startScan" class="action-btn" :disabled="!currentCatalog">
+                            <span class="action-icon">📂</span>
+                            <div class="action-text">
+                                <div class="action-title">Find Files</div>
+                                <div class="action-desc">Scan directories for media</div>
+                            </div>
+                        </button>
+                        <button @click="startFindDuplicates" class="action-btn" :disabled="!currentCatalog">
+                            <span class="action-icon">🔍</span>
+                            <div class="action-text">
+                                <div class="action-title">Find Duplicates</div>
+                                <div class="action-desc">Detect duplicate files</div>
+                            </div>
+                        </button>
+                        <button @click="setView('review')" class="action-btn" :disabled="!currentCatalog || reviewQueueStats.total_needing_review === 0">
+                            <span class="action-icon">📝</span>
+                            <div class="action-text">
+                                <div class="action-title">Review Duplicates</div>
+                                <div class="action-desc" v-if="reviewQueueStats.total_needing_review > 0">{{ reviewQueueStats.total_needing_review }} groups to review</div>
+                                <div class="action-desc" v-else>No duplicates to review</div>
+                            </div>
+                        </button>
+                        <button @click="startFindFaces" class="action-btn" :disabled="!currentCatalog" style="opacity: 0.5;">
+                            <span class="action-icon">👤</span>
+                            <div class="action-text">
+                                <div class="action-title">Find Faces</div>
+                                <div class="action-desc">Coming soon</div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="browse-header">
+                    <h2 v-if="currentCatalog">{{ images.length }} of {{ formatNumber(imagesTotal) }} images</h2>
+                    <h2 v-else>Select a Catalog</h2>
+                    <div v-if="currentCatalog" class="browse-controls">
+                        <!-- Thumbnail Size Selector -->
+                        <select v-model="thumbnailSize" class="size-selector">
+                            <option value="small">Small</option>
+                            <option value="medium">Medium</option>
+                            <option value="large">Large</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Loading State -->
+                <div v-if="imagesLoading && images.length === 0" class="text-center p-lg">
+                    <div class="spinner"></div>
+                    <p class="text-secondary mt-md">Loading images...</p>
+                </div>
+
+                <!-- No Catalog Selected -->
+                <div v-else-if="!currentCatalog" class="text-center p-lg">
+                    <p class="text-secondary">Please select a catalog to browse images</p>
+                </div>
+
+                <!-- Empty State -->
+                <div v-else-if="images.length === 0 && !imagesLoading" class="text-center p-lg">
+                    <p class="text-secondary">No images found in this catalog</p>
+                    <button @click="loadImages(true)" class="btn mt-md">Refresh</button>
                 </div>
 
                 <!-- Image Grid -->
-                <div v-if="loading" class="loading-state">Loading...</div>
-                <div v-else-if="error" class="error-state">{{ error }}</div>
-                <div v-else-if="filteredImages.length > 0" class="image-grid">
-                    <div v-for="image in filteredImages" :key="image.file_path" class="image-card">
-                        <div class="image-thumbnail">
-                            <img :src="image.thumbnail_path ? `/api/images/${image.id}/thumbnail` : `/api/preview/${encodeURIComponent(image.source_path)}`" 
-                                 :alt="image.file_name"
-                                 loading="lazy"
-                            />
-                        </div>
-                        <div class="image-info">
-                            <div class="image-name">{{ image.file_name }}</div>
-                            <div class="image-meta">
-                                <span v-if="image.captured_date">
-                                    {{ formatDate(image.captured_date) }}
-                                </span>
-                                <span v-else class="warning">No date</span>
-                            </div>
+                <div v-else :class="['grid', thumbnailGridClass]">
+                    <div
+                        v-for="(image, index) in images"
+                        :key="image.id"
+                        class="thumbnail"
+                        :class="{'selected': isImageSelected(image.id)}"
+                        @click="openLightbox(index)"
+                    >
+                        <img
+                            :src="getThumbnailUrl(image)"
+                            :alt="image.source_path"
+                            loading="lazy"
+                        />
+                        <div class="thumbnail-overlay">
+                            <div class="text-sm">{{ image.source_path.split('/').pop() }}</div>
                         </div>
                     </div>
                 </div>
-                <div v-else class="empty-state">
-                    No images found. Start by analyzing your catalog!
+
+                <!-- Load More Button -->
+                <div v-if="hasMoreImages && !imagesLoading" class="text-center mt-lg">
+                    <button @click="loadImages(false)" class="btn">
+                        Load More Images
+                    </button>
+                </div>
+
+                <!-- Loading More Indicator -->
+                <div v-if="imagesLoading && images.length > 0" class="text-center mt-lg">
+                    <div class="spinner"></div>
                 </div>
             </div>
         </div>
@@ -252,30 +211,37 @@
                             <div class="job-header">
                                 <strong>{{ job.name || 'Job' }}</strong>
                                 <span :class="['status-badge', getJobStatusClass(job.status)]">
-                                    {{ job.status }}
+                                    {{ formatJobStatus(job.status) }}
                                 </span>
                             </div>
                             <div class="job-id">ID: {{ job.id }}</div>
-                            <div class="progress-section">
-                                <div class="progress-bar">
-                                    <div class="progress-fill" :style="{width: job.progress + '%'}"></div>
-                                </div>
-                                <div class="progress-text">{{ job.progress }}%</div>
-                                <div v-if="job.progressData && job.progressData.message" class="progress-message">
-                                    {{ job.progressData.message }}
-                                </div>
-                            </div>
-                            <div v-if="job.result" class="job-result-summary">
-                                <div class="result-label">✓ Completed</div>
-                                <div v-if="job.result.processed !== undefined" class="result-stats-inline">
-                                    Processed: <strong>{{ job.result.processed }}</strong>
-                                    <span v-if="job.result.files_added !== undefined"> | Added: <strong class="text-success">{{ job.result.files_added }}</strong></span>
-                                </div>
-                                <div v-if="job.result.organized !== undefined" class="result-stats-inline">
-                                    Organized: <strong class="text-success">{{ job.result.organized }}</strong>
-                                </div>
-                                <div v-if="job.result.generated !== undefined" class="result-stats-inline">
-                                    Generated: <strong class="text-success">{{ job.result.generated }}</strong>
+                            <!-- Stats display for all jobs -->
+                            <div v-if="(job.progress && Object.keys(job.progress).length > 0) || (job.result && Object.keys(job.result).length > 0)" class="job-stats-display">
+                                <div class="table-result-stats">
+                                    <span v-if="'added' in (job.progress || {}) || 'added' in (job.result || {})" class="result-badge badge-success">
+                                        +{{ job.progress?.added ?? job.result?.added ?? 0 }} added
+                                    </span>
+                                    <span v-if="'skipped' in (job.progress || {}) || 'skipped' in (job.result || {})" class="result-badge badge-muted">
+                                        {{ job.progress?.skipped ?? job.result?.skipped ?? 0 }} skipped
+                                    </span>
+                                    <span v-if="'updated' in (job.progress || {}) || 'updated' in (job.result || {})" class="result-badge badge-warning">
+                                        {{ job.progress?.updated ?? job.result?.updated ?? 0 }} updated
+                                    </span>
+                                    <span v-if="('errors' in (job.progress || {}) && job.progress.errors > 0) || ('errors' in (job.result || {}) && job.result.errors > 0)" class="result-badge badge-danger">
+                                        {{ job.progress?.errors ?? job.result?.errors ?? 0 }} errors
+                                    </span>
+                                    <span v-if="'processed' in (job.progress || {}) || 'processed' in (job.result || {})" class="result-badge badge-info">
+                                        {{ job.progress?.processed ?? job.result?.processed ?? 0 }} processed
+                                    </span>
+                                    <span v-if="'files_added' in (job.progress || {}) || 'files_added' in (job.result || {})" class="result-badge badge-success">
+                                        +{{ job.progress?.files_added ?? job.result?.files_added ?? 0 }} files
+                                    </span>
+                                    <span v-if="'organized' in (job.progress || {}) || 'organized' in (job.result || {})" class="result-badge badge-success">
+                                        {{ job.progress?.organized ?? job.result?.organized ?? 0 }} organized
+                                    </span>
+                                    <span v-if="'generated' in (job.progress || {}) || 'generated' in (job.result || {})" class="result-badge badge-success">
+                                        {{ job.progress?.generated ?? job.result?.generated ?? 0 }} generated
+                                    </span>
                                 </div>
                             </div>
                             <div v-if="job.error" class="job-error-summary">
@@ -308,7 +274,6 @@
                                 <tr>
                                     <th>Type</th>
                                     <th>Status</th>
-                                    <th>Progress</th>
                                     <th>Result</th>
                                     <th>Started</th>
                                     <th>Actions</th>
@@ -319,33 +284,38 @@
                                     <td>{{ job.name || 'Unknown' }}</td>
                                     <td>
                                         <span :class="['status-badge', getJobStatusClass(job.status)]">
-                                            {{ job.status }}
+                                            {{ formatJobStatus(job.status) }}
                                         </span>
                                     </td>
                                     <td>
-                                        <div v-if="job.status === 'PROGRESS'" class="table-progress">
-                                            <div>{{ job.progress }}%</div>
-                                            <div v-if="job.progressData && job.progressData.message" class="table-progress-message">
-                                                {{ job.progressData.message }}
-                                            </div>
-                                        </div>
-                                        <span v-else>-</span>
-                                    </td>
-                                    <td>
-                                        <div v-if="job.result" class="table-result">
-                                            <span v-if="job.result.processed !== undefined">
-                                                {{ job.result.processed }} processed
-                                                <span v-if="job.result.files_added" class="text-success"> (+{{ job.result.files_added }})</span>
+                                        <div v-if="(job.progress && Object.keys(job.progress).length > 0) || (job.result && Object.keys(job.result).length > 0)" class="table-result-stats">
+                                            <span v-if="'added' in (job.progress || {}) || 'added' in (job.result || {})" class="result-badge badge-success">
+                                                +{{ job.progress?.added ?? job.result?.added ?? 0 }} added
                                             </span>
-                                            <span v-if="job.result.organized !== undefined" class="text-success">
-                                                {{ job.result.organized }} organized
+                                            <span v-if="'skipped' in (job.progress || {}) || 'skipped' in (job.result || {})" class="result-badge badge-muted">
+                                                {{ job.progress?.skipped ?? job.result?.skipped ?? 0 }} skipped
                                             </span>
-                                            <span v-if="job.result.generated !== undefined" class="text-success">
-                                                {{ job.result.generated }} generated
+                                            <span v-if="'updated' in (job.progress || {}) || 'updated' in (job.result || {})" class="result-badge badge-warning">
+                                                {{ job.progress?.updated ?? job.result?.updated ?? 0 }} updated
+                                            </span>
+                                            <span v-if="('errors' in (job.progress || {}) && job.progress.errors > 0) || ('errors' in (job.result || {}) && job.result.errors > 0)" class="result-badge badge-danger">
+                                                {{ job.progress?.errors ?? job.result?.errors ?? 0 }} errors
+                                            </span>
+                                            <span v-if="'processed' in (job.progress || {}) || 'processed' in (job.result || {})" class="result-badge badge-info">
+                                                {{ job.progress?.processed ?? job.result?.processed ?? 0 }} processed
+                                            </span>
+                                            <span v-if="'files_added' in (job.progress || {}) || 'files_added' in (job.result || {})" class="result-badge badge-success">
+                                                +{{ job.progress?.files_added ?? job.result?.files_added ?? 0 }} files
+                                            </span>
+                                            <span v-if="'organized' in (job.progress || {}) || 'organized' in (job.result || {})" class="result-badge badge-success">
+                                                {{ job.progress?.organized ?? job.result?.organized ?? 0 }} organized
+                                            </span>
+                                            <span v-if="'generated' in (job.progress || {}) || 'generated' in (job.result || {})" class="result-badge badge-success">
+                                                {{ job.progress?.generated ?? job.result?.generated ?? 0 }} generated
                                             </span>
                                         </div>
                                         <div v-else-if="job.error" class="table-error">
-                                            Error
+                                            <span class="result-badge badge-danger">Error</span>
                                         </div>
                                         <span v-else>-</span>
                                     </td>
@@ -456,7 +426,12 @@
         <!-- Analyze Form Modal -->
         <div v-if="showAnalyzeForm" class="modal-overlay" @click="showAnalyzeForm = false">
             <div class="modal-content" @click.stop>
-                <h3>Analyze Catalog</h3>
+                <div class="modal-header">
+                    <h3>Analyze Catalog</h3>
+                    <button type="button" @click="showPathHelp = true" class="btn" style="padding: 4px 8px; font-size: 12px;" title="View available paths">
+                        📁 Path Help
+                    </button>
+                </div>
                 <form @submit.prevent="submitAnalyzeJob">
                     <div class="form-group">
                         <label>Select Catalog</label>
@@ -629,6 +604,40 @@
             </div>
         </div>
 
+        <!-- Edit Catalog Form Modal -->
+        <div v-if="showEditCatalogForm" class="modal-overlay" @click="showEditCatalogForm = false">
+            <div class="modal-content" @click.stop>
+                <div class="modal-header">
+                    <h3>Edit Catalog</h3>
+                    <button type="button" @click="showPathHelp = true" class="btn" style="padding: 4px 8px; font-size: 12px;" title="View available paths">
+                        📁 Path Help
+                    </button>
+                </div>
+                <form @submit.prevent="submitEditCatalog">
+                    <div class="form-group">
+                        <label>Catalog Name</label>
+                        <input v-model="editCatalogForm.name" type="text" required
+                               placeholder="My Photo Collection" />
+                    </div>
+                    <div class="form-group">
+                        <label>Source Directories (one per line)</label>
+                        <textarea v-model="editCatalogForm.source_directories"
+                                  rows="5" required
+                                  placeholder="/host/home/username/Pictures&#10;/host/synology/photos"></textarea>
+                        <small>Container paths to your image directories. Click "Path Help" above for examples.</small>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" @click="showEditCatalogForm = false" class="btn-secondary">
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn-primary">
+                            Update Catalog
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <!-- Job Stream Modal -->
         <div v-if="streamingJob" class="modal-overlay" @click="closeJobStream">
             <div class="modal-content modal-large" @click.stop>
@@ -639,13 +648,37 @@
                 <div class="job-stream-container">
                     <div class="stream-status">
                         <span :class="['status-badge', getJobStatusClass(streamingJob.status)]">
-                            {{ streamingJob.status }}
-                        </span>
-                        <span v-if="streamingJob.progress !== undefined" class="stream-progress">
-                            {{ streamingJob.progress }}%
+                            {{ formatJobStatus(streamingJob.status) }}
                         </span>
                         <span v-if="streamConnectionStatus" class="stream-connection-status" :class="streamConnectionStatus">
                             {{ streamConnectionStatusText }}
+                        </span>
+                    </div>
+                    <!-- Progress stats badges -->
+                    <div v-if="streamingJob.progress && Object.keys(streamingJob.progress).length > 0" class="stream-stats">
+                        <span v-if="streamingJob.progress?.added" class="result-badge badge-success">
+                            +{{ streamingJob.progress.added }} added
+                        </span>
+                        <span v-if="streamingJob.progress?.skipped" class="result-badge badge-muted">
+                            {{ streamingJob.progress.skipped }} skipped
+                        </span>
+                        <span v-if="streamingJob.progress?.updated" class="result-badge badge-info">
+                            {{ streamingJob.progress.updated }} updated
+                        </span>
+                        <span v-if="streamingJob.progress?.errors" class="result-badge badge-danger">
+                            {{ streamingJob.progress.errors }} errors
+                        </span>
+                        <span v-if="streamingJob.progress?.processed" class="result-badge badge-info">
+                            {{ streamingJob.progress.processed }} processed
+                        </span>
+                        <span v-if="streamingJob.progress?.files_added" class="result-badge badge-success">
+                            +{{ streamingJob.progress.files_added }} files
+                        </span>
+                        <span v-if="streamingJob.progress?.organized" class="result-badge badge-success">
+                            {{ streamingJob.progress.organized }} organized
+                        </span>
+                        <span v-if="streamingJob.progress?.generated" class="result-badge badge-success">
+                            {{ streamingJob.progress.generated }} generated
                         </span>
                     </div>
                     <div class="stream-output" ref="streamOutput">
@@ -668,8 +701,242 @@
                 </div>
             </div>
         </div>
+
+        <!-- Path Help Modal -->
+        <div v-if="showPathHelp" class="modal-overlay" @click="showPathHelp = false">
+            <div class="modal" @click.stop style="max-width: 700px;">
+                <div class="modal-header">
+                    <h3>Container Path Mappings</h3>
+                    <button @click="showPathHelp = false" class="btn" style="padding: 4px 12px;">×</button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-secondary mb-md">
+                        The VAM Tools container has access to the following directories on your host system.
+                        Use these paths when creating catalogs or configuring scans.
+                    </p>
+
+                    <div class="card mb-md">
+                        <h4 class="mb-sm">Host Directories</h4>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <th style="text-align: left; padding: 8px; color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Host Path</th>
+                                    <th style="text-align: left; padding: 8px; color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Container Path</th>
+                                    <th style="text-align: left; padding: 8px; color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Access</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <td style="padding: 12px 8px; font-family: monospace; font-size: 12px; color: var(--text-primary);">/home</td>
+                                    <td style="padding: 12px 8px; font-family: monospace; font-size: 12px; color: var(--accent-primary);">/host/home</td>
+                                    <td style="padding: 12px 8px; font-size: 12px; color: var(--text-secondary);">Read-only</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <td style="padding: 12px 8px; font-family: monospace; font-size: 12px; color: var(--text-primary);">/mnt/synology</td>
+                                    <td style="padding: 12px 8px; font-family: monospace; font-size: 12px; color: var(--accent-primary);">/host/synology</td>
+                                    <td style="padding: 12px 8px; font-size: 12px; color: var(--text-secondary);">Read-only</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 12px 8px; font-family: monospace; font-size: 12px; color: var(--text-primary);">~/catalogs</td>
+                                    <td style="padding: 12px 8px; font-family: monospace; font-size: 12px; color: var(--accent-primary);">/app/catalogs</td>
+                                    <td style="padding: 12px 8px; font-size: 12px; color: var(--text-secondary);">Read-write</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="card">
+                        <h4 class="mb-sm">Example Paths</h4>
+                        <div style="background-color: var(--bg-primary); padding: 12px; border-radius: var(--radius-sm); font-family: monospace; font-size: 12px;">
+                            <div class="mb-sm" style="color: var(--text-muted);"># Your home directory pictures</div>
+                            <div class="mb-md" style="color: var(--accent-success);">/host/home/irjudson/Pictures</div>
+
+                            <div class="mb-sm" style="color: var(--text-muted);"># Synology NAS photos directory</div>
+                            <div class="mb-md" style="color: var(--accent-success);">/host/synology/photos</div>
+
+                            <div class="mb-sm" style="color: var(--text-muted);"># Multiple directories (one per line when creating catalog)</div>
+                            <div style="color: var(--accent-success);">/host/home/irjudson/Pictures</div>
+                            <div style="color: var(--accent-success);">/host/synology/photos</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button @click="showPathHelp = false" class="btn primary">Got it!</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lightbox Viewer -->
+        <div v-if="lightboxVisible" class="lightbox" @click.self="closeLightbox">
+            <div class="lightbox-container">
+                <!-- Main Image Area -->
+                <div class="lightbox-main">
+                    <!-- Navigation Buttons -->
+                    <div class="lightbox-nav prev">
+                        <button @click="prevImage" :disabled="lightboxImageIndex === 0" title="Previous (←)">
+                            ←
+                        </button>
+                    </div>
+
+                    <div class="lightbox-nav next">
+                        <button @click="nextImage" :disabled="lightboxImageIndex >= images.length - 1" title="Next (→)">
+                            →
+                        </button>
+                    </div>
+
+                    <!-- Close Button -->
+                    <button class="lightbox-close" @click="closeLightbox" title="Close (ESC)">
+                        ×
+                    </button>
+
+                    <!-- Image -->
+                    <div class="lightbox-image-wrapper">
+                        <img
+                            v-if="lightboxImage"
+                            :src="getFullImageUrl(lightboxImage)"
+                            :alt="lightboxImage.source_path"
+                            class="lightbox-image"
+                        />
+                    </div>
+                </div>
+
+                <!-- Sidebar with Metadata -->
+                <div class="lightbox-sidebar">
+                    <h3 class="mb-md">Image Details</h3>
+
+                    <!-- File Info -->
+                    <div class="lightbox-metadata-section">
+                        <h3>File Information</h3>
+                        <div v-if="lightboxImage">
+                            <div class="lightbox-metadata-item">
+                                <span class="lightbox-metadata-label">Filename</span>
+                                <span class="lightbox-metadata-value">
+                                    {{ lightboxImage.source_path.split('/').pop() }}
+                                </span>
+                            </div>
+                            <div class="lightbox-metadata-item">
+                                <span class="lightbox-metadata-label">Path</span>
+                                <span class="lightbox-metadata-value">
+                                    {{ lightboxImage.source_path }}
+                                </span>
+                            </div>
+                            <div class="lightbox-metadata-item">
+                                <span class="lightbox-metadata-label">Type</span>
+                                <span class="lightbox-metadata-value">
+                                    {{ lightboxImage.file_type || 'Unknown' }}
+                                </span>
+                            </div>
+                            <div class="lightbox-metadata-item">
+                                <span class="lightbox-metadata-label">Size</span>
+                                <span class="lightbox-metadata-value">
+                                    {{ formatFileSize(lightboxImage.size_bytes) }}
+                                </span>
+                            </div>
+                            <div class="lightbox-metadata-item">
+                                <span class="lightbox-metadata-label">Checksum</span>
+                                <span class="lightbox-metadata-value" style="font-family: monospace; font-size: 10px;">
+                                    {{ lightboxImage.checksum ? lightboxImage.checksum.substring(0, 12) + '...' : 'N/A' }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dates -->
+                    <div class="lightbox-metadata-section" v-if="lightboxImage && lightboxImage.dates">
+                        <h3>Dates</h3>
+                        <div class="lightbox-metadata-item" v-if="lightboxImage.dates.created">
+                            <span class="lightbox-metadata-label">Created</span>
+                            <span class="lightbox-metadata-value">
+                                {{ formatDate(lightboxImage.dates.created) }}
+                            </span>
+                        </div>
+                        <div class="lightbox-metadata-item" v-if="lightboxImage.dates.modified">
+                            <span class="lightbox-metadata-label">Modified</span>
+                            <span class="lightbox-metadata-value">
+                                {{ formatDate(lightboxImage.dates.modified) }}
+                            </span>
+                        </div>
+                        <div class="lightbox-metadata-item" v-if="lightboxImage.dates.taken">
+                            <span class="lightbox-metadata-label">Taken</span>
+                            <span class="lightbox-metadata-value">
+                                {{ formatDate(lightboxImage.dates.taken) }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- EXIF Metadata -->
+                    <div class="lightbox-metadata-section" v-if="lightboxImage && lightboxImage.metadata">
+                        <h3>EXIF Data</h3>
+                        <div class="lightbox-metadata-item" v-if="lightboxImage.metadata.camera">
+                            <span class="lightbox-metadata-label">Camera</span>
+                            <span class="lightbox-metadata-value">
+                                {{ lightboxImage.metadata.camera }}
+                            </span>
+                        </div>
+                        <div class="lightbox-metadata-item" v-if="lightboxImage.metadata.lens">
+                            <span class="lightbox-metadata-label">Lens</span>
+                            <span class="lightbox-metadata-value">
+                                {{ lightboxImage.metadata.lens }}
+                            </span>
+                        </div>
+                        <div class="lightbox-metadata-item" v-if="lightboxImage.metadata.iso">
+                            <span class="lightbox-metadata-label">ISO</span>
+                            <span class="lightbox-metadata-value">
+                                {{ lightboxImage.metadata.iso }}
+                            </span>
+                        </div>
+                        <div class="lightbox-metadata-item" v-if="lightboxImage.metadata.aperture">
+                            <span class="lightbox-metadata-label">Aperture</span>
+                            <span class="lightbox-metadata-value">
+                                f/{{ lightboxImage.metadata.aperture }}
+                            </span>
+                        </div>
+                        <div class="lightbox-metadata-item" v-if="lightboxImage.metadata.shutter_speed">
+                            <span class="lightbox-metadata-label">Shutter</span>
+                            <span class="lightbox-metadata-value">
+                                {{ lightboxImage.metadata.shutter_speed }}
+                            </span>
+                        </div>
+                        <div class="lightbox-metadata-item" v-if="lightboxImage.metadata.focal_length">
+                            <span class="lightbox-metadata-label">Focal Length</span>
+                            <span class="lightbox-metadata-value">
+                                {{ lightboxImage.metadata.focal_length }}mm
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Navigation Info -->
+                    <div class="lightbox-metadata-section">
+                        <h3>Navigation</h3>
+                        <div class="lightbox-metadata-item">
+                            <span class="lightbox-metadata-label">Position</span>
+                            <span class="lightbox-metadata-value">
+                                {{ lightboxImageIndex + 1 }} of {{ images.length }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Keyboard Shortcuts -->
+                    <div class="lightbox-metadata-section">
+                        <h3>Keyboard Shortcuts</h3>
+                        <div class="lightbox-metadata-item">
+                            <span class="lightbox-metadata-label">Previous</span>
+                            <span class="lightbox-metadata-value">← Left Arrow</span>
+                        </div>
+                        <div class="lightbox-metadata-item">
+                            <span class="lightbox-metadata-label">Next</span>
+                            <span class="lightbox-metadata-value">→ Right Arrow</span>
+                        </div>
+                        <div class="lightbox-metadata-item">
+                            <span class="lightbox-metadata-label">Close</span>
+                            <span class="lightbox-metadata-value">ESC</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <script src="/static/app.js?v=4"></script>
+    <script src="/static/app.js?v=15"></script>
 </body>
 </html>

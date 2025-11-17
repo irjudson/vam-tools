@@ -92,8 +92,8 @@ class PhotoWatcherHandler(FileSystemEventHandler):
 
             # Process files
             from ..analysis.scanner import _process_file_worker
-            from ..db import CatalogDB as CatalogDatabase
             from ..core.types import FileType, Statistics  # Import Statistics
+            from ..db import CatalogDB as CatalogDatabase
 
             processed = 0
             added = 0
