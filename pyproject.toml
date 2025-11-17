@@ -196,6 +196,8 @@ addopts = [
     "-p", "no:warnings",  # Disable warnings to speed up output
     "--dist=loadfile",  # Distribute tests by file - ensures all tests in a file run on same worker
 ]
+# Unique worker group name for isolation across multiple projects
+xdist_worker_class = "vam_tools_workers"
 markers = [
     "integration: marks tests as integration tests requiring running services (Redis, Celery, FastAPI)",
 ]
