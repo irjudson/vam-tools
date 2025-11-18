@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS tags (
     name TEXT NOT NULL,                     -- Tag name
     category TEXT,                          -- Optional category (subject, scene, etc.)
     parent_id INTEGER,                      -- For hierarchical tags
+    synonyms TEXT[],                        -- Alternative names for this tag
+    description TEXT,                       -- Optional description
     created_at TIMESTAMP DEFAULT NOW(),
 
     FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE,
