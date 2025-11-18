@@ -308,21 +308,42 @@ class CatalogDB:
         logger.debug(f"Parameters: {param_dict}")
         return self.session.execute(text(pg_sql), param_dict)
 
-    def list_images(self) -> List[str]:
+    def list_images(self) -> List[Any]:
         """
-        Get all image IDs for this catalog.
+        Get all images for this catalog.
 
         Returns:
-            List of image IDs
+            List of ImageRecord objects
         """
         if self.session is None:
             self.connect()
 
         result = self.session.execute(
-            text("SELECT id FROM images WHERE catalog_id = :catalog_id"),
+            text("SELECT * FROM images WHERE catalog_id = :catalog_id"),
             {"catalog_id": self.catalog_id},
         )
-        return [row[0] for row in result.fetchall()]
+
+        images = []
+        for row in result.fetchall():
+            row_dict = dict(row._mapping)
+            # Handle null JSONB values
+            dates = row_dict.get("dates") or {}
+            metadata = row_dict.get("metadata") or {}
+
+            image_record = deserialize_image_record(
+                {
+                    "id": row_dict["id"],
+                    "source_path": row_dict["source_path"],
+                    "file_type": row_dict["file_type"],
+                    "checksum": row_dict["checksum"],
+                    "status": row_dict["status"],
+                    "dates": dates,
+                    "metadata": metadata,
+                }
+            )
+            images.append(image_record)
+
+        return images
 
     def get_image(self, image_id: str) -> Optional[Any]:
         """
