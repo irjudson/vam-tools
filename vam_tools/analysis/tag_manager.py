@@ -1,8 +1,8 @@
 """
-Tag management system integrating taxonomy with SQLite storage.
+Tag management system integrating taxonomy with database storage.
 
 This module provides a complete tag management system that combines the
-hierarchical tag taxonomy with SQLite-backed persistence.
+hierarchical tag taxonomy with PostgreSQL-backed persistence.
 
 Example:
     Initialize and use tag manager:
@@ -12,7 +12,6 @@ Example:
         >>> tags = manager.get_image_tags("img1")
 """
 
-import json
 import logging
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -74,18 +73,21 @@ class TagManager:
         all_tags = self.taxonomy.get_all_tags()
 
         for tag in all_tags:
+            # Pass synonyms as a Python list - psycopg2 will convert to PostgreSQL array format
             cursor = self.db.execute(
                 """
-                INSERT OR IGNORE INTO tags (
-                    id, name, category, parent_id, synonyms, description, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                INSERT INTO tags (
+                    id, catalog_id, name, category, parent_id, synonyms, description, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                ON CONFLICT (catalog_id, name) DO NOTHING
                 """,
                 (
                     tag.id,
+                    str(self.db.catalog_id),  # Explicitly include catalog_id
                     tag.name,
                     tag.category.value,
                     tag.parent_id,
-                    json.dumps(list(tag.synonyms)),
+                    list(tag.synonyms),  # Pass as Python list for PostgreSQL array
                     tag.description,
                 ),
             )

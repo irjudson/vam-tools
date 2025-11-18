@@ -492,6 +492,52 @@ class CatalogDB:
         )
         return [dict(row._mapping) for row in result.fetchall()]
 
+    def get_statistics(self):
+        """
+        Get statistics for this catalog by computing from current data.
+
+        Returns:
+            SimpleNamespace with statistics attributes
+        """
+        if self.session is None:
+            self.connect()
+
+        from types import SimpleNamespace
+
+        # Count total images and videos by file_type
+        images_result = self.session.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN file_type = 'image' THEN 1 ELSE 0 END) as images,
+                    SUM(CASE WHEN file_type = 'video' THEN 1 ELSE 0 END) as videos,
+                    COALESCE(SUM(size_bytes), 0) as total_bytes
+                FROM images
+                WHERE catalog_id = :catalog_id
+                """
+            ),
+            {"catalog_id": self.catalog_id},
+        )
+        row = images_result.fetchone()
+        total = row[0] if row else 0
+        total_images = row[1] if row else 0
+        total_videos = row[2] if row else 0
+        total_size_bytes = row[3] if row else 0
+
+        # Create statistics object with attributes
+        stats = SimpleNamespace(
+            total_images=total_images,
+            total_videos=total_videos,
+            images_scanned=total,
+            images_hashed=total,
+            duplicate_groups=0,  # Computed separately if needed
+            total_size_bytes=total_size_bytes,
+            no_date=0,  # Could be computed from dates JSONB field if needed
+        )
+
+        return stats
+
     def save(self) -> None:
         """Save database changes (commit transaction)."""
         # Only commit if we own the session (pytest fixtures manage their own transactions)

@@ -170,9 +170,10 @@ def deserialize_image_metadata(data: Dict[str, Any]) -> ImageMetadata:
         iso=data.get("iso"),
         gps_latitude=data.get("gps_latitude"),
         gps_longitude=data.get("gps_longitude"),
-        perceptual_hash_dhash=data.get("perceptual_hash_dhash"),
-        perceptual_hash_ahash=data.get("perceptual_hash_ahash"),
-        perceptual_hash_whash=data.get("perceptual_hash_whash"),
+        # Support both old (perceptual_hash_dhash) and new (dhash) key names
+        perceptual_hash_dhash=data.get("perceptual_hash_dhash") or data.get("dhash"),
+        perceptual_hash_ahash=data.get("perceptual_hash_ahash") or data.get("ahash"),
+        perceptual_hash_whash=data.get("perceptual_hash_whash") or data.get("whash"),
         merged_from=data.get("merged_from", []),
     )
 
