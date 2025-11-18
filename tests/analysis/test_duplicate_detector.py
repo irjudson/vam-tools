@@ -116,7 +116,7 @@ class TestDuplicateDetector:
 
             # Check that similar images are grouped
             image_ids = db.list_images()
-            assert len(image_ids) == 3  # All 3 unique by checksum
+            assert len(image_ids) == 8  # 9 files but red.jpg and small.jpg are duplicates (same checksum)
 
     def test_quality_scoring(self, tmp_path: Path, shared_test_images: Path) -> None:
         """Test that quality scoring selects the best image."""

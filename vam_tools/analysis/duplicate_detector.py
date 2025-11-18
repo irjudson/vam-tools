@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from sqlalchemy import text
+
 from rich.progress import (
     BarColumn,
     Progress,
@@ -280,30 +282,8 @@ class DuplicateDetector:
         Args:
             force: Force recomputation even if hash exists
         """
-        rows = self.catalog.execute("SELECT * FROM images").fetchall()
-        all_files: List[ImageRecord] = []
-        for row in rows:
-            # Manually construct ImageRecord from row (simplified)
-            image = ImageRecord(
-                id=row["id"],
-                source_path=Path(row["source_path"]),
-                file_type=(
-                    FileType.IMAGE
-                    if row["format"]
-                    in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]
-                    else FileType.VIDEO
-                ),
-                checksum=row["file_hash"],
-                status=ImageStatus.COMPLETE,
-                file_size=row["file_size"],
-                metadata=ImageMetadata(
-                    format=row["format"],
-                    perceptual_hash_dhash=row[
-                        "perceptual_hash"
-                    ],  # Assuming this is dhash
-                ),
-            )
-            all_files.append(image)
+        # Use CatalogDB.list_images() to get proper ImageRecord objects
+        all_files: List[ImageRecord] = self.catalog.list_images()
 
         images_to_process = []
         videos_to_process = []
@@ -450,27 +430,60 @@ class DuplicateDetector:
                         image = images_to_process[idx]
 
                         if hashes:
-                            # Update image metadata with computed hashes
-                            update_fields = {}
+                            # Update image metadata with computed hashes directly in JSONB column
+                            # Use jsonb_set to update specific keys in the metadata JSONB field
                             if "dhash" in hashes:
-                                update_fields["perceptual_hash"] = hashes[
-                                    "dhash"
-                                ]  # Assuming perceptual_hash is dhash
-                            # If ahash/whash are supported, add them here
-                            # if "ahash" in hashes:
-                            #     update_fields["perceptual_hash_ahash"] = hashes["ahash"]
-                            # if "whash" in hashes:
-                            #     update_fields["perceptual_hash_whash"] = hashes["whash"]
-
-                            if update_fields:
-                                set_clauses = ", ".join(
-                                    [f"{k} = ?" for k in update_fields.keys()]
+                                self.catalog.session.execute(
+                                    text("""
+                                        UPDATE images
+                                        SET metadata = jsonb_set(
+                                            COALESCE(metadata, '{}'::jsonb),
+                                            '{dhash}',
+                                            :hash_value
+                                        )
+                                        WHERE catalog_id = :catalog_id AND id = :image_id
+                                    """),
+                                    {
+                                        "hash_value": f'"{hashes["dhash"]}"',
+                                        "catalog_id": str(self.catalog.catalog_id),
+                                        "image_id": image.id
+                                    }
                                 )
-                                params = list(update_fields.values()) + [image.id]
-                                self.catalog.execute(
-                                    f"UPDATE images SET {set_clauses} WHERE id = ?",
-                                    tuple(params),
+                            if "ahash" in hashes:
+                                self.catalog.session.execute(
+                                    text("""
+                                        UPDATE images
+                                        SET metadata = jsonb_set(
+                                            COALESCE(metadata, '{}'::jsonb),
+                                            '{ahash}',
+                                            :hash_value
+                                        )
+                                        WHERE catalog_id = :catalog_id AND id = :image_id
+                                    """),
+                                    {
+                                        "hash_value": f'"{hashes["ahash"]}"',
+                                        "catalog_id": str(self.catalog.catalog_id),
+                                        "image_id": image.id
+                                    }
                                 )
+                            if "whash" in hashes:
+                                self.catalog.session.execute(
+                                    text("""
+                                        UPDATE images
+                                        SET metadata = jsonb_set(
+                                            COALESCE(metadata, '{}'::jsonb),
+                                            '{whash}',
+                                            :hash_value
+                                        )
+                                        WHERE catalog_id = :catalog_id AND id = :image_id
+                                    """),
+                                    {
+                                        "hash_value": f'"{hashes["whash"]}"',
+                                        "catalog_id": str(self.catalog.catalog_id),
+                                        "image_id": image.id
+                                    }
+                                )
+                            self.catalog.session.commit()
                         else:
                             logger.warning(
                                 f"Failed to compute hash for {image.source_path}"
@@ -562,9 +575,11 @@ class DuplicateDetector:
         # Group images by checksum
         checksum_groups: Dict[str, List[str]] = defaultdict(list)
 
-        rows = self.catalog.execute("SELECT id, file_hash FROM images").fetchall()
-        for row in rows:
-            checksum_groups[row["file_hash"]].append(row["id"])
+        # Use list_images() to get proper ImageRecord objects
+        images = self.catalog.list_images()
+        for image in images:
+            if image.checksum:
+                checksum_groups[image.checksum].append(image.id)
 
         # Create duplicate groups for checksums with multiple images
         groups = []
@@ -586,30 +601,8 @@ class DuplicateDetector:
         Returns:
             List of similar image groups
         """
-        rows = self.catalog.execute("SELECT * FROM images").fetchall()
-        images: List[ImageRecord] = []
-        for row in rows:
-            # Manually construct ImageRecord from row (simplified)
-            image = ImageRecord(
-                id=row["id"],
-                source_path=Path(row["source_path"]),
-                file_type=(
-                    FileType.IMAGE
-                    if row["format"]
-                    in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]
-                    else FileType.VIDEO
-                ),
-                checksum=row["file_hash"],
-                status=ImageStatus.COMPLETE,
-                file_size=row["file_size"],
-                metadata=ImageMetadata(
-                    format=row["format"],
-                    perceptual_hash_dhash=row[
-                        "perceptual_hash"
-                    ],  # Assuming this is dhash
-                ),
-            )
-            images.append(image)
+        # Use list_images() to get proper ImageRecord objects
+        images = self.catalog.list_images()
 
         # Filter to images with at least one valid perceptual hash
         # Images must have hashes for the methods we're using
@@ -1041,35 +1034,9 @@ class DuplicateDetector:
             # Get metadata for all images in group
             images_data = {}
             for image_id in group.images:
-                row = self.catalog.execute(
-                    "SELECT * FROM images WHERE id = ?", (image_id,)
-                ).fetchone()
-                if row:
-                    # Manually construct ImageRecord from row (simplified)
-                    image = ImageRecord(
-                        id=row["id"],
-                        source_path=Path(row["source_path"]),
-                        file_type=(
-                            FileType.IMAGE
-                            if row["format"]
-                            in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]
-                            else FileType.VIDEO
-                        ),
-                        checksum=row["file_hash"],
-                        status=ImageStatus.COMPLETE,
-                        file_size=row["file_size"],
-                        dates=DateInfo(
-                            selected_date=(
-                                datetime.fromisoformat(row["date_taken"])
-                                if row["date_taken"]
-                                else None
-                            ),
-                        ),
-                        metadata=ImageMetadata(
-                            format=row["format"],
-                            size_bytes=row["file_size"],
-                        ),
-                    )
+                # Use catalog.get_image() to properly fetch ImageRecord
+                image = self.catalog.get_image(image_id)
+                if image:
                     images_data[image_id] = (image.metadata, image.file_type)
 
             if not images_data:
