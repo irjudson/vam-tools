@@ -26,12 +26,13 @@ class CatalogDB:
     Compatible with the interface expected by scanner, detector, etc.
     """
 
-    def __init__(self, catalog_id_or_path):
+    def __init__(self, catalog_id_or_path, session: Optional[Session] = None):
         """
         Initialize catalog database connection.
 
         Args:
             catalog_id_or_path: UUID of the catalog to work with, or Path for test compatibility
+            session: Optional SQLAlchemy session (for testing with pytest fixtures)
         """
         import hashlib
         import uuid as uuid_module
@@ -50,44 +51,54 @@ class CatalogDB:
             self._test_path = None
             self._test_mode = False
 
-        self.session: Optional[Session] = None
-        self._context_manager = None
+        # If session provided, use it directly (pytest fixture injection)
+        if session is not None:
+            self.session = session
+            self._owns_session = False  # Don't close session we don't own
+            self._context_manager = None
+            # Ensure catalog exists in the database
+            self._ensure_catalog_exists()
+        else:
+            self.session: Optional[Session] = None
+            self._owns_session = True  # We created it, we close it
+            self._context_manager = None
 
-        # For test mode, eagerly connect and create tables
-        if self._test_mode:
-            self.connect()
-            self._ensure_test_setup()
+            # For test mode without injected session, eagerly connect and create tables
+            # This maintains backward compatibility with old tests
+            if self._test_mode:
+                self.connect()
+                self._ensure_test_setup()
+
+    def _ensure_catalog_exists(self) -> None:
+        """Ensure the catalog exists in the database (for pytest fixture injection)."""
+        if not self.session:
+            return
+
+        from .models import Catalog
+
+        # Create catalog if it doesn't exist
+        existing = self.session.query(Catalog).filter_by(id=self.catalog_id).first()
+        if not existing:
+            catalog = Catalog(
+                id=self.catalog_id,
+                name=f"Test Catalog {self.catalog_id[:8]}",
+                schema_name=f"test_{self.catalog_id[:8]}",
+                source_directories=[str(self._test_path)] if self._test_path else [],
+            )
+            self.session.add(catalog)
+            self.session.flush()  # Use flush instead of commit (let pytest manage transactions)
 
     def _ensure_test_setup(self) -> None:
-        """Ensure database schema and catalog exist for testing."""
+        """
+        Ensure catalog exists for testing.
+
+        NOTE: Table creation is handled by conftest.py session-scoped fixtures.
+        This method ONLY creates the catalog record, not the tables.
+        """
         if not self._test_mode or not self.session:
             return
 
-        from pathlib import Path
-
-        from .models import Base, Catalog
-
-        # Create all tables from SQLAlchemy models
-        Base.metadata.create_all(bind=self.session.bind)
-
-        # Also execute schema.sql for additional tables (statistics, config, etc.)
-        schema_file = Path(__file__).parent / "schema.sql"
-        if schema_file.exists():
-            with open(schema_file) as f:
-                schema_sql = f.read()
-
-            # Execute the entire schema file (IF NOT EXISTS makes it idempotent)
-            try:
-                # Use raw connection to execute multi-statement SQL
-                conn = self.session.connection()
-                conn.execute(text(schema_sql))
-                self.session.commit()
-            except Exception as e:
-                # Tables might already exist - that's ok
-                self.session.rollback()
-                logger.debug(
-                    f"Ignoring schema execution error (likely tables exist): {e}"
-                )
+        from .models import Catalog
 
         # Create catalog if it doesn't exist
         existing = self.session.query(Catalog).filter_by(id=self.catalog_id).first()
@@ -127,7 +138,8 @@ class CatalogDB:
 
     def close(self) -> None:
         """Close database connection (for compatibility)."""
-        if self.session:
+        # Only close session if we own it (not injected from pytest)
+        if self.session and self._owns_session:
             self.session.close()
             self.session = None
 
@@ -237,13 +249,21 @@ class CatalogDB:
                 pg_sql += " WHERE catalog_id = :catalog_id"
             param_dict["catalog_id"] = str(self.catalog_id)
 
+        # Handle INSERT OR IGNORE (SQLite -> PostgreSQL)
+        # Pattern: INSERT OR IGNORE INTO table (...) VALUES (...)
+        # Becomes: INSERT INTO table (...) VALUES (...) ON CONFLICT DO NOTHING
+        if "INSERT OR IGNORE INTO" in pg_sql:
+            pg_sql = pg_sql.replace("INSERT OR IGNORE INTO", "INSERT INTO")
+            # Add ON CONFLICT DO NOTHING at the end
+            pg_sql += " ON CONFLICT DO NOTHING"
+
         # Handle INSERT OR REPLACE for config table
         # Pattern: INSERT INTO config (key, value, updated_at) VALUES (:param0, :param1, NOW())
         # Becomes: INSERT INTO config (key, value, updated_at, catalog_id)
         #          VALUES (:param0, :value_json::jsonb, NOW(), :catalog_id)
         #          ON CONFLICT (catalog_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
         # Note: config.value is JSONB, so we need to JSON-encode string values
-        if "INSERT OR REPLACE INTO config" in pg_sql:
+        elif "INSERT OR REPLACE INTO config" in pg_sql:
             # Replace the INSERT OR REPLACE part
             pg_sql = pg_sql.replace(
                 "INSERT OR REPLACE INTO config", "INSERT INTO config"
@@ -453,8 +473,12 @@ class CatalogDB:
 
     def save(self) -> None:
         """Save database changes (commit transaction)."""
-        if self.session:
+        # Only commit if we own the session (pytest fixtures manage their own transactions)
+        if self.session and self._owns_session:
             self.session.commit()
+        elif self.session:
+            # For injected sessions, just flush changes (transaction managed externally)
+            self.session.flush()
 
     @property
     def catalog_path(self) -> Path:
