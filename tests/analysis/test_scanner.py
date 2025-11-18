@@ -2,7 +2,6 @@
 Tests for scanner module.
 """
 
-import json
 from pathlib import Path
 
 from PIL import Image
@@ -46,18 +45,9 @@ class TestImageScanner:
             assert all(checksums), "All images should have checksums"
             assert len(set(checksums)) == 2, "Checksums should be unique"
 
-        # Verify catalog was saved to disk
-        catalog_file = catalog_dir / "catalog.json"
-        assert catalog_file.exists(), "Catalog file should exist"
-
-        # Verify catalog contents on disk
-        with open(catalog_file) as f:
-            catalog_data = json.load(f)
-
-        assert "images" in catalog_data
-        assert len(catalog_data["images"]) == 2
-        assert "statistics" in catalog_data
-        assert catalog_data["statistics"]["total_images"] == 2
+            # Verify statistics were updated in database
+            stats = db.get_statistics()
+            assert stats.total_images == 2
 
     def test_scanner_multiprocessing(self, tmp_path: Path) -> None:
         """Test scanner with multiple workers."""
