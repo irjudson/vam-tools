@@ -191,7 +191,7 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = [
-    "-n", "auto",  # Parallel execution with pytest-xdist (auto = number of CPU cores)
+    "-n", "4",  # Parallel execution with pytest-xdist (4 workers for reasonable resource usage)
     "--tb=line",  # Line-only tracebacks for speed
     "-p", "no:warnings",  # Disable warnings to speed up output
     "--dist=loadfile",  # Distribute tests by file - ensures all tests in a file run on same worker
