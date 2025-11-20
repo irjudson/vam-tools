@@ -13,7 +13,8 @@ help:
 	@echo "  make test               - Run tests locally with parallel workers (quiet)"
 	@echo "  make test-verbose       - Run tests locally with verbose output"
 	@echo "  make test-watch         - Run tests in watch mode"
-	@echo "  make test-sequential    - Run tests without parallelism"
+	@echo "  make test-sequential    - Run tests without parallelism (quiet)"
+	@echo "  make test-sequential-verbose - Run tests without parallelism (verbose)"
 	@echo "  make coverage           - Run tests with coverage report"
 	@echo ""
 	@echo "Testing (Docker):"
@@ -78,11 +79,11 @@ test-verbose:
 
 # Sequential (no parallelism)
 test-sequential:
-	@./venv/bin/pytest tests/ -q --tb=line
+	@./venv/bin/pytest tests/ -n 0 -q --tb=line
 
 # Sequential verbose
 test-sequential-verbose:
-	@./venv/bin/pytest tests/ -v --tb=short
+	@./venv/bin/pytest tests/ -n 0 -v --tb=short
 
 # Watch mode
 test-watch:
