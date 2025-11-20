@@ -1,118 +1,266 @@
-# Testing Guide
+# Testing VAM Tools
+
+This document describes how to run tests for VAM Tools in a completely isolated Docker environment.
+
+## Overview
+
+VAM Tools uses Docker Compose to provide isolated test environments that prevent interference between:
+- Multiple projects running tests on the same machine
+- Test runs and production/development services
+- Sequential and parallel test executions
 
 ## Quick Start
 
-Run all tests in parallel:
+### Run All Tests (Isolated)
+
 ```bash
-./run_all_tests_parallel.sh
+# Build and run all tests in complete isolation
+docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+
+# Clean up after tests
+docker-compose -f docker-compose.test.yml down -v
 ```
 
-Run a specific test file:
+### Run Specific Tests
+
 ```bash
-./venv/bin/pytest tests/test_db.py -v
+# Run a specific test file
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/test_db.py -v
+
+# Run tests matching a pattern
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/analysis/ -v
+
+# Run a specific test
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/test_db.py::TestCatalogDB::test_create_catalog -v
 ```
 
-## Test Performance
+### Run Tests with Parallel Workers
 
-The test suite is optimized for speed with several techniques:
+```bash
+# Run with 4 parallel workers
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ -n 4 -v
 
-### Database Fixtures (Session-scoped)
-- Database schema created **once** at start of test session
-- Tests use **transactions** for isolation (fast rollback vs. DROP/CREATE)
-- Result: Database tests run in <1 second
-
-### Image Fixtures (Module-scoped)
-- Test images created **once** per test file
-- Images reused across multiple tests in same file
-- Image size optimized (10x10 instead of 100x100)
-- Result: 100x faster image creation
-
-### Parallel Execution
-- Runs 8 test files concurrently
-- Automatic progress tracking with timing
-- Result: ~8x speedup vs. sequential execution
-
-## Expected Runtimes
-
-**Total suite**: 5-10 minutes (38 test files, 672 tests)
-
-**Per test file**:
-- Fast (DB, API, utils): <1 second
-- Medium (analysis): 5-15 seconds
-- Slow (scanning, duplicate detection): 20-60 seconds
-
-The slow tests are due to:
-- Image scanning (reading files, extracting EXIF)
-- Perceptual hash computation (CPU-intensive even for small images)
-- Database operations per image
-
-## Test Organization
-
-```
-tests/
-├── conftest.py              # Shared fixtures (session-scoped DB, images)
-├── test_db.py               # Database CRUD operations
-├── test_api.py              # API endpoints
-├── analysis/                # Image analysis tests
-│   ├── test_duplicate_detector.py  # Duplicate detection (SLOW)
-│   ├── test_scanner.py             # Image scanning (SLOW)
-│   └── test_perceptual_hash.py     # Hash computation
-├── cli/                     # CLI command tests
-├── db/                      # Database layer tests
-└── web/                     # Web interface tests
+# Run with auto-detected CPU count
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ -n auto -v
 ```
 
-## Test Database Isolation
+### Custom Test Commands
 
-All tests use `vam-tools-test` database automatically:
-- Environment variable set in `tests/conftest.py`
-- Safety check prevents accidental production DB writes
-- Test data automatically cleaned up via transactions
+```bash
+# Run with verbose output
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ -vv
 
-## Optimization History
+# Run with coverage
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ --cov=vam_tools --cov-report=html
 
-1. **Database fixtures** - Changed from function-scoped to session-scoped
-   - Before: Each test created/dropped all tables (~5s overhead per test)
-   - After: Tables created once, tests use transactions (<0.01s per test)
-   - Speedup: ~500x for DB tests
+# Run only failed tests from last run
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ --lf -v
 
-2. **Image fixtures** - Changed from function-scoped to module-scoped
-   - Before: Each test created images with slow `putpixel()` loops
-   - After: Images created once, reused across tests
-   - Speedup: ~100x for image creation
+# Stop on first failure
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ -x -v
+```
 
-3. **Image sizes** - Reduced from 100x100 to 10x10
-   - 100 pixels vs. 10,000 pixels per image
-   - Speedup: ~100x for image operations
+## Architecture
 
-4. **Parallel execution** - Run 8 test files concurrently
-   - Speedup: ~8x for overall test suite
+### Test Environment Components
 
-## Future Optimizations
+The `docker-compose.test.yml` file creates three services:
 
-If tests become too slow, consider:
+1. **postgres-test** - Isolated PostgreSQL 16 database
+   - Database: `vam-tools-test`
+   - Uses tmpfs for automatic cleanup
+   - Health checks ensure DB is ready before tests run
 
-1. **Mark slow tests**: Use `@pytest.mark.slow` to skip expensive tests by default
-   ```python
-   @pytest.mark.slow
-   def test_full_duplicate_scan(self):
-       # Only run with: pytest -m slow
-   ```
+2. **redis-test** - Isolated Redis 7 instance
+   - Uses tmpfs for automatic cleanup
+   - Password-protected
 
-2. **Mock expensive operations**: Mock perceptual hash computation for tests that don't need real hashes
+3. **test-runner** - Test execution container
+   - Builds from `Dockerfile.test`
+   - Mounts source code read-only
+   - Waits for postgres and redis to be healthy
+   - Exits after test completion
 
-3. **Reduce test coverage**: Focus on most critical test cases, remove redundant tests
+### Benefits of Docker-Based Testing
+
+✅ **Complete Isolation**
+- Each test run gets fresh database and Redis instances
+- No pollution from previous test runs
+- No interference with development services
+
+✅ **Automatic Cleanup**
+- Using tmpfs means all data is wiped when containers stop
+- `docker-compose down -v` removes all test artifacts
+
+✅ **Reproducible**
+- Same environment every time
+- Works identically on all machines
+- No dependency on host PostgreSQL/Redis versions
+
+✅ **Parallel Safe**
+- Can run multiple test suites simultaneously
+- Each suite gets isolated services
+
+✅ **CI/CD Ready**
+- Same commands work in CI and locally
+- No special setup required
+
+## Local Development Testing
+
+For faster iteration during development, you can still run tests locally:
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run tests locally (requires local PostgreSQL and Redis)
+pytest tests/ -v
+
+# Run with parallel workers
+pytest tests/ -n 4 -v
+```
+
+**Note:** Local testing may experience pollution issues if multiple projects are running tests simultaneously. Use Docker-based testing for guaranteed isolation.
 
 ## Troubleshooting
 
-**Tests write to production database:**
-- Check `tests/conftest.py` sets `POSTGRES_DB=vam-tools-test`
-- Verify safety check in conftest.py is working
+### Tests Hanging
 
-**Tests timeout:**
-- Increase timeout in `run_all_tests_parallel.sh`
-- Or run specific test file: `pytest tests/test_db.py`
+If tests appear to hang, check that services are healthy:
 
-**Tests fail randomly:**
-- Check for test interdependencies (tests should be isolated)
-- Verify database transactions are being rolled back properly
+```bash
+docker-compose -f docker-compose.test.yml ps
+```
+
+All services should show "healthy" status.
+
+### Port Conflicts
+
+The test environment uses an isolated network and doesn't expose ports, so port conflicts shouldn't occur. If you see port-related errors, ensure you're using `docker-compose.test.yml` and not `docker-compose.yml`.
+
+### Cleaning Up
+
+To completely remove all test containers and volumes:
+
+```bash
+# Stop and remove all test containers and volumes
+docker-compose -f docker-compose.test.yml down -v
+
+# Remove test images (to force rebuild)
+docker rmi vam-tools-test-runner postgres:16 redis:7-alpine
+```
+
+### Viewing Logs
+
+```bash
+# View all service logs
+docker-compose -f docker-compose.test.yml logs
+
+# View specific service logs
+docker-compose -f docker-compose.test.yml logs postgres-test
+docker-compose -f docker-compose.test.yml logs redis-test
+docker-compose -f docker-compose.test.yml logs test-runner
+```
+
+## Advanced Usage
+
+### Interactive Shell in Test Container
+
+```bash
+# Start an interactive shell in the test environment
+docker-compose -f docker-compose.test.yml run --rm test-runner /bin/bash
+
+# From the shell, you can run pytest commands directly
+pytest tests/test_db.py -v
+```
+
+### Debugging Failed Tests
+
+```bash
+# Run with pdb on failure
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ --pdb
+
+# Run with detailed output
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ -vv --tb=long
+```
+
+### Performance Profiling
+
+```bash
+# Run with profiling
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ --profile
+
+# Run with duration reporting (show slowest tests)
+docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ --durations=10
+```
+
+## File Structure
+
+```
+vam-tools/
+├── docker-compose.test.yml    # Test environment configuration
+├── Dockerfile.test            # Test container image
+├── .dockerignore              # Files to exclude from Docker build
+├── tests/                     # Test files
+├── vam_tools/                 # Source code
+└── TESTING.md                 # This file
+```
+
+## Environment Variables
+
+The test environment sets these variables automatically:
+
+- `POSTGRES_HOST=postgres-test`
+- `POSTGRES_DB=vam-tools-test`
+- `TESTING=1`
+- `LOG_LEVEL=WARNING`
+- `PYTHONDONTWRITEBYTECODE=1`
+
+You can override these by modifying `docker-compose.test.yml` or setting them in the run command:
+
+```bash
+docker-compose -f docker-compose.test.yml run --rm \
+  -e LOG_LEVEL=DEBUG \
+  test-runner pytest tests/ -v
+```
+
+## Integration with CI/CD
+
+### GitHub Actions Example
+
+```yaml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run tests
+        run: docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+      - name: Cleanup
+        run: docker-compose -f docker-compose.test.yml down -v
+```
+
+### GitLab CI Example
+
+```yaml
+test:
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+  after_script:
+    - docker-compose -f docker-compose.test.yml down -v
+```
+
+## Best Practices
+
+1. **Always use Docker for pre-commit testing** to ensure no pollution issues
+2. **Run with `-n auto` for parallel execution** to speed up test runs
+3. **Use `--lf` to run only failed tests** during development
+4. **Clean up after each run** with `docker-compose down -v`
+5. **Rebuild images after dependency changes** with `--build` flag

@@ -184,38 +184,75 @@ def get_job_status(job_id: str):
 
 
 @router.delete("/{job_id}", status_code=204)
-def revoke_job(job_id: str, terminate: bool = False, db: Session = Depends(get_db)):
-    """Revoke/cancel a job.
+def revoke_job(
+    job_id: str,
+    terminate: bool = False,
+    force: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Revoke/cancel a job, or force delete it from the database.
 
     Args:
-        job_id: The job ID to revoke
+        job_id: The job ID to revoke/delete
         terminate: If True, forcefully terminate the task (default: False)
+        force: If True, completely delete the job from the database instead of marking as REVOKED
     """
-    logger.info(f"Revoking job {job_id} (terminate={terminate})")
+    action = "force deleting" if force else "revoking"
+    logger.info(f"{action.capitalize()} job {job_id} (terminate={terminate})")
 
     try:
-        # Revoke the task in Celery
-        celery_app.control.revoke(
-            job_id, terminate=terminate, signal="SIGKILL" if terminate else "SIGTERM"
-        )
+        if force:
+            # Force delete: completely remove the job record from the database
+            job = db.query(Job).filter(Job.id == job_id).first()
+            if not job:
+                raise HTTPException(status_code=404, detail="Job not found")
 
-        # Also mark it as revoked in the result backend
-        task = AsyncResult(job_id, app=celery_app)
-        if task:
-            # This doesn't actually revoke it but marks it for cleanup
-            task.forget()
+            # Still try to revoke in Celery if it's running
+            celery_app.control.revoke(
+                job_id,
+                terminate=terminate,
+                signal="SIGKILL" if terminate else "SIGTERM",
+            )
 
-        # Update database record to reflect revocation
-        job = db.query(Job).filter(Job.id == job_id).first()
-        if job:
-            job.status = "REVOKED"
-            job.error = "Job was manually cancelled"
+            # Clean up result backend
+            task = AsyncResult(job_id, app=celery_app)
+            if task:
+                task.forget()
+
+            # DELETE the job record completely
+            db.delete(job)
             db.commit()
 
-        return {"status": "revoked", "job_id": job_id}
+            logger.info(f"Job {job_id} deleted from database")
+            return {"status": "deleted", "job_id": job_id}
+        else:
+            # Soft delete: mark as REVOKED (preserves audit trail)
+            # Revoke the task in Celery
+            celery_app.control.revoke(
+                job_id,
+                terminate=terminate,
+                signal="SIGKILL" if terminate else "SIGTERM",
+            )
+
+            # Also mark it as revoked in the result backend
+            task = AsyncResult(job_id, app=celery_app)
+            if task:
+                # This doesn't actually revoke it but marks it for cleanup
+                task.forget()
+
+            # Update database record to reflect revocation
+            job = db.query(Job).filter(Job.id == job_id).first()
+            if job:
+                job.status = "REVOKED"
+                job.error = "Job was manually cancelled"
+                db.commit()
+
+            return {"status": "revoked", "job_id": job_id}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error revoking job {job_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to revoke job: {str(e)}")
+        logger.error(f"Error {action} job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to {action} job: {str(e)}")
 
 
 @router.websocket("/{job_id}/stream")

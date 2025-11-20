@@ -1076,38 +1076,68 @@ class DuplicateDetector:
         """Save detected duplicate groups to catalog."""
         logger.info(f"Saving {len(self.duplicate_groups)} duplicate groups to catalog")
 
-        with self.catalog.transaction():
-            for group in self.duplicate_groups:
-                # Insert into duplicate_groups table
-                cursor = self.catalog.execute(
-                    """
-                    INSERT INTO duplicate_groups (
-                        hash_distance, similarity_score, created_at, reviewed
-                    ) VALUES (?, ?, datetime('now'), ?)
-                    """,
-                    (
-                        self.similarity_threshold,  # Using similarity_threshold as hash_distance for now
-                        group.similarity_score,
-                        (
-                            1 if group.needs_review else 0
-                        ),  # Assuming needs_review maps to reviewed
-                    ),
-                )
-                group_id = cursor.lastrowid
+        for group in self.duplicate_groups:
+            # Calculate average similarity score from similarity_metrics
+            if group.similarity_metrics:
+                avg_score = sum(
+                    m.overall_similarity for m in group.similarity_metrics.values()
+                ) / len(group.similarity_metrics)
+            else:
+                # No similarity metrics means exact duplicates (100% similar)
+                avg_score = 1.0
 
-                # Insert images into duplicate_group_images table
-                for image_id in group.images:
-                    is_primary = 1 if image_id == group.primary else 0
-                    # Fetch quality score if available, otherwise default to 0
-                    quality_score = group.quality_scores.get(image_id, 0)
-                    self.catalog.execute(
-                        """
-                        INSERT INTO duplicate_group_images (
-                            group_id, image_id, is_primary, quality_score
-                        ) VALUES (?, ?, ?, ?)
-                        """,
-                        (group_id, image_id, is_primary, quality_score),
-                    )
+            # Convert avg_score (0.0-1.0) to confidence (0-100)
+            confidence = int(avg_score * 100)
+
+            # Determine similarity type based on perceptual hash presence
+            if group.perceptual_hash:
+                similarity_type = "perceptual"
+            else:
+                similarity_type = "exact"
+
+            # Insert into duplicate_groups table
+            cursor = self.catalog.execute(
+                """
+                INSERT INTO duplicate_groups (
+                    catalog_id, primary_image_id, similarity_type, confidence, reviewed, created_at
+                ) VALUES (?, ?, ?, ?, ?, NOW())
+                RETURNING id
+                """,
+                (
+                    str(self.catalog.catalog_id),
+                    group.primary,
+                    similarity_type,
+                    confidence,
+                    group.needs_review,
+                ),
+            )
+            group_id = cursor.fetchone()[0]
+
+            # Insert images into duplicate_members table
+            for image_id in group.images:
+                # Calculate similarity score for this member vs primary (0-100)
+                # Use quality score as approximation, or 100 if it's the primary
+                if image_id == group.primary:
+                    similarity_score = 100
+                else:
+                    # Get pairwise similarity if available
+                    member_key = f"{group.primary}:{image_id}"
+                    if member_key in group.similarity_metrics:
+                        similarity_score = int(
+                            group.similarity_metrics[member_key].overall_similarity * 100
+                        )
+                    else:
+                        # Fallback to average score
+                        similarity_score = confidence
+
+                self.catalog.execute(
+                    """
+                    INSERT INTO duplicate_members (
+                        group_id, image_id, similarity_score
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (group_id, image_id, similarity_score),
+                )
         logger.info("Duplicate groups saved")
 
     def save_problematic_files(self) -> None:
@@ -1116,21 +1146,20 @@ class DuplicateDetector:
             logger.info(
                 f"Saving {len(self.problematic_files)} problematic files to catalog"
             )
-            with self.catalog.transaction():
-                for file in self.problematic_files:
-                    self.catalog.execute(
-                        """
-                        INSERT INTO problematic_files (
-                            file_path, category, error_message, detected_at
-                        ) VALUES (?, ?, ?, ?)
-                        """,
-                        (
-                            str(file.source_path),
-                            file.category.value,
-                            file.error_message,
-                            file.detected_at.isoformat(),
-                        ),
-                    )
+            for file in self.problematic_files:
+                self.catalog.execute(
+                    """
+                    INSERT INTO problematic_files (
+                        file_path, category, error_message, detected_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        str(file.source_path),
+                        file.category.value,
+                        file.error_message,
+                        file.detected_at.isoformat(),
+                    ),
+                )
             logger.info("Problematic files saved")
 
     def get_statistics(self) -> Dict[str, int]:

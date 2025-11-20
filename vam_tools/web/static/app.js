@@ -45,6 +45,8 @@ createApp({
             // Quick action forms
             showAnalyzeForm: false,
             showPathHelp: false,
+            showScanConfirmModal: false,
+            showDuplicatesConfirmModal: false,
 
             analyzeForm: {
                 catalog_id: null,
@@ -506,12 +508,28 @@ createApp({
             }
         },
 
-        async startScan() {
+        // Show confirmation modal for scan job
+        startScan() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog', 'error');
+                return;
+            }
+            this.showScanConfirmModal = true;
+        },
+
+        // Show confirmation modal for find duplicates job
+        startFindDuplicates() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog', 'error');
+                return;
+            }
+            this.showDuplicatesConfirmModal = true;
+        },
+
+        // Actually submit the scan job (called after confirmation)
+        async confirmScan() {
             try {
-                if (!this.currentCatalog) {
-                    this.addNotification('Please select a catalog', 'error');
-                    return;
-                }
+                this.showScanConfirmModal = false;
 
                 const response = await axios.post('/api/jobs/scan', {
                     catalog_id: this.currentCatalog.id,
@@ -538,12 +556,10 @@ createApp({
             }
         },
 
-        async startFindDuplicates() {
+        // Actually submit the find duplicates job (called after confirmation)
+        async confirmFindDuplicates() {
             try {
-                if (!this.currentCatalog) {
-                    this.addNotification('Please select a catalog', 'error');
-                    return;
-                }
+                this.showDuplicatesConfirmModal = false;
 
                 const response = await axios.post('/api/jobs/analyze', {
                     catalog_id: this.currentCatalog.id,
@@ -616,13 +632,32 @@ createApp({
             return statusLabels[status] || status;
         },
 
-        // Stub methods for features not yet implemented
-        cancelJob(jobId) {
-            this.addNotification('Job cancel not yet implemented', 'info');
+        // Job control methods
+        async cancelJob(jobId) {
+            // Cancel job (soft revoke - marks as REVOKED in DB)
+            await this.revokeJob(jobId, false);
         },
 
-        killJob(jobId) {
-            this.addNotification('Job kill not yet implemented', 'info');
+        async killJob(jobId) {
+            // Kill job (terminate + force delete from DB)
+            if (!confirm('Force kill this job? This will terminate it and remove it from the database.')) {
+                return;
+            }
+
+            try {
+                await axios.delete(`/api/jobs/${jobId}`, {
+                    params: { terminate: true, force: true }
+                });
+
+                // Remove from tracked jobs
+                this.removeJob(jobId);
+
+                const jobName = this.jobMetadata[jobId]?.name || jobId.substring(0, 8);
+                this.addNotification(`Job ${jobName} killed and removed`, 'success');
+            } catch (error) {
+                console.error(`Failed to kill job ${jobId}:`, error);
+                this.addNotification('Failed to kill job', 'error');
+            }
         },
 
         rerunJob(jobId) {
