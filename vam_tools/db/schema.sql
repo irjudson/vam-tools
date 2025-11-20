@@ -2,6 +2,21 @@
 -- Single schema with catalog_id for multi-catalog support
 
 -- ============================================================================
+-- CATALOGS TABLE (must be first due to foreign key constraints)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS catalogs (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    schema_name VARCHAR(255) NOT NULL UNIQUE,
+    source_directories TEXT[] NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_catalogs_name ON catalogs(name);
+CREATE INDEX IF NOT EXISTS idx_catalogs_schema_name ON catalogs(schema_name);
+
+-- ============================================================================
 -- IMAGES TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS images (

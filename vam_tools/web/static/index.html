@@ -766,6 +766,69 @@
             </div>
         </div>
 
+        <!-- Scan Confirmation Modal -->
+        <div v-if="showScanConfirmModal" class="modal-overlay" @click="showScanConfirmModal = false">
+            <div class="modal-content" @click.stop>
+                <h3>Confirm Scan Job</h3>
+                <div style="margin: 20px 0;">
+                    <p style="margin-bottom: 16px;">Start scanning files for catalog: <strong>{{ currentCatalog?.name }}</strong></p>
+                    <div class="form-group">
+                        <label>Directories to scan:</label>
+                        <ul style="list-style: none; padding-left: 0; margin-top: 8px;">
+                            <li v-for="dir in currentCatalog?.source_directories"
+                                :key="dir"
+                                style="padding: 6px 12px; margin-bottom: 4px; background: var(--bg-secondary); border-radius: 4px; font-family: monospace; font-size: 13px;">
+                                {{ dir }}
+                            </li>
+                        </ul>
+                    </div>
+                    <p style="margin-top: 16px; font-size: 14px; color: var(--text-secondary);">
+                        This will scan all image and video files in the specified directories, extract metadata, and generate thumbnails.
+                    </p>
+                </div>
+                <div class="form-actions">
+                    <button type="button" @click="showScanConfirmModal = false" class="btn-secondary">
+                        Cancel
+                    </button>
+                    <button type="button" @click="confirmScan" class="btn-primary">
+                        Start Scan
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Find Duplicates Confirmation Modal -->
+        <div v-if="showDuplicatesConfirmModal" class="modal-overlay" @click="showDuplicatesConfirmModal = false">
+            <div class="modal-content" @click.stop>
+                <h3>Confirm Duplicate Detection</h3>
+                <div style="margin: 20px 0;">
+                    <p style="margin-bottom: 16px;">Start duplicate detection for catalog: <strong>{{ currentCatalog?.name }}</strong></p>
+                    <div class="form-group">
+                        <label>Directories to analyze:</label>
+                        <ul style="list-style: none; padding-left: 0; margin-top: 8px;">
+                            <li v-for="dir in currentCatalog?.source_directories"
+                                :key="dir"
+                                style="padding: 6px 12px; margin-bottom: 4px; background: var(--bg-secondary); border-radius: 4px; font-family: monospace; font-size: 13px;">
+                                {{ dir }}
+                            </li>
+                        </ul>
+                    </div>
+                    <p style="margin-top: 16px; font-size: 14px; color: var(--text-secondary);">
+                        This will analyze all files, detect duplicates using perceptual hashing, and group similar images together.
+                        This process may take some time depending on the number of files.
+                    </p>
+                </div>
+                <div class="form-actions">
+                    <button type="button" @click="showDuplicatesConfirmModal = false" class="btn-secondary">
+                        Cancel
+                    </button>
+                    <button type="button" @click="confirmFindDuplicates" class="btn-primary">
+                        Start Duplicate Detection
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Lightbox Viewer -->
         <div v-if="lightboxVisible" class="lightbox" @click.self="closeLightbox">
             <div class="lightbox-container">

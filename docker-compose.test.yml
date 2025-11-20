@@ -1,0 +1,83 @@
+# Docker Compose configuration for running tests in isolation
+# Usage: docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+#
+# This setup provides complete isolation for tests:
+# - Separate PostgreSQL database (vam-tools-test)
+# - Separate Redis instance
+# - Ephemeral containers that are removed after tests complete
+# - No interference with production/development services
+
+services:
+  # PostgreSQL database for tests
+  postgres-test:
+    image: postgres:16
+    container_name: vam-postgres-test
+    environment:
+      - POSTGRES_USER=pg
+      - POSTGRES_PASSWORD=buffalo-jump-test
+      - POSTGRES_DB=vam-tools-test
+    tmpfs:
+      - /var/lib/postgresql/data  # Use tmpfs for faster tests and automatic cleanup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pg"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for tests
+  redis-test:
+    image: redis:7-alpine
+    container_name: vam-redis-test
+    command: redis-server --requirepass buffalo-jump-test
+    tmpfs:
+      - /data  # Use tmpfs for automatic cleanup
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "buffalo-jump-test", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Test runner service
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: vam-test-runner
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    environment:
+      # Test database configuration
+      - POSTGRES_HOST=postgres-test
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=pg
+      - POSTGRES_PASSWORD=buffalo-jump-test
+      - POSTGRES_DB=vam-tools-test
+      # Test Redis configuration
+      - CELERY_BROKER_URL=redis://:buffalo-jump-test@redis-test:6379/0
+      - CELERY_RESULT_BACKEND=redis://:buffalo-jump-test@redis-test:6379/0
+      - REDIS_HOST=redis-test
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=buffalo-jump-test
+      # Test-specific settings
+      - TESTING=1
+      - LOG_LEVEL=WARNING
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      # Mount source code for testing
+      - ./vam_tools:/app/vam_tools:ro
+      - ./tests:/app/tests:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      # Mount test photos (if needed)
+      - ./test-photos:/app/test-photos:ro
+    # Default command runs all tests
+    command: pytest tests/ -v --tb=short --color=yes
+    # Exit when tests complete
+    restart: "no"
+
+networks:
+  default:
+    name: vam-test-network
+    driver: bridge
