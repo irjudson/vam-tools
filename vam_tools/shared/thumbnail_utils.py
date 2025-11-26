@@ -7,7 +7,7 @@ including HEIC, RAW, and common video formats.
 
 import logging
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Set, Tuple
 
 from PIL import Image
 
@@ -16,6 +16,93 @@ logger = logging.getLogger(__name__)
 # Default thumbnail size
 DEFAULT_THUMBNAIL_SIZE = (200, 200)
 DEFAULT_THUMBNAIL_QUALITY = 85
+
+# RAW file extensions that need special handling
+RAW_EXTENSIONS: Set[str] = {
+    ".arw",  # Sony
+    ".cr2",  # Canon
+    ".cr3",  # Canon (newer)
+    ".nef",  # Nikon
+    ".dng",  # Adobe Digital Negative
+    ".orf",  # Olympus
+    ".rw2",  # Panasonic
+    ".pef",  # Pentax
+    ".sr2",  # Sony
+    ".raf",  # Fujifilm
+    ".raw",  # Generic RAW
+}
+
+# HEIC/HEIF file extensions
+HEIC_EXTENSIONS: Set[str] = {
+    ".heic",
+    ".heif",
+}
+
+# Register HEIF opener if available
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+    HEIF_SUPPORT = True
+except ImportError:
+    HEIF_SUPPORT = False
+    logger.debug("pillow-heif not installed, HEIC thumbnails will not be supported")
+
+
+def load_raw_image(raw_path: Path) -> Optional[Image.Image]:
+    """
+    Load a RAW image file using rawpy.
+
+    Args:
+        raw_path: Path to the RAW file
+
+    Returns:
+        PIL Image object, or None if loading fails
+    """
+    try:
+        import rawpy
+
+        with rawpy.imread(str(raw_path)) as raw:
+            # Use half_size for faster processing (good enough for thumbnails)
+            rgb = raw.postprocess(half_size=True, use_camera_wb=True)
+            return Image.fromarray(rgb)
+    except ImportError:
+        logger.debug("rawpy not installed, trying dcraw fallback")
+    except Exception as e:
+        logger.debug(f"rawpy failed for {raw_path}: {e}, trying dcraw fallback")
+
+    # Fallback: try dcraw
+    try:
+        import subprocess
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".ppm", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+
+        # Use dcraw to convert to PPM
+        result = subprocess.run(
+            ["dcraw", "-c", "-w", "-h", str(raw_path)],
+            capture_output=True,
+            timeout=30,
+        )
+
+        if result.returncode == 0 and result.stdout:
+            # Write PPM data to temp file
+            tmp_path.write_bytes(result.stdout)
+            img = Image.open(tmp_path)
+            frame = img.copy()
+            img.close()
+            tmp_path.unlink()
+            return frame
+        else:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            logger.debug(f"dcraw failed for {raw_path}: {result.stderr.decode()}")
+            return None
+
+    except Exception as e:
+        logger.debug(f"dcraw fallback failed for {raw_path}: {e}")
+        return None
 
 
 def generate_thumbnail(
@@ -38,6 +125,8 @@ def generate_thumbnail(
 
     The thumbnail will maintain aspect ratio and fit within the specified size.
     For videos, the first frame is extracted.
+    For RAW files (ARW, CR2, NEF, etc.), rawpy or dcraw is used.
+    For HEIC/HEIF files, pillow-heif is used.
     """
     try:
         # Ensure output directory exists
@@ -48,18 +137,39 @@ def generate_thumbnail(
             logger.error(f"Source file not found: {source_path}")
             return False
 
-        # Try to open the image
+        suffix = source_path.suffix.lower()
         img: Optional[Image.Image] = None
-        try:
-            img = Image.open(source_path)
-        except Exception as e:
-            # If PIL can't open it, might be a video - try extracting first frame
-            if is_video_file(source_path):
-                img = extract_video_thumbnail(source_path)
-                if img is None:
-                    logger.error(f"Failed to extract video thumbnail: {source_path}")
-                    return False
-            else:
+
+        # Handle RAW files specially
+        if suffix in RAW_EXTENSIONS:
+            img = load_raw_image(source_path)
+            if img is None:
+                logger.error(
+                    f"Failed to load RAW file {source_path}: "
+                    "Install rawpy or dcraw for RAW support"
+                )
+                return False
+
+        # Handle video files
+        elif is_video_file(source_path):
+            img = extract_video_thumbnail(source_path)
+            if img is None:
+                logger.error(f"Failed to extract video thumbnail: {source_path}")
+                return False
+
+        # Handle HEIC files (needs pillow-heif registered)
+        elif suffix in HEIC_EXTENSIONS and not HEIF_SUPPORT:
+            logger.error(
+                f"Cannot process HEIC file {source_path}: "
+                "Install pillow-heif for HEIC support"
+            )
+            return False
+
+        # Standard image formats - let PIL handle it
+        else:
+            try:
+                img = Image.open(source_path)
+            except Exception as e:
                 logger.error(f"Failed to open image {source_path}: {e}")
                 return False
 
