@@ -157,6 +157,26 @@ def get_worker_health():
         return {"status": "error", "workers": 0, "active_tasks": 0, "message": str(e)}
 
 
+def _safe_get_task_state(task: AsyncResult) -> str:
+    """Safely get task state, handling malformed exception info."""
+    try:
+        return task.state
+    except ValueError as e:
+        # Celery raises ValueError when exception info is malformed
+        # (e.g., missing 'exc_type' key in result backend)
+        logger.warning(f"Error getting task state for {task.id}: {e}")
+        return "FAILURE"
+
+
+def _safe_get_task_info(task: AsyncResult) -> Any:
+    """Safely get task info, handling malformed data."""
+    try:
+        return task.info
+    except (ValueError, Exception) as e:
+        logger.warning(f"Error getting task info for {task.id}: {e}")
+        return {"error": f"Failed to retrieve task info: {e}"}
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 def get_job_status(job_id: str):
     """Get job status and progress."""
@@ -165,20 +185,28 @@ def get_job_status(job_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # Safely get task state - can raise ValueError if exception info is malformed
+    state = _safe_get_task_state(task)
+
     response = JobResponse(
         job_id=job_id,
-        status=task.state,
+        status=state,
         progress={},
         result={},
     )
 
     # Get progress if available
-    if task.state == "PROGRESS":
-        response.progress = task.info or {}
-    elif task.state == "SUCCESS":
-        response.result = task.result or {}
-    elif task.state == "FAILURE":
-        response.result = {"error": str(task.info)}
+    if state == "PROGRESS":
+        response.progress = _safe_get_task_info(task) or {}
+    elif state == "SUCCESS":
+        try:
+            response.result = task.result or {}
+        except Exception as e:
+            logger.warning(f"Error getting task result for {job_id}: {e}")
+            response.result = {"error": f"Failed to retrieve result: {e}"}
+    elif state == "FAILURE":
+        task_info = _safe_get_task_info(task)
+        response.result = {"error": str(task_info)}
 
     return response
 
@@ -266,7 +294,8 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
         last_progress = None
 
         while True:
-            current_state = task.state
+            # Use safe accessor for task state
+            current_state = _safe_get_task_state(task)
 
             # Build update message
             update = {
@@ -278,13 +307,18 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
 
             # Get progress/result based on state
             if current_state == "PROGRESS":
-                update["progress"] = task.info or {}
+                update["progress"] = _safe_get_task_info(task) or {}
             elif current_state == "SUCCESS":
-                update["result"] = task.result or {}
+                try:
+                    update["result"] = task.result or {}
+                except Exception as e:
+                    logger.warning(f"Error getting task result for {job_id}: {e}")
+                    update["result"] = {"error": f"Failed to retrieve result: {e}"}
                 await websocket.send_json(update)
                 break  # Job done, close connection
             elif current_state == "FAILURE":
-                update["result"] = {"error": str(task.info)}
+                task_info = _safe_get_task_info(task)
+                update["result"] = {"error": str(task_info)}
                 await websocket.send_json(update)
                 break  # Job failed, close connection
 

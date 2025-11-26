@@ -216,3 +216,35 @@ CREATE TABLE IF NOT EXISTS statistics (
 
 CREATE INDEX IF NOT EXISTS idx_statistics_catalog_id ON statistics(catalog_id);
 CREATE INDEX IF NOT EXISTS idx_statistics_timestamp ON statistics(timestamp);
+
+-- ============================================================================
+-- PERFORMANCE_SNAPSHOTS TABLE (real-time performance tracking)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS performance_snapshots (
+    id SERIAL PRIMARY KEY,
+    catalog_id UUID NOT NULL,               -- References catalogs.id
+    timestamp TIMESTAMP DEFAULT NOW(),
+    phase TEXT NOT NULL,                    -- scanning, hashing, tagging, etc.
+
+    files_processed INTEGER DEFAULT 0,
+    files_total INTEGER DEFAULT 0,
+    bytes_processed BIGINT DEFAULT 0,
+
+    cpu_percent REAL,
+    memory_mb REAL,
+    disk_read_mb REAL,
+    disk_write_mb REAL,
+
+    elapsed_seconds REAL,
+    rate_files_per_sec REAL,
+    rate_mb_per_sec REAL,
+
+    gpu_utilization REAL,
+    gpu_memory_mb REAL,
+
+    FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_performance_snapshots_catalog_id ON performance_snapshots(catalog_id);
+CREATE INDEX IF NOT EXISTS idx_performance_snapshots_timestamp ON performance_snapshots(timestamp);
+CREATE INDEX IF NOT EXISTS idx_performance_snapshots_phase ON performance_snapshots(phase);

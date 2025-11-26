@@ -195,6 +195,7 @@ addopts = [
     "--tb=line",  # Line-only tracebacks for speed
     "-p", "no:warnings",  # Disable warnings to speed up output
     "--dist=loadfile",  # Distribute tests by file - ensures all tests in a file run on same worker
+    "-m", "not integration",  # Skip integration tests by default (run with: pytest -m integration)
 ]
 # Unique worker group name for isolation across multiple projects
 xdist_worker_class = "vam_tools_workers"

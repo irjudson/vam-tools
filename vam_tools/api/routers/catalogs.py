@@ -154,16 +154,22 @@ def list_catalog_images(
 
     images = []
     for row in result:
+        # Convert row to dict for easier access
+        row_dict = dict(row._mapping)
         images.append(
             {
-                "id": row[0],
-                "source_path": row[1],
-                "file_type": row[2],
-                "checksum": row[3],
-                "size_bytes": row[4],
-                "dates": row[5],
-                "metadata": row[6],
-                "created_at": row[7].isoformat() if row[7] else None,
+                "id": row_dict["id"],
+                "source_path": row_dict["source_path"],
+                "file_type": row_dict["file_type"],
+                "checksum": row_dict["checksum"],
+                "size_bytes": row_dict["size_bytes"],
+                "dates": row_dict["dates"],
+                "metadata": row_dict["metadata"],
+                "created_at": (
+                    row_dict["created_at"].isoformat()
+                    if row_dict["created_at"]
+                    else None
+                ),
             }
         )
 

@@ -114,8 +114,8 @@ def test_get_image_count_with_images(test_catalog_id):
                 text(
                     """
                 INSERT INTO images
-                (id, catalog_id, source_path, file_type, checksum, dates, metadata)
-                VALUES (:id, :catalog_id, :path, :type, :checksum, :dates, :metadata)
+                (id, catalog_id, source_path, file_type, checksum, dates, metadata, created_at, updated_at)
+                VALUES (:id, :catalog_id, :path, :type, :checksum, :dates, :metadata, NOW(), NOW())
             """
                 ),
                 {
@@ -146,7 +146,7 @@ def test_images_table_structure(test_catalog_id):
                 """
             INSERT INTO images
             (id, catalog_id, source_path, file_type, checksum, size_bytes, dates, metadata,
-             dhash, ahash, quality_score, status)
+             dhash, ahash, quality_score, status, created_at, updated_at)
             VALUES (
                 'test_id',
                 :catalog_id,
@@ -159,7 +159,9 @@ def test_images_table_structure(test_catalog_id):
                 'dhash123',
                 'ahash123',
                 85,
-                'complete'
+                'complete',
+                NOW(),
+                NOW()
             )
         """
             ),
@@ -186,6 +188,7 @@ def test_delete_catalog_data(test_catalog_id):
     """Test deleting all data for a catalog."""
     # Insert some test data
     db = SessionLocal()
+    unique_prefix = str(uuid.uuid4())[:8]
     try:
         # Insert images
         for i in range(3):
@@ -193,12 +196,12 @@ def test_delete_catalog_data(test_catalog_id):
                 text(
                     """
                 INSERT INTO images
-                (id, catalog_id, source_path, file_type, checksum, dates, metadata)
-                VALUES (:id, :catalog_id, :path, :type, :checksum, :dates, :metadata)
+                (id, catalog_id, source_path, file_type, checksum, dates, metadata, created_at, updated_at)
+                VALUES (:id, :catalog_id, :path, :type, :checksum, :dates, :metadata, NOW(), NOW())
             """
                 ),
                 {
-                    "id": f"img_{i}",
+                    "id": f"img_{unique_prefix}_{i}",
                     "catalog_id": test_catalog_id,
                     "path": f"/test/img{i}.jpg",
                     "type": "image",
@@ -212,8 +215,8 @@ def test_delete_catalog_data(test_catalog_id):
         db.execute(
             text(
                 """
-            INSERT INTO tags (catalog_id, name)
-            VALUES (:catalog_id, 'test_tag')
+            INSERT INTO tags (catalog_id, name, created_at)
+            VALUES (:catalog_id, 'test_tag', NOW())
         """
             ),
             {"catalog_id": test_catalog_id},
@@ -238,6 +241,7 @@ def test_catalog_statistics(test_catalog_id):
     """Test getting catalog statistics."""
     # Insert test data
     db = SessionLocal()
+    unique_prefix = str(uuid.uuid4())[:8]
     try:
         # Insert images with different sizes
         for i in range(5):
@@ -245,12 +249,12 @@ def test_catalog_statistics(test_catalog_id):
                 text(
                     """
                 INSERT INTO images
-                (id, catalog_id, source_path, file_type, checksum, size_bytes, dates, metadata)
-                VALUES (:id, :catalog_id, :path, :type, :checksum, :size, :dates, :metadata)
+                (id, catalog_id, source_path, file_type, checksum, size_bytes, dates, metadata, created_at, updated_at)
+                VALUES (:id, :catalog_id, :path, :type, :checksum, :size, :dates, :metadata, NOW(), NOW())
             """
                 ),
                 {
-                    "id": f"img_{i}",
+                    "id": f"img_{unique_prefix}_{i}",
                     "catalog_id": test_catalog_id,
                     "path": f"/test/img{i}.jpg",
                     "type": "image",
@@ -266,8 +270,8 @@ def test_catalog_statistics(test_catalog_id):
             db.execute(
                 text(
                     """
-                INSERT INTO tags (catalog_id, name)
-                VALUES (:catalog_id, :name)
+                INSERT INTO tags (catalog_id, name, created_at)
+                VALUES (:catalog_id, :name, NOW())
             """
                 ),
                 {"catalog_id": test_catalog_id, "name": f"tag_{i}"},
@@ -315,8 +319,8 @@ def test_multiple_catalogs_isolated():
                 text(
                     """
                 INSERT INTO images
-                (id, catalog_id, source_path, file_type, checksum, dates, metadata)
-                VALUES (:id, :catalog_id, :path, :type, :checksum, :dates, :metadata)
+                (id, catalog_id, source_path, file_type, checksum, dates, metadata, created_at, updated_at)
+                VALUES (:id, :catalog_id, :path, :type, :checksum, :dates, :metadata, NOW(), NOW())
             """
                 ),
                 {
@@ -336,8 +340,8 @@ def test_multiple_catalogs_isolated():
                 text(
                     """
                 INSERT INTO images
-                (id, catalog_id, source_path, file_type, checksum, dates, metadata)
-                VALUES (:id, :catalog_id, :path, :type, :checksum, :dates, :metadata)
+                (id, catalog_id, source_path, file_type, checksum, dates, metadata, created_at, updated_at)
+                VALUES (:id, :catalog_id, :path, :type, :checksum, :dates, :metadata, NOW(), NOW())
             """
                 ),
                 {

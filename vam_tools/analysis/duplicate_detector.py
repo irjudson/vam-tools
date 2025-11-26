@@ -11,11 +11,8 @@ import logging
 import multiprocessing as mp
 from collections import defaultdict
 from contextlib import nullcontext
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
-
-from sqlalchemy import text
 
 from rich.progress import (
     BarColumn,
@@ -24,15 +21,13 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
 )
+from sqlalchemy import text
 
 from ..core.performance_stats import PerformanceTracker
 from ..core.types import (
-    DateInfo,
     DuplicateGroup,
     FileType,
-    ImageMetadata,
     ImageRecord,
-    ImageStatus,
     ProblematicFile,
     ProblematicFileCategory,
     SimilarityMetrics,
@@ -434,7 +429,8 @@ class DuplicateDetector:
                             # Use jsonb_set to update specific keys in the metadata JSONB field
                             if "dhash" in hashes:
                                 self.catalog.session.execute(
-                                    text("""
+                                    text(
+                                        """
                                         UPDATE images
                                         SET metadata = jsonb_set(
                                             COALESCE(metadata, '{}'::jsonb),
@@ -442,16 +438,18 @@ class DuplicateDetector:
                                             :hash_value
                                         )
                                         WHERE catalog_id = :catalog_id AND id = :image_id
-                                    """),
+                                    """
+                                    ),
                                     {
                                         "hash_value": f'"{hashes["dhash"]}"',
                                         "catalog_id": str(self.catalog.catalog_id),
-                                        "image_id": image.id
-                                    }
+                                        "image_id": image.id,
+                                    },
                                 )
                             if "ahash" in hashes:
                                 self.catalog.session.execute(
-                                    text("""
+                                    text(
+                                        """
                                         UPDATE images
                                         SET metadata = jsonb_set(
                                             COALESCE(metadata, '{}'::jsonb),
@@ -459,16 +457,18 @@ class DuplicateDetector:
                                             :hash_value
                                         )
                                         WHERE catalog_id = :catalog_id AND id = :image_id
-                                    """),
+                                    """
+                                    ),
                                     {
                                         "hash_value": f'"{hashes["ahash"]}"',
                                         "catalog_id": str(self.catalog.catalog_id),
-                                        "image_id": image.id
-                                    }
+                                        "image_id": image.id,
+                                    },
                                 )
                             if "whash" in hashes:
                                 self.catalog.session.execute(
-                                    text("""
+                                    text(
+                                        """
                                         UPDATE images
                                         SET metadata = jsonb_set(
                                             COALESCE(metadata, '{}'::jsonb),
@@ -476,12 +476,13 @@ class DuplicateDetector:
                                             :hash_value
                                         )
                                         WHERE catalog_id = :catalog_id AND id = :image_id
-                                    """),
+                                    """
+                                    ),
                                     {
                                         "hash_value": f'"{hashes["whash"]}"',
                                         "catalog_id": str(self.catalog.catalog_id),
-                                        "image_id": image.id
-                                    }
+                                        "image_id": image.id,
+                                    },
                                 )
                             self.catalog.session.commit()
                         else:
@@ -1124,7 +1125,8 @@ class DuplicateDetector:
                     member_key = f"{group.primary}:{image_id}"
                     if member_key in group.similarity_metrics:
                         similarity_score = int(
-                            group.similarity_metrics[member_key].overall_similarity * 100
+                            group.similarity_metrics[member_key].overall_similarity
+                            * 100
                         )
                     else:
                         # Fallback to average score

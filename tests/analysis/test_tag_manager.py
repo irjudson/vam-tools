@@ -13,15 +13,10 @@ class TestTagManager:
     """Tests for TagManager class."""
 
     @pytest.fixture
-    def db_path(self, tmp_path: Path) -> Path:
-        """Create temporary database path."""
-        return tmp_path / "test_catalog"
-
-    @pytest.fixture
-    def db(self, db_path: Path) -> CatalogDatabase:
-        """Create and initialize database."""
-        database = CatalogDatabase(db_path)
-        database.connect()
+    def db(self, test_catalog_db, tmp_path: Path) -> CatalogDatabase:
+        """Create and initialize database using transactional fixture."""
+        catalog_path = tmp_path / "test_catalog"
+        database = test_catalog_db(catalog_path)
         database.initialize()
         return database
 
@@ -34,12 +29,21 @@ class TestTagManager:
         """Helper to create a dummy image in database."""
         db.execute(
             """
-            INSERT OR IGNORE INTO images (
-                id, source_path, file_size, file_hash, format,
-                created_at, modified_at
-            ) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            INSERT INTO images (
+                id, catalog_id, source_path, file_type, checksum, size_bytes,
+                dates, metadata, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, '{}', '{}', ?, NOW(), NOW())
+            ON CONFLICT (id) DO NOTHING
             """,
-            (image_id, f"/tmp/{image_id}.jpg", 1000, f"hash_{image_id}", "JPEG"),
+            (
+                image_id,
+                db.catalog_id,
+                f"/tmp/{image_id}.jpg",
+                "image",
+                f"hash_{image_id}",
+                1000,
+                "ready",
+            ),
         )
 
     def test_initialization(self, manager: TagManager) -> None:
@@ -85,9 +89,9 @@ class TestTagManager:
         )
         row = cursor.fetchone()
         assert row is not None
-        assert row["name"] == "dogs"
-        assert row["confidence"] == 0.95
-        assert row["source"] == "clip"
+        assert row[0] == "dogs"  # name
+        assert row[1] == 0.95  # confidence
+        assert row[2] == "clip"  # source
 
     def test_add_image_tag_case_insensitive(self, manager: TagManager) -> None:
         """Test tag name is case-insensitive."""

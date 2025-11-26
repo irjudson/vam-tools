@@ -2,11 +2,24 @@
 
 import uuid
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
-from sqlalchemy import ARRAY, JSON, Column, DateTime, String, Text
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import (
+    ARRAY,
+    JSON,
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
@@ -23,9 +36,9 @@ class Job(Base):
         String(50), nullable=False
     )  # PENDING, PROGRESS, SUCCESS, FAILURE, etc.
     parameters = Column(
-        JSON, nullable=True
+        JSONB, nullable=True
     )  # Job parameters (directories, options, etc.)
-    result = Column(JSON, nullable=True)  # Final result when complete
+    result = Column(JSONB, nullable=True)  # Final result when complete
     error = Column(Text, nullable=True)  # Error message if failed
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
@@ -52,3 +65,275 @@ class Catalog(Base):
 
     def __repr__(self) -> str:
         return f"<Catalog(id={self.id}, name={self.name}, schema={self.schema_name})>"
+
+
+class Image(Base):
+    """Image/video records in catalogs."""
+
+    __tablename__ = "images"
+
+    id = Column(String, primary_key=True)  # Unique ID (checksum or UUID)
+    catalog_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("catalogs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_path = Column(Text, nullable=False)
+    file_type = Column(String, nullable=False)  # 'image' or 'video'
+    checksum = Column(Text, nullable=False)
+    size_bytes = Column(BigInteger)
+
+    # Dates and metadata stored as JSONB
+    dates = Column(JSONB, nullable=False, default={})
+    metadata_json = Column("metadata", JSONB, nullable=False, default={})
+
+    # Thumbnail
+    thumbnail_path = Column(Text)
+
+    # Perceptual hashes for duplicate detection
+    dhash = Column(Text)
+    ahash = Column(Text)
+
+    # Analysis results
+    quality_score = Column(Integer)
+    status = Column(String, default="pending")
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    catalog = relationship("Catalog", backref="images")
+    tags = relationship(
+        "ImageTag", back_populates="image", cascade="all, delete-orphan"
+    )
+    duplicate_memberships = relationship(
+        "DuplicateMember", back_populates="image", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("catalog_id", "checksum", name="unique_catalog_checksum"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Image(id={self.id}, path={self.source_path})>"
+
+
+class Tag(Base):
+    """Tags for categorizing images."""
+
+    __tablename__ = "tags"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    catalog_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("catalogs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    category = Column(Text)  # Optional category
+    parent_id = Column(Integer, ForeignKey("tags.id", ondelete="SET NULL"))
+    synonyms = Column(ARRAY(Text))
+    description = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    catalog = relationship("Catalog", backref="tags")
+    parent = relationship("Tag", remote_side=[id], backref="children")
+    images = relationship(
+        "ImageTag", back_populates="tag", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("catalog_id", "name", name="unique_catalog_tag"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Tag(id={self.id}, name={self.name})>"
+
+
+class ImageTag(Base):
+    """Many-to-many relationship between images and tags."""
+
+    __tablename__ = "image_tags"
+
+    image_id = Column(
+        String, ForeignKey("images.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id = Column(
+        Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
+    )
+    confidence = Column(Float, default=1.0)
+    source = Column(String, default="manual")  # manual, auto, ai
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    image = relationship("Image", back_populates="tags")
+    tag = relationship("Tag", back_populates="images")
+
+    def __repr__(self) -> str:
+        return f"<ImageTag(image={self.image_id}, tag={self.tag_id}, confidence={self.confidence})>"
+
+
+class DuplicateGroup(Base):
+    """Groups of duplicate or similar images."""
+
+    __tablename__ = "duplicate_groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    catalog_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("catalogs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    primary_image_id = Column(
+        String, ForeignKey("images.id", ondelete="CASCADE"), nullable=False
+    )
+    similarity_type = Column(String, nullable=False)  # 'exact' or 'perceptual'
+    confidence = Column(Integer, nullable=False)  # 0-100
+    reviewed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    catalog = relationship("Catalog", backref="duplicate_groups")
+    primary_image = relationship("Image", foreign_keys=[primary_image_id])
+    members = relationship(
+        "DuplicateMember", back_populates="group", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<DuplicateGroup(id={self.id}, type={self.similarity_type}, confidence={self.confidence})>"
+
+
+class DuplicateMember(Base):
+    """Members of duplicate groups."""
+
+    __tablename__ = "duplicate_members"
+
+    group_id = Column(
+        Integer, ForeignKey("duplicate_groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    image_id = Column(
+        String, ForeignKey("images.id", ondelete="CASCADE"), primary_key=True
+    )
+    similarity_score = Column(Integer, nullable=False)  # 0-100
+
+    # Relationships
+    group = relationship("DuplicateGroup", back_populates="members")
+    image = relationship("Image", back_populates="duplicate_memberships")
+
+    def __repr__(self) -> str:
+        return f"<DuplicateMember(group={self.group_id}, image={self.image_id}, score={self.similarity_score})>"
+
+
+class Config(Base):
+    """Per-catalog configuration settings."""
+
+    __tablename__ = "config"
+
+    catalog_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("catalogs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    key = Column(String, primary_key=True)
+    value = Column(JSONB, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    # Relationships
+    catalog = relationship("Catalog", backref="config_entries")
+
+    def __repr__(self) -> str:
+        return f"<Config(catalog={self.catalog_id}, key={self.key})>"
+
+
+class Statistics(Base):
+    """Per-catalog statistics tracking."""
+
+    __tablename__ = "statistics"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    catalog_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("catalogs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Image counts
+    total_images = Column(Integer, default=0)
+    total_videos = Column(Integer, default=0)
+    total_size_bytes = Column(BigInteger, default=0)
+    images_scanned = Column(Integer, default=0)
+    images_hashed = Column(Integer, default=0)
+    images_tagged = Column(Integer, default=0)
+
+    # Duplicate stats
+    duplicate_groups = Column(Integer, default=0)
+    duplicate_images = Column(Integer, default=0)
+    potential_savings_bytes = Column(BigInteger, default=0)
+
+    # Quality stats
+    high_quality_count = Column(Integer, default=0)
+    medium_quality_count = Column(Integer, default=0)
+    low_quality_count = Column(Integer, default=0)
+    corrupted_count = Column(Integer, default=0)
+    unsupported_count = Column(Integer, default=0)
+
+    # Performance metrics
+    processing_time_seconds = Column(Float, default=0.0)
+    images_per_second = Column(Float, default=0.0)
+
+    # Date analysis
+    no_date = Column(Integer, default=0)
+    suspicious_dates = Column(Integer, default=0)
+    problematic_files = Column(Integer, default=0)
+
+    # Relationships
+    catalog = relationship("Catalog", backref="statistics")
+
+    def __repr__(self) -> str:
+        return f"<Statistics(id={self.id}, catalog={self.catalog_id}, timestamp={self.timestamp})>"
+
+
+class PerformanceSnapshot(Base):
+    """Real-time performance tracking snapshots."""
+
+    __tablename__ = "performance_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    catalog_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("catalogs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    phase = Column(Text, nullable=False)  # scanning, hashing, tagging, etc.
+
+    # Progress tracking
+    files_processed = Column(Integer, default=0)
+    files_total = Column(Integer, default=0)
+    bytes_processed = Column(BigInteger, default=0)
+
+    # System metrics
+    cpu_percent = Column(Float)
+    memory_mb = Column(Float)
+    disk_read_mb = Column(Float)
+    disk_write_mb = Column(Float)
+
+    # Performance metrics
+    elapsed_seconds = Column(Float)
+    rate_files_per_sec = Column(Float)
+    rate_mb_per_sec = Column(Float)
+
+    # GPU metrics
+    gpu_utilization = Column(Float)
+    gpu_memory_mb = Column(Float)
+
+    # Relationships
+    catalog = relationship("Catalog", backref="performance_snapshots")
+
+    def __repr__(self) -> str:
+        return f"<PerformanceSnapshot(id={self.id}, phase={self.phase}, timestamp={self.timestamp})>"

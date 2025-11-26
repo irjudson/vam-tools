@@ -33,13 +33,14 @@ def sample_catalog_with_images(db_session, temp_dir):
 
     # Insert image record directly
     import json
+    from datetime import datetime
 
     image_id = str(uuid.uuid4())
     db_session.execute(
         text(
             """
-            INSERT INTO images (id, catalog_id, source_path, file_type, checksum, size_bytes, dates, metadata)
-            VALUES (:id, :catalog_id, :source_path, :file_type, :checksum, :size_bytes, CAST(:dates AS jsonb), CAST(:metadata AS jsonb))
+            INSERT INTO images (id, catalog_id, source_path, file_type, checksum, size_bytes, dates, metadata, created_at, updated_at, status)
+            VALUES (:id, :catalog_id, :source_path, :file_type, :checksum, :size_bytes, CAST(:dates AS jsonb), CAST(:metadata AS jsonb), :created_at, :updated_at, :status)
         """
         ),
         {
@@ -51,6 +52,9 @@ def sample_catalog_with_images(db_session, temp_dir):
             "size_bytes": image_path.stat().st_size,
             "dates": json.dumps({}),
             "metadata": json.dumps({}),
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "status": "ready",
         },
     )
     db_session.commit()

@@ -5,6 +5,7 @@ These tasks wrap operations and provide progress tracking through Celery's state
 Updated for PostgreSQL backend.
 """
 
+import json
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -99,14 +100,26 @@ def analyze_catalog_task(
 
         # PostgreSQL catalog - no file-based catalog anymore
         with CatalogDatabase(catalog_id) as db:
-            # Update catalog config
+            # Update catalog config (value must be valid JSON for JSONB column)
             db.execute(
-                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                ("phase", "analyzing"),
+                """
+                INSERT INTO config (catalog_id, key, value, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (catalog_id, key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (db.catalog_id, "phase", json.dumps("analyzing")),
             )
             db.execute(
-                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                ("last_updated", datetime.now().isoformat()),
+                """
+                INSERT INTO config (catalog_id, key, value, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (catalog_id, key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (db.catalog_id, "last_updated", json.dumps(datetime.now().isoformat())),
             )
 
             if force_reanalyze:
@@ -193,12 +206,24 @@ def analyze_catalog_task(
 
             # Update catalog config with completion status
             db.execute(
-                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                ("phase", "complete"),
+                """
+                INSERT INTO config (catalog_id, key, value, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (catalog_id, key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (db.catalog_id, "phase", json.dumps("complete")),
             )
             db.execute(
-                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                ("last_updated", datetime.now().isoformat()),
+                """
+                INSERT INTO config (catalog_id, key, value, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (catalog_id, key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (db.catalog_id, "last_updated", json.dumps(datetime.now().isoformat())),
             )
             db.save()
 
@@ -271,14 +296,26 @@ def scan_catalog_task(
 
         # PostgreSQL catalog
         with CatalogDatabase(catalog_id) as db:
-            # Update catalog config
+            # Update catalog config (value must be valid JSON for JSONB column)
             db.execute(
-                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                ("phase", "scanning"),
+                """
+                INSERT INTO config (catalog_id, key, value, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (catalog_id, key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (db.catalog_id, "phase", json.dumps("scanning")),
             )
             db.execute(
-                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                ("last_updated", datetime.now().isoformat()),
+                """
+                INSERT INTO config (catalog_id, key, value, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (catalog_id, key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (db.catalog_id, "last_updated", json.dumps(datetime.now().isoformat())),
             )
 
             if force_rescan:
@@ -438,12 +475,24 @@ def scan_catalog_task(
 
             # Update catalog config with completion status
             db.execute(
-                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                ("phase", "complete"),
+                """
+                INSERT INTO config (catalog_id, key, value, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (catalog_id, key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (db.catalog_id, "phase", json.dumps("complete")),
             )
             db.execute(
-                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                ("last_updated", datetime.now().isoformat()),
+                """
+                INSERT INTO config (catalog_id, key, value, updated_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (catalog_id, key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (db.catalog_id, "last_updated", json.dumps(datetime.now().isoformat())),
             )
             db.save()
 
