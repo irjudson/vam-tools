@@ -172,7 +172,7 @@ def _safe_get_task_info(task: AsyncResult) -> Any:
     """Safely get task info, handling malformed data."""
     try:
         return task.info
-    except (ValueError, Exception) as e:
+    except Exception as e:
         logger.warning(f"Error getting task info for {task.id}: {e}")
         return {"error": f"Failed to retrieve task info: {e}"}
 
