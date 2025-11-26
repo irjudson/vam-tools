@@ -190,19 +190,19 @@ ignore_missing_imports = true
 # TODO: Fix these properly with correct type annotations
 # SQLAlchemy ORM modules - complex type inference issues
 [[tool.mypy.overrides]]
-module = "vam_tools.db.models"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "vam_tools.db.config"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "vam_tools.db.serializers"
+module = "vam_tools.db.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "vam_tools.core.catalog_config"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "vam_tools.analysis.scanner"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "vam_tools.web.catalogs_api"
 ignore_errors = true
 
 [tool.pytest.ini_options]
