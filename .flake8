@@ -1,7 +1,7 @@
 [flake8]
 max-line-length = 120
 extend-ignore = E203, W503, E501, D, I
-exclude = 
+exclude =
     .git,
     __pycache__,
     build,
@@ -15,11 +15,13 @@ per-file-ignores =
     # Old implementation files - being deprecated
     vam_tools/cli/generate_thumbnails.py:F821
     vam_tools/jobs/tasks.py:F821,F401
-    vam_tools/web/api.py:F821,F401,F841,F811,E402
-    vam_tools/web/jobs_api.py:F821,E722
+    # FastAPI routers use Query/Path in defaults (B008 is false positive)
+    vam_tools/api/routers/*.py:B008
+    vam_tools/web/api.py:F821,F401,F841,F811,E402,B008
+    vam_tools/web/jobs_api.py:F821,E722,B001
     vam_tools/web/watcher.py:F821
     # Test files - more lenient
-    tests/*:F401,F841,E722,F541
+    tests/*:F401,F841,E722,F541,B001,B007,B011
     # Database config
     vam_tools/db/config.py:F401
     vam_tools/db/models.py:F401
@@ -27,3 +29,5 @@ per-file-ignores =
     vam_tools/tasks/*.py:F401
     # Celery app
     vam_tools/jobs/celery_app.py:F401,E402
+    # Analysis module
+    vam_tools/analysis/duplicate_detector.py:B007
