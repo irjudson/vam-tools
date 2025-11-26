@@ -169,14 +169,13 @@ class TestPerformancePollingEndpoint:
         with CatalogDatabase(catalog_dir) as db:
             db.initialize()
 
-            # Store performance statistics with completed timestamp
+            # Store performance statistics - uses database schema fields
             perf_stats = {
                 "last_run": {
-                    "run_id": "test123",
-                    "started_at": "2024-01-01T00:00:00",
-                    "completed_at": "2024-01-01T00:10:00",
+                    "phase": "analysis",
                     "total_files_analyzed": 100,
                     "files_per_second": 10.0,
+                    "elapsed_seconds": 10.0,  # Non-zero means completed
                 },
                 "history": [],
             }
@@ -192,8 +191,8 @@ class TestPerformancePollingEndpoint:
         data = response.json()
         assert data["status"] == "idle"
         assert data["data"] is not None
-        assert data["data"]["run_id"] == "test123"
-        assert data["data"]["total_files_analyzed"] == 100
+        assert data["data"]["files_processed"] == 100
+        assert data["data"]["phase"] == "analysis"
 
     def test_performance_endpoint_with_running_analysis(self, tmp_path):
         """Test performance endpoint returns running status for in-progress analysis."""
@@ -205,17 +204,16 @@ class TestPerformancePollingEndpoint:
         catalog_dir = tmp_path / "catalog"
         catalog_dir.mkdir()
 
-        # Create catalog with running performance stats (no completed_at)
+        # Create catalog with running performance stats (elapsed_seconds < 1.0)
         with CatalogDatabase(catalog_dir) as db:
             db.initialize()
 
             perf_stats = {
                 "last_run": {
-                    "run_id": "test456",
-                    "started_at": "2024-01-01T00:00:00",
-                    "completed_at": None,  # Still running
+                    "phase": "scanning",
                     "total_files_analyzed": 50,
                     "files_per_second": 5.0,
+                    "elapsed_seconds": 0.5,  # Less than 1.0 means still running
                 },
                 "history": [],
             }
@@ -231,5 +229,5 @@ class TestPerformancePollingEndpoint:
         data = response.json()
         assert data["status"] == "running"
         assert data["data"] is not None
-        assert data["data"]["run_id"] == "test456"
-        assert data["data"]["completed_at"] is None
+        assert data["data"]["files_processed"] == 50
+        assert data["data"]["phase"] == "scanning"

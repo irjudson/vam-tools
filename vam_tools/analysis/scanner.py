@@ -1,9 +1,10 @@
 """
-Image scanner and analyzer.
+Image scanner using SQLAlchemy ORM (PostgreSQL).
 
-Scans directories, extracts metadata, computes checksums, and builds catalog.
+This replaces the SQLite-based scanner with a proper ORM-based implementation.
 """
 
+import hashlib
 import logging
 import multiprocessing as mp
 import os
@@ -13,20 +14,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeRemainingColumn,
-)
+from sqlalchemy.orm import Session
 
 from vam_tools.shared import compute_checksum, get_file_type
 from vam_tools.shared.thumbnail_utils import generate_thumbnail, get_thumbnail_path
 
 from ..core.performance_stats import PerformanceTracker
-from ..core.types import CatalogPhase, FileType, ImageRecord, ImageStatus, Statistics
-from ..db import CatalogDB as CatalogDatabase
+from ..core.types import CatalogPhase, FileType, ImageRecord, ImageStatus
+from ..db.models import Config, Image, Statistics
 from .metadata import MetadataExtractor
 
 logger = logging.getLogger(__name__)
@@ -64,8 +59,9 @@ def _process_file_worker(file_path: Path) -> Optional[Tuple[ImageRecord, int]]:
             dates = extractor.extract_dates(file_path, metadata)
 
         # Create image record
+        # Note: id will be set later by the scanner to include catalog_id
         image = ImageRecord(
-            id=checksum,
+            id=checksum,  # Temporary - will be updated by scanner
             source_path=file_path,
             file_type=file_type,
             checksum=checksum,
@@ -81,58 +77,62 @@ def _process_file_worker(file_path: Path) -> Optional[Tuple[ImageRecord, int]]:
         return None
 
 
-class ImageScanner:
-    """Scan directories and analyze images."""
+class ImageScannerORM:
+    """
+    Scans directories for images and videos using SQLAlchemy ORM.
+
+    This replaces the raw SQL implementation with proper ORM usage.
+    """
 
     def __init__(
         self,
-        catalog: CatalogDatabase,
-        workers: Optional[int] = None,
+        session: Session,
+        catalog_id: str,
+        catalog_path: Path,
+        workers: int = 4,
         perf_tracker: Optional[PerformanceTracker] = None,
-        generate_thumbnails: bool = True,
     ):
         """
-        Initialize the scanner.
+        Initialize the scanner with SQLAlchemy session.
 
         Args:
-            catalog: Catalog database to update
-            workers: Number of worker processes (default: CPU count)
-            perf_tracker: Optional performance tracker for collecting metrics
-            generate_thumbnails: Whether to generate thumbnails during scan (default: True)
+            session: SQLAlchemy session
+            catalog_id: Catalog UUID
+            catalog_path: Path to catalog directory (for thumbnails)
+            workers: Number of parallel workers for processing
+            perf_tracker: Optional performance tracker
         """
-        self.catalog = catalog
-        self.generate_thumbnails = generate_thumbnails
-        # Load existing statistics if catalog exists, otherwise start fresh
-        latest_stats_row = self.catalog.execute(
-            "SELECT * FROM statistics WHERE catalog_id = ? ORDER BY timestamp DESC LIMIT 1",
-            (str(self.catalog.catalog_id),),
-        ).fetchone()
-        self.stats = (
-            Statistics(**latest_stats_row) if latest_stats_row else Statistics()
+        self.session = session
+        self.catalog_id = catalog_id
+        self.catalog_path = (
+            Path(catalog_path) if not isinstance(catalog_path, Path) else catalog_path
         )
+        self.workers = workers
+        self.perf_tracker = perf_tracker
+
+        # Track scanning statistics
         self.files_added = 0
         self.files_skipped = 0
-        self.files_processed = 0  # Track total files processed for performance stats
-        self.workers = workers or mp.cpu_count()
-        self.perf_tracker = perf_tracker
+        self.files_error = 0
+        self.total_bytes = 0
+        self.start_time = None
+        self.end_time = None
 
     def scan_directories(self, directories: List[Path]) -> None:
         """
         Scan directories for images and videos using incremental discovery.
 
-        Files are discovered and processed in batches to avoid blocking on
-        slow network filesystems.
-
         Args:
             directories: List of directories to scan
         """
-        logger.info(f"Scanning {len(directories)} directories (incremental mode)")
+        logger.info(f"Scanning {len(directories)} directories (ORM mode)")
+        print(f"DEBUG: scan_directories called with {directories}", flush=True)
+        self.start_time = time.time()
 
-        # Update state (phase) in catalog_config
-        self.catalog.execute(
-            "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-            ("phase", CatalogPhase.ANALYZING.value),
-        )
+        # Update catalog phase in config
+        print("DEBUG: About to call _update_config", flush=True)
+        self._update_config("phase", CatalogPhase.ANALYZING.value)
+        print("DEBUG: _update_config completed", flush=True)
 
         # Track file collection
         ctx = (
@@ -145,7 +145,7 @@ class ImageScanner:
 
         with ctx:
             # Process files incrementally as they're discovered
-            batch_size = 100  # Process files in batches of 100
+            batch_size = 100
             current_batch = []
             files_discovered = 0
 
@@ -168,326 +168,306 @@ class ImageScanner:
                         self._process_files(current_batch)
                         current_batch = []
 
-                        # Insert new statistics snapshot after each batch
-                        self.catalog.execute(
-                            """
-                            INSERT INTO statistics (
-                                catalog_id, timestamp, total_images, total_videos, total_size_bytes,
-                                images_scanned, images_hashed, images_tagged,
-                                duplicate_groups, duplicate_images, potential_savings_bytes,
-                                high_quality_count, medium_quality_count, low_quality_count,
-                                corrupted_count, unsupported_count,
-                                processing_time_seconds, images_per_second,
-                                no_date, suspicious_dates, problematic_files
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                str(self.catalog.catalog_id),
-                                datetime.now().isoformat(),
-                                self.stats.total_images,
-                                self.stats.total_videos,
-                                self.stats.total_size_bytes,
-                                self.stats.images_scanned,
-                                self.stats.images_hashed,
-                                self.stats.images_tagged,
-                                self.stats.duplicate_groups,
-                                self.stats.duplicate_images,
-                                self.stats.potential_savings_bytes,
-                                self.stats.high_quality_count,
-                                self.stats.medium_quality_count,
-                                self.stats.low_quality_count,
-                                self.stats.corrupted_count,
-                                self.stats.unsupported_count,
-                                self.stats.processing_time_seconds,
-                                self.stats.images_per_second,
-                                self.stats.no_date,
-                                self.stats.suspicious_dates,
-                                self.stats.problematic_files,
-                            ),
-                        )
-
-            # Process any remaining files
+            # Process remaining files
             if current_batch:
                 logger.info(f"Processing final batch of {len(current_batch)} files")
                 self._process_files(current_batch)
 
-            # Insert final statistics snapshot
-            self.catalog.execute(
-                """
-                INSERT INTO statistics (
-                    catalog_id, timestamp, total_images, total_videos, total_size_bytes,
-                    images_scanned, images_hashed, images_tagged,
-                    duplicate_groups, duplicate_images, potential_savings_bytes,
-                    high_quality_count, medium_quality_count, low_quality_count,
-                    corrupted_count, unsupported_count,
-                    processing_time_seconds, images_per_second,
-                    no_date, suspicious_dates, problematic_files
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(self.catalog.catalog_id),
-                    datetime.now().isoformat(),
-                    self.stats.total_images,
-                    self.stats.total_videos,
-                    self.stats.total_size_bytes,
-                    self.stats.images_scanned,
-                    self.stats.images_hashed,
-                    self.stats.images_tagged,
-                    self.stats.duplicate_groups,
-                    self.stats.duplicate_images,
-                    self.stats.potential_savings_bytes,
-                    self.stats.high_quality_count,
-                    self.stats.medium_quality_count,
-                    self.stats.low_quality_count,
-                    self.stats.corrupted_count,
-                    self.stats.unsupported_count,
-                    self.stats.processing_time_seconds,
-                    self.stats.images_per_second,
-                    self.stats.no_date,
-                    self.stats.suspicious_dates,
-                    self.stats.problematic_files,
-                ),
-            )
+        self.end_time = time.time()
+        self._update_statistics()
 
-            # Track total files and bytes (use files_processed for accurate stats)
-            if self.perf_tracker:
-                self.perf_tracker.metrics.total_files_analyzed = self.files_processed
-                self.perf_tracker.metrics.bytes_processed = self.stats.total_size_bytes
-
-            logger.info(
-                f"Scan complete: {files_discovered} files discovered, "
-                f"{self.files_added} files added, {self.files_skipped} files skipped "
-                f"({self.stats.total_images} images, {self.stats.total_videos} videos total)"
-            )
+        # Log summary
+        logger.info(
+            f"Scan complete: {self.files_added} added, "
+            f"{self.files_skipped} skipped, {self.files_error} errors"
+        )
 
     def _discover_files_incrementally(self, directory: Path) -> Iterator[Path]:
         """
-        Discover image and video files incrementally using os.walk.
-
-        This yields files as they're discovered instead of collecting all files first,
-        which is much faster on network filesystems with large directory trees.
+        Discover files incrementally without blocking.
 
         Args:
-            directory: Root directory to scan
+            directory: Directory to scan
 
         Yields:
-            Path objects for image/video files
+            Paths to discovered image/video files
         """
-        try:
-            for root, dirs, files in os.walk(directory):
-                # Skip synology metadata directories
-                dirs[:] = [d for d in dirs if not d.startswith("@eaDir")]
+        if not directory.exists():
+            logger.warning(f"Directory does not exist: {directory}")
+            return
 
-                root_path = Path(root)
+        # Walk directory tree
+        for root, dirs, files in os.walk(directory):
+            root_path = Path(root)
 
-                for filename in files:
-                    # Skip synology metadata files
-                    if filename.startswith(".") or "@SynoResource" in filename:
-                        continue
+            # Skip Synology metadata directories
+            dirs[:] = [d for d in dirs if d != "@eaDir"]
 
-                    file_path = root_path / filename
-                    file_type = get_file_type(file_path)
+            for file in files:
+                # Skip hidden files
+                if file.startswith("."):
+                    continue
 
-                    if file_type in ("image", "video"):
-                        yield file_path
+                file_path = root_path / file
 
-        except PermissionError as e:
-            logger.warning(f"Permission denied: {directory}: {e}")
-        except Exception as e:
-            logger.error(f"Error scanning {directory}: {e}")
+                # Quick check based on extension
+                ext = file_path.suffix.lower()
+                if ext in {
+                    ".jpg",
+                    ".jpeg",
+                    ".png",
+                    ".gif",
+                    ".bmp",
+                    ".tiff",
+                    ".webp",
+                    ".heic",
+                    ".raw",
+                    ".mp4",
+                    ".avi",
+                    ".mov",
+                    ".wmv",
+                    ".mkv",
+                }:
+                    yield file_path
 
-    def _collect_files(self, directory: Path) -> List[Path]:
+    def _process_files(self, file_paths: List[Path]) -> None:
         """
-        Collect all image and video files from a directory.
+        Process a batch of files in parallel.
 
-        DEPRECATED: Use _discover_files_incrementally instead for better performance.
+        Args:
+            file_paths: List of file paths to process
         """
-        return list(self._discover_files_incrementally(directory))
+        if self.workers > 1:
+            # Process files in parallel
+            with mp.Pool(processes=self.workers) as pool:
+                results = pool.map(_process_file_worker, file_paths)
+        else:
+            # Process files sequentially
+            results = [_process_file_worker(f) for f in file_paths]
 
-    def _process_files(self, files: List[Path]) -> None:
-        """Process all files in parallel and add to catalog."""
-        # Track processing operation
-        process_ctx = (
-            self.perf_tracker.track_operation("process_files", items=len(files))
-            if self.perf_tracker
-            else nullcontext()
-        )
+        # Track checksums in this batch to avoid duplicates within the batch
+        batch_checksums = set()
 
-        with process_ctx:
-            # Filter out files already in catalog
-            files_to_process = []
-            for f in files:
-                existing_image = self.catalog.execute(
-                    "SELECT id FROM images WHERE catalog_id = ? AND source_path = ?",
-                    (str(self.catalog.catalog_id), str(f)),
-                ).fetchone()
-                if not existing_image:
-                    files_to_process.append(f)
-                else:
-                    self.files_skipped += 1
+        # Add results to database
+        for result, file_path in zip(results, file_paths):
+            if result is None:
+                self.files_error += 1
+                continue
 
-            if not files_to_process:
-                logger.info("All files already in catalog")
-                return
+            image_record, file_size = result
+            self.total_bytes += file_size
 
-            logger.info(
-                f"Processing {len(files_to_process)} files with {self.workers} workers"
+            # Check if image already exists by checksum (in database or in this batch)
+            if image_record.checksum in batch_checksums:
+                logger.debug(f"Skipping duplicate in batch: {file_path}")
+                self.files_skipped += 1
+                continue
+
+            existing = (
+                self.session.query(Image)
+                .filter_by(catalog_id=self.catalog_id, checksum=image_record.checksum)
+                .first()
             )
 
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TimeRemainingColumn(),
-            ) as progress:
-                task = progress.add_task(
-                    "Processing files...", total=len(files_to_process)
-                )
+            if existing:
+                logger.debug(f"Skipping duplicate: {file_path}")
+                self.files_skipped += 1
+                continue
 
-                # Use multiprocessing pool to process files in parallel with health monitoring
-                with mp.Pool(processes=self.workers) as pool:
-                    # Process files in chunks for better progress updates
-                    chunk_size = max(1, len(files_to_process) // (self.workers * 4))
+            # Track this checksum for the current batch
+            batch_checksums.add(image_record.checksum)
 
-                    # Track progress for stuck worker detection
-                    last_progress_time = time.time()
-                    stuck_timeout = 300  # 5 minutes without progress = stuck
-
-                    result_iter = pool.imap_unordered(
-                        _process_file_worker, files_to_process, chunk_size
+            # Generate thumbnail if needed
+            thumbnail_path = None
+            if image_record.file_type == FileType.IMAGE:
+                try:
+                    thumbnail_full_path = get_thumbnail_path(
+                        image_record.checksum,
+                        self.catalog_path / "thumbnails",
                     )
 
-                    for i, result in enumerate(result_iter):
-                        # Check if workers are stuck (no progress recently)
-                        current_time = time.time()
-                        time_since_progress = current_time - last_progress_time
+                    if generate_thumbnail(file_path, thumbnail_full_path):
+                        # Store relative path from catalog root
+                        thumbnail_path = str(
+                            thumbnail_full_path.relative_to(self.catalog_path)
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to generate thumbnail for {file_path}: {e}")
 
-                        if time_since_progress > stuck_timeout:
-                            logger.warning(
-                                f"Workers appear stuck - no progress for {stuck_timeout}s. "
-                                f"Processed {i}/{len(files_to_process)} files. "
-                                f"This may indicate network/I/O issues with your file storage."
-                            )
-                            # Reset timer after warning
-                            last_progress_time = current_time
+            # Generate unique ID per catalog (catalog_id + checksum hash)
+            unique_id = hashlib.sha256(
+                f"{self.catalog_id}:{image_record.checksum}".encode()
+            ).hexdigest()
 
-                        # Update progress time for each successful result
-                        last_progress_time = current_time
+            # Create ORM object
+            image = Image(
+                id=unique_id,
+                catalog_id=self.catalog_id,
+                source_path=str(image_record.source_path),
+                file_type=image_record.file_type.value,
+                checksum=image_record.checksum,
+                size_bytes=(
+                    image_record.metadata.size_bytes if image_record.metadata else None
+                ),
+                dates=(
+                    image_record.dates.model_dump(mode="json")
+                    if image_record.dates
+                    else {}
+                ),
+                metadata_json=(
+                    image_record.metadata.model_dump(mode="json")
+                    if image_record.metadata
+                    else {}
+                ),
+                thumbnail_path=thumbnail_path,
+                status=image_record.status.value,
+            )
 
-                        # Process the result (same logic as original)
-                        if result is not None:
-                            image, file_size = result
-                            self.files_processed += 1
+            self.session.add(image)
+            self.files_added += 1
+            logger.debug(f"Added: {file_path}")
 
-                            # Track file format
-                            if self.perf_tracker and image.metadata:
-                                format_str = image.metadata.format or "unknown"
-                                # Track per-file processing time (approximate)
-                                avg_time = 0.1  # Placeholder, can't track individual in multiprocessing
-                                self.perf_tracker.record_file_format(
-                                    format_str, file_size, avg_time
-                                )
+        # Commit batch
+        try:
+            self.session.commit()
+        except Exception as e:
+            logger.error(f"Failed to commit batch: {e}")
+            self.session.rollback()
+            self.files_error += len(file_paths)
 
-                            # Update real-time performance counters for ALL processed files
-                            if self.perf_tracker:
-                                self.perf_tracker.metrics.total_files_analyzed = (
-                                    self.files_processed
-                                )
-                                self.perf_tracker.metrics.bytes_processed += file_size
+    def _update_config(self, key: str, value: any) -> None:
+        """
+        Update or insert configuration value.
 
-                            # Check if already in catalog (by checksum - for duplicates)
-                            existing_image_by_id = self.catalog.execute(
-                                "SELECT id FROM images WHERE catalog_id = ? AND id = ?",
-                                (str(self.catalog.catalog_id), image.checksum),
-                            ).fetchone()
+        Args:
+            key: Configuration key
+            value: Configuration value
+        """
+        print(f"DEBUG: _update_config called with key={key}, value={value}", flush=True)
+        print(
+            f"DEBUG: session={self.session}, catalog_id={self.catalog_id}", flush=True
+        )
 
-                            if not existing_image_by_id:
-                                # Generate thumbnail if enabled (before adding to catalog)
-                                if self.generate_thumbnails:
-                                    thumb_path = get_thumbnail_path(
-                                        image.id,
-                                        self.catalog.catalog_path / "thumbnails",
-                                    )
-                                    if generate_thumbnail(
-                                        source_path=image.source_path,
-                                        output_path=thumb_path,
-                                    ):
-                                        # Set thumbnail path on image record (relative)
-                                        image.thumbnail_path = thumb_path.relative_to(
-                                            self.catalog.catalog_path
-                                        )
+        # Check if there's a failed transaction and rollback if needed
+        if self.session.in_transaction() and not self.session.is_active:
+            print("DEBUG: Rolling back failed transaction", flush=True)
+            self.session.rollback()
 
-                                # Add to catalog using CatalogDB's add_image method
-                                self.catalog.add_image(image)
-                                self.files_added += 1
+        # SQLAlchemy's JSONB type handles Python objects automatically
+        # No need to json.dumps() - just pass the value directly
+        config = (
+            self.session.query(Config)
+            .filter_by(catalog_id=self.catalog_id, key=key)
+            .first()
+        )
+        print(f"DEBUG: Query completed, config={config}", flush=True)
 
-                                # Update statistics
-                                if image.file_type == FileType.IMAGE:
-                                    self.stats.total_images += 1
-                                elif image.file_type == FileType.VIDEO:
-                                    self.stats.total_videos += 1
+        if config:
+            config.value = value
+            config.updated_at = datetime.utcnow()
+        else:
+            config = Config(
+                catalog_id=self.catalog_id,
+                key=key,
+                value=value,
+            )
+            self.session.add(config)
 
-                                self.stats.total_size_bytes += file_size
-                                self.stats.images_scanned += 1  # Assuming scanned here
-                                self.stats.images_hashed += 1  # Assuming hashed here
+        self.session.commit()
 
-                                if not image.dates.selected_date:
-                                    self.stats.no_date += 1
-                            else:
-                                self.files_skipped += 1
+    def _update_statistics(self) -> None:
+        """Update scan statistics in database."""
+        # Get latest stats or create new
+        stats = (
+            self.session.query(Statistics)
+            .filter_by(catalog_id=self.catalog_id)
+            .order_by(Statistics.timestamp.desc())
+            .first()
+        )
 
-                        # Checkpoint every 10 files for more frequent updates
-                        if (i + 1) % 10 == 0:
-                            # Insert new statistics snapshot
-                            self.catalog.execute(
-                                """
-                                INSERT INTO statistics (
-                                    catalog_id, timestamp, total_images, total_videos, total_size_bytes,
-                                    images_scanned, images_hashed, images_tagged,
-                                    duplicate_groups, duplicate_images, potential_savings_bytes,
-                                    high_quality_count, medium_quality_count, low_quality_count,
-                                    corrupted_count, unsupported_count,
-                                    processing_time_seconds, images_per_second,
-                                    no_date, suspicious_dates, problematic_files
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                """,
-                                (
-                                    str(self.catalog.catalog_id),
-                                    datetime.now().isoformat(),
-                                    self.stats.total_images,
-                                    self.stats.total_videos,
-                                    self.stats.total_size_bytes,
-                                    self.stats.images_scanned,
-                                    self.stats.images_hashed,
-                                    self.stats.images_tagged,
-                                    self.stats.duplicate_groups,
-                                    self.stats.duplicate_images,
-                                    self.stats.potential_savings_bytes,
-                                    self.stats.high_quality_count,
-                                    self.stats.medium_quality_count,
-                                    self.stats.low_quality_count,
-                                    self.stats.corrupted_count,
-                                    self.stats.unsupported_count,
-                                    self.stats.processing_time_seconds,
-                                    self.stats.images_per_second,
-                                    self.stats.no_date,
-                                    self.stats.suspicious_dates,
-                                    self.stats.problematic_files,
-                                ),
-                            )
+        if not stats:
+            stats = Statistics(catalog_id=self.catalog_id)
+            self.session.add(stats)
 
-                            # Update state (images_processed, progress_percentage) in catalog_config
-                            self.catalog.execute(
-                                "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                                ("images_processed", str(i + 1)),
-                            )
-                            self.catalog.execute(
-                                "INSERT OR REPLACE INTO catalog_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                                (
-                                    "progress_percentage",
-                                    str(((i + 1) / len(files_to_process)) * 100),
-                                ),
-                            )
+        # Update counts
+        stats.total_images = (
+            self.session.query(Image)
+            .filter_by(catalog_id=self.catalog_id, file_type="image")
+            .count()
+        )
+        stats.total_videos = (
+            self.session.query(Image)
+            .filter_by(catalog_id=self.catalog_id, file_type="video")
+            .count()
+        )
+        stats.images_scanned = stats.total_images + stats.total_videos
+        stats.total_size_bytes = self.total_bytes
 
-                        progress.advance(task)
+        # Update performance metrics
+        if self.start_time and self.end_time:
+            stats.processing_time_seconds = self.end_time - self.start_time
+            if stats.processing_time_seconds > 0:
+                stats.images_per_second = (
+                    self.files_added / stats.processing_time_seconds
+                )
+
+        stats.timestamp = datetime.utcnow()
+        self.session.commit()
+
+
+# Compatibility wrapper for existing code
+class ImageScanner:
+    """
+    Wrapper around ImageScannerORM for backward compatibility.
+
+    This allows existing code to work while we migrate to ORM.
+    """
+
+    def __init__(self, catalog_db, workers: int = 4, perf_tracker=None):
+        """
+        Initialize scanner with CatalogDB instance.
+
+        Args:
+            catalog_db: CatalogDB instance
+            workers: Number of parallel workers
+            perf_tracker: Optional performance tracker
+        """
+        self.catalog = catalog_db
+        self.workers = workers
+        self.perf_tracker = perf_tracker
+
+        # Create ORM scanner
+        if hasattr(catalog_db, "session") and catalog_db.session:
+            # Get catalog path (test_path is already a Path object if set)
+            if catalog_db._test_path:
+                catalog_path = (
+                    catalog_db._test_path
+                    if isinstance(catalog_db._test_path, Path)
+                    else Path(catalog_db._test_path)
+                )
+            else:
+                catalog_path = Path.cwd()
+
+            self.scanner = ImageScannerORM(
+                session=catalog_db.session,
+                catalog_id=catalog_db.catalog_id,
+                catalog_path=catalog_path,
+                workers=workers,
+                perf_tracker=perf_tracker,
+            )
+        else:
+            raise ValueError("CatalogDB must have an active session for ImageScanner")
+
+    def scan_directories(self, directories: List[Path]) -> None:
+        """Scan directories for images."""
+        self.scanner.scan_directories(directories)
+
+        # Copy statistics to self for compatibility
+        self.files_added = self.scanner.files_added
+        self.files_skipped = self.scanner.files_skipped
+        self.files_error = self.scanner.files_error
+        self.total_bytes = self.scanner.total_bytes
+
+    def _discover_files_incrementally(self, directory: Path):
+        """Forward to ORM scanner for incremental file discovery."""
+        return self.scanner._discover_files_incrementally(directory)

@@ -259,9 +259,11 @@ async def get_catalog_info() -> CatalogInfo:
     """Get overall catalog information."""
     catalog = get_catalog()
 
-    # Get state information from catalog_config table
-    config_rows = catalog.execute("SELECT key, value FROM catalog_config").fetchall()
-    config_dict = {row["key"]: row["value"] for row in config_rows}
+    # Get state information from config table
+    config_rows = catalog.execute(
+        "SELECT key, value FROM config WHERE catalog_id = ?", (catalog.catalog_id,)
+    ).fetchall()
+    config_dict = {row[0]: row[1] for row in config_rows}
 
     # Default values if not found in config
     version = config_dict.get("version", "2.0.0")
@@ -272,17 +274,23 @@ async def get_catalog_info() -> CatalogInfo:
 
     # Get statistics from the latest entry in the statistics table
     stats_row = catalog.execute(
-        "SELECT * FROM statistics ORDER BY timestamp DESC LIMIT 1"
+        "SELECT * FROM statistics WHERE catalog_id = ? ORDER BY timestamp DESC LIMIT 1",
+        (str(catalog.catalog_id),),
     ).fetchone()
     if stats_row:
+        stats_dict = (
+            dict(stats_row._mapping)
+            if hasattr(stats_row, "_mapping")
+            else dict(stats_row)
+        )
         stats = CatalogStats(
-            total_images=stats_row["total_images"],
-            total_videos=stats_row["total_videos"],
-            total_size_bytes=stats_row["total_size_bytes"],
-            no_date=stats_row["no_date"],
-            suspicious_dates=stats_row["suspicious_dates"],
-            problematic_files=stats_row["corrupted_count"]
-            + stats_row["unsupported_count"],  # Placeholder for now
+            total_images=stats_dict.get("total_images", 0),
+            total_videos=stats_dict.get("total_videos", 0),
+            total_size_bytes=stats_dict.get("total_size_bytes", 0),
+            no_date=stats_dict.get("no_date", 0),
+            suspicious_dates=stats_dict.get("suspicious_dates", 0),
+            problematic_files=(stats_dict.get("corrupted_count", 0) or 0)
+            + (stats_dict.get("unsupported_count", 0) or 0),  # Placeholder for now
         )
     else:
         stats = CatalogStats(
@@ -321,8 +329,8 @@ async def list_images(
     """
     catalog = get_catalog()
 
-    query = "SELECT id, source_path, format, width, height, file_size, date_taken, quality_score, thumbnail_path FROM images WHERE 1=1"
-    params: List[Union[str, int]] = []
+    query = "SELECT id, source_path, file_type, (metadata->>'width')::int as width, (metadata->>'height')::int as height, size_bytes as file_size, (dates->>'taken') as date_taken, quality_score, thumbnail_path, (metadata->>'format') as format FROM images WHERE catalog_id = ?"
+    params: List[Union[str, int]] = [str(catalog.catalog_id)]
 
     # Apply filters
     if filter_type == "no_date":
@@ -335,9 +343,9 @@ async def list_images(
         )
         pass  # For now, no direct SQL filter for suspicious
     elif filter_type == "image":
-        query += " AND format IN ('JPEG', 'PNG', 'GIF', 'BMP', 'WEBP', 'TIFF', 'HEIC')"  # Assuming these are image formats
+        query += " AND file_type = 'image'"
     elif filter_type == "video":
-        query += " AND format IN ('MP4', 'MOV', 'AVI', 'MKV')"  # Assuming these are video formats
+        query += " AND file_type = 'video'"
 
     # Apply sorting
     if sort_by == "date":
@@ -360,28 +368,24 @@ async def list_images(
     for row in rows:
         # Determine file_type based on format
         file_type = "unknown"
-        if row["format"] in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]:
+        if row[9] in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]:
             file_type = "image"
-        elif row["format"] in ["MP4", "MOV", "AVI", "MKV"]:
+        elif row[9] in ["MP4", "MOV", "AVI", "MKV"]:
             file_type = "video"
 
         summaries.append(
             ImageSummary(
-                id=row["id"],
-                source_path=row["source_path"],
+                id=row[0],
+                source_path=row[1],
                 file_type=file_type,
-                selected_date=row["date_taken"],
-                date_source="db" if row["date_taken"] else None,  # Placeholder
-                confidence=100 if row["date_taken"] else 0,  # Placeholder
+                selected_date=row[6],
+                date_source="db" if row[6] else None,  # Placeholder
+                confidence=100 if row[6] else 0,  # Placeholder
                 suspicious=False,  # Placeholder
-                format=row["format"],
-                resolution=(
-                    [row["width"], row["height"]]
-                    if row["width"] and row["height"]
-                    else None
-                ),
-                size_bytes=row["file_size"],
-                thumbnail_path=row["thumbnail_path"],
+                format=row[9],
+                resolution=([row[3], row[4]] if row[3] and row[4] else None),
+                size_bytes=row[5],
+                thumbnail_path=row[8],
             )
         )
 
@@ -400,12 +404,12 @@ async def get_image_counts() -> ImageCountResponse:
 
     # Images count
     images_count = catalog.execute(
-        "SELECT COUNT(*) FROM images WHERE format IN ('JPEG', 'PNG', 'GIF', 'BMP', 'WEBP', 'TIFF', 'HEIC')"
+        "SELECT COUNT(*) FROM images WHERE file_type = 'image'"
     ).fetchone()[0]
 
     # Videos count
     videos_count = catalog.execute(
-        "SELECT COUNT(*) FROM images WHERE format IN ('MP4', 'MOV', 'AVI', 'MKV')"
+        "SELECT COUNT(*) FROM images WHERE file_type = 'video'"
     ).fetchone()[0]
 
     # No date count
@@ -458,15 +462,15 @@ async def list_problematic_files(
         summaries.append(
             ProblematicFileSummary(
                 id=str(
-                    row["id"]
+                    row[0]
                 ),  # id is INTEGER in DB, convert to str for Pydantic model
-                source_path=row["file_path"],
-                category=row["category"],
-                error_message=row["error_message"],
-                detected_at=row["detected_at"],
+                source_path=row[1],
+                category=row[2],
+                error_message=row[3],
+                detected_at=row[4],
                 file_type="unknown",  # Not stored in problematic_files table directly
                 retries=0,  # Not stored in problematic_files table directly
-                resolved=bool(row["resolved_at"]),
+                resolved=bool(row[5]),
             )
         )
 
@@ -487,64 +491,11 @@ async def get_image_detail(image_id: str) -> ImageDetail:
     """Get detailed information about a specific image."""
     catalog = get_catalog()
 
-    row = catalog.execute("SELECT * FROM images WHERE id = ?", (image_id,)).fetchone()
+    # Use catalog.get_image() which returns an ImageRecord
+    image = catalog.get_image(image_id)
 
-    if not row:
+    if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-
-    # Manually construct ImageRecord from row
-    # This is a simplified mapping, a more robust solution might involve a helper function
-    image = ImageRecord(
-        id=row["id"],
-        source_path=Path(row["source_path"]),
-        file_type=(
-            FileType.IMAGE
-            if row["format"] in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]
-            else FileType.VIDEO
-        ),  # Infer from format
-        checksum=row["file_hash"],
-        status=ImageStatus.COMPLETE,  # Placeholder, needs proper status tracking
-        dates=DateInfo(
-            selected_date=(
-                datetime.fromisoformat(row["date_taken"]) if row["date_taken"] else None
-            ),
-            selected_source="db",  # Placeholder
-            confidence=100 if row["date_taken"] else 0,  # Placeholder
-            suspicious=False,  # Placeholder
-            filesystem_created=(
-                datetime.fromisoformat(row["created_at"]) if row["created_at"] else None
-            ),
-            filesystem_modified=(
-                datetime.fromisoformat(row["modified_at"])
-                if row["modified_at"]
-                else None
-            ),
-        ),
-        metadata=ImageMetadata(
-            format=row["format"],
-            resolution=(
-                [row["width"], row["height"]]
-                if row["width"] and row["height"]
-                else None
-            ),
-            width=row["width"],
-            height=row["height"],
-            size_bytes=row["file_size"],
-            exif={
-                "Make": row["camera_make"],
-                "Model": row["camera_model"],
-                "LensModel": row["lens_model"],
-                "FocalLength": row["focal_length"],
-                "ApertureValue": row["aperture"],
-                "ExposureTime": row["shutter_speed"],
-                "ISO": row["iso"],
-            },
-            gps_latitude=row["gps_latitude"],
-            gps_longitude=row["gps_longitude"],
-        ),
-        # quality_score=row["quality_score"], # Not directly in ImageRecord
-        # is_corrupted=bool(row["is_corrupted"]), # Not directly in ImageRecord
-    )
 
     # Build dates dict
     dates_dict = {}
@@ -604,63 +555,11 @@ async def get_image_file(image_id: str) -> Union[FileResponse, StreamingResponse
     catalog = get_catalog()
     preview_cache = get_preview_cache()
 
-    row = catalog.execute("SELECT * FROM images WHERE id = ?", (image_id,)).fetchone()
+    # Use catalog.get_image() which returns an ImageRecord
+    image = catalog.get_image(image_id)
 
-    if not row:
+    if not image:
         raise HTTPException(status_code=404, detail="Image not found")
-
-    # Manually construct ImageRecord from row (reusing logic from get_image_detail)
-    image = ImageRecord(
-        id=row["id"],
-        source_path=Path(row["source_path"]),
-        file_type=(
-            FileType.IMAGE
-            if row["format"] in ["JPEG", "PNG", "GIF", "BMP", "WEBP", "TIFF", "HEIC"]
-            else FileType.VIDEO
-        ),  # Infer from format
-        checksum=row["file_hash"],
-        status=ImageStatus.COMPLETE,  # Placeholder, needs proper status tracking
-        dates=DateInfo(
-            selected_date=(
-                datetime.fromisoformat(row["date_taken"]) if row["date_taken"] else None
-            ),
-            selected_source="db",  # Placeholder
-            confidence=100 if row["date_taken"] else 0,  # Placeholder
-            suspicious=False,  # Placeholder
-            filesystem_created=(
-                datetime.fromisoformat(row["created_at"]) if row["created_at"] else None
-            ),
-            filesystem_modified=(
-                datetime.fromisoformat(row["modified_at"])
-                if row["modified_at"]
-                else None
-            ),
-        ),
-        metadata=ImageMetadata(
-            format=row["format"],
-            resolution=(
-                [row["width"], row["height"]]
-                if row["width"] and row["height"]
-                else None
-            ),
-            width=row["width"],
-            height=row["height"],
-            size_bytes=row["file_size"],
-            exif={
-                "Make": row["camera_make"],
-                "Model": row["camera_model"],
-                "LensModel": row["lens_model"],
-                "FocalLength": row["focal_length"],
-                "ApertureValue": row["aperture"],
-                "ExposureTime": row["shutter_speed"],
-                "ISO": row["iso"],
-            },
-            gps_latitude=row["gps_latitude"],
-            gps_longitude=row["gps_longitude"],
-        ),
-        # quality_score=row["quality_score"], # Not directly in ImageRecord
-        # is_corrupted=bool(row["is_corrupted"]), # Not directly in ImageRecord
-    )
 
     file_path = Path(image.source_path)
     if not file_path.exists():
@@ -951,19 +850,33 @@ async def get_statistics_summary() -> Dict[str, Any]:
             "by_year": {},
         }
 
+    # Convert row to dict for easier access
+    stats_dict = (
+        dict(stats_row._mapping)
+        if hasattr(stats_row, "_mapping")
+        else dict(zip(stats_row.keys(), stats_row))
+    )
+
     # Basic catalog stats from the latest snapshot
-    total_images = stats_row["total_images"]
-    total_videos = stats_row["total_videos"]
-    total_size_bytes = stats_row["total_size_bytes"]
-    no_date = stats_row["no_date"]
-    suspicious_dates = stats_row["suspicious_dates"]
+    total_images = stats_dict.get("total_images", 0)
+    total_videos = stats_dict.get("total_videos", 0)
+    total_size_bytes = stats_dict.get("total_size_bytes", 0)
+    no_date = stats_dict.get("no_date", 0)
+    suspicious_dates = stats_dict.get("suspicious_dates", 0)
 
     # Calculate additional statistics using SQL
     # By format
     by_format_rows = catalog.execute(
-        "SELECT format, COUNT(*) as count FROM images GROUP BY format"
+        "SELECT file_type, COUNT(*) as count FROM images GROUP BY file_type"
     ).fetchall()
-    by_format = {row["format"]: row["count"] for row in by_format_rows}
+    by_format = {}
+    for row in by_format_rows:
+        row_dict = (
+            dict(row._mapping)
+            if hasattr(row, "_mapping")
+            else dict(zip(row.keys(), row))
+        )
+        by_format[row_dict.get("file_type", "unknown")] = row_dict.get("count", 0)
 
     # By extension
     # This is tricky with SQL directly, as extension is part of source_path.
@@ -988,11 +901,11 @@ async def get_statistics_summary() -> Dict[str, Any]:
     for bucket_min, bucket_max, bucket_label in size_buckets:
         if bucket_max == float("inf"):
             count = catalog.execute(
-                "SELECT COUNT(*) FROM images WHERE file_size >= ?", (bucket_min,)
+                "SELECT COUNT(*) FROM images WHERE size_bytes >= ?", (bucket_min,)
             ).fetchone()[0]
         else:
             count = catalog.execute(
-                "SELECT COUNT(*) FROM images WHERE file_size >= ? AND file_size < ?",
+                "SELECT COUNT(*) FROM images WHERE size_bytes >= ? AND size_bytes < ?",
                 (bucket_min, bucket_max),
             ).fetchone()[0]
         by_size_bucket[bucket_label] = count
@@ -1004,15 +917,28 @@ async def get_statistics_summary() -> Dict[str, Any]:
     by_issue_type = {
         "no_date": no_date,
         "suspicious_date": suspicious_dates,
-        "corrupted": stats_row["corrupted_count"],
-        "unsupported": stats_row["unsupported_count"],
+        "corrupted": stats_dict.get("corrupted_count", 0),
+        "unsupported": stats_dict.get("unsupported_count", 0),
     }
 
-    # By year
+    # By year - extract year from JSONB dates->>'selected_date'
     by_year_rows = catalog.execute(
-        "SELECT STRFTIME('%Y', date_taken) as year, COUNT(*) as count FROM images WHERE date_taken IS NOT NULL GROUP BY year ORDER BY year"
+        """SELECT EXTRACT(YEAR FROM (dates->>'selected_date')::timestamp) as year, COUNT(*) as count
+           FROM images
+           WHERE dates->>'selected_date' IS NOT NULL
+           GROUP BY year
+           ORDER BY year"""
     ).fetchall()
-    by_year = {int(row["year"]): row["count"] for row in by_year_rows if row["year"]}
+    by_year = {}
+    for row in by_year_rows:
+        row_dict = (
+            dict(row._mapping)
+            if hasattr(row, "_mapping")
+            else dict(zip(row.keys(), row))
+        )
+        year = row_dict.get("year")
+        if year:
+            by_year[int(year)] = row_dict.get("count", 0)
 
     return {
         "total": {
@@ -1121,11 +1047,18 @@ async def get_dashboard_stats() -> Dict[str, Any]:
             },
         }
 
+    # Convert row to dict for easier access
+    stats_dict = (
+        dict(stats_row._mapping)
+        if hasattr(stats_row, "_mapping")
+        else dict(zip(stats_row.keys(), stats_row))
+    )
+
     # Basic catalog stats from the latest snapshot
-    total_images = stats_row["total_images"]
-    total_videos = stats_row["total_videos"]
+    total_images = stats_dict.get("total_images", 0)
+    total_videos = stats_dict.get("total_videos", 0)
     total_files = total_images + total_videos
-    total_size_bytes = stats_row["total_size_bytes"]
+    total_size_bytes = stats_dict.get("total_size_bytes", 0)
 
     # Duplicate stats
     total_groups = catalog.execute("SELECT COUNT(*) FROM duplicate_groups").fetchone()[
@@ -1142,7 +1075,7 @@ async def get_dashboard_stats() -> Dict[str, Any]:
     potential_space_savings_bytes = (
         catalog.execute(
             """
-        SELECT SUM(i.file_size)
+        SELECT SUM(i.size_bytes)
         FROM duplicate_group_images dgi
         JOIN images i ON dgi.image_id = i.id
         WHERE dgi.is_primary = 0
@@ -1152,8 +1085,8 @@ async def get_dashboard_stats() -> Dict[str, Any]:
     )
 
     # Review queue stats
-    no_date = stats_row["no_date"]
-    suspicious_dates = stats_row["suspicious_dates"]
+    no_date = stats_dict.get("no_date", 0)
+    suspicious_dates = stats_dict.get("suspicious_dates", 0)
     # date_conflicts and low_confidence are not directly in statistics table,
     # would need to query review_queue or images table with more complex logic
     date_conflicts = 0  # Placeholder
@@ -1227,8 +1160,8 @@ async def list_duplicate_groups(
             dg.id,
             dgi_primary.image_id AS primary_image_id,
             COUNT(dgi.image_id) AS duplicate_count,
-            SUM(i.file_size) AS total_size_bytes,
-            GROUP_CONCAT(DISTINCT i.format) AS format_types,
+            SUM(i.size_bytes) AS total_size_bytes,
+            STRING_AGG(DISTINCT i.file_type, ',') AS format_types,
             dg.reviewed AS needs_review
         FROM duplicate_groups dg
         JOIN duplicate_group_images dgi ON dg.id = dgi.group_id
@@ -1332,7 +1265,7 @@ async def get_duplicate_stats() -> Dict[str, Any]:
     total_duplicate_size = (
         catalog.execute(
             """
-        SELECT SUM(i.file_size)
+        SELECT SUM(i.size_bytes)
         FROM duplicate_group_images dgi
         JOIN images i ON dgi.image_id = i.id
         WHERE dgi.is_primary = 0
@@ -1589,14 +1522,24 @@ class PerformanceDetailResponse(BaseModel):
 @app.get("/api/performance/history")
 async def get_performance_history() -> Dict[str, Any]:
     """
-    Get historical performance statistics from the SQLite database.
+    Get historical performance statistics from the database.
     """
     catalog = get_catalog()
 
-    # Fetch all performance snapshots
-    rows = catalog.execute(
-        "SELECT * FROM performance_snapshots ORDER BY timestamp DESC"
-    ).fetchall()
+    # Fetch all performance snapshots filtered by catalog_id
+    try:
+        rows = catalog.execute(
+            "SELECT * FROM performance_snapshots WHERE catalog_id = ? ORDER BY timestamp DESC",
+            (str(catalog.catalog_id),),
+        ).fetchall()
+    except Exception:
+        # Table doesn't exist - return no_data
+        return {
+            "status": "no_data",
+            "history": [],
+            "total_runs": 0,
+            "average_throughput": 0,
+        }
 
     if not rows:
         return {
@@ -1612,22 +1555,23 @@ async def get_performance_history() -> Dict[str, Any]:
     total_time_seconds = 0.0
 
     for row in rows:
+        row_dict = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
         history.append(
             {
-                "timestamp": row["timestamp"],
-                "phase": row["phase"],
-                "files_processed": row["files_processed"],
-                "files_total": row["files_total"],
-                "elapsed_seconds": row["elapsed_seconds"],
-                "rate_files_per_sec": row["rate_files_per_sec"],
-                "cpu_percent": row["cpu_percent"],
-                "memory_mb": row["memory_mb"],
-                "gpu_utilization": row["gpu_utilization"],
-                "gpu_memory_mb": row["gpu_memory_mb"],
+                "timestamp": row_dict["timestamp"],
+                "phase": row_dict["phase"],
+                "files_processed": row_dict["files_processed"],
+                "files_total": row_dict["files_total"],
+                "elapsed_seconds": row_dict["elapsed_seconds"],
+                "rate_files_per_sec": row_dict["rate_files_per_sec"],
+                "cpu_percent": row_dict["cpu_percent"],
+                "memory_mb": row_dict["memory_mb"],
+                "gpu_utilization": row_dict["gpu_utilization"],
+                "gpu_memory_mb": row_dict["gpu_memory_mb"],
             }
         )
-        total_files_analyzed += row["files_processed"]
-        total_time_seconds += row["elapsed_seconds"]
+        total_files_analyzed += row_dict["files_processed"] or 0
+        total_time_seconds += row_dict["elapsed_seconds"] or 0
 
     average_throughput = (
         (total_files_analyzed / total_time_seconds) if total_time_seconds > 0 else 0
@@ -1646,14 +1590,22 @@ async def get_performance_history() -> Dict[str, Any]:
 @app.get("/api/performance/summary")
 async def get_performance_summary() -> Dict[str, Any]:
     """
-    Get a summary report of current performance statistics from the SQLite database.
+    Get a summary report of current performance statistics from the database.
     """
     catalog = get_catalog()
 
-    # Fetch the latest performance snapshot
-    last_run_row = catalog.execute(
-        "SELECT * FROM performance_snapshots ORDER BY timestamp DESC LIMIT 1"
-    ).fetchone()
+    # Fetch the latest performance snapshot filtered by catalog_id
+    try:
+        last_run_row = catalog.execute(
+            "SELECT * FROM performance_snapshots WHERE catalog_id = ? ORDER BY timestamp DESC LIMIT 1",
+            (str(catalog.catalog_id),),
+        ).fetchone()
+    except Exception:
+        # Table doesn't exist - return no_data
+        return {
+            "status": "no_data",
+            "summary": "No performance statistics available",
+        }
 
     if not last_run_row:
         return {
@@ -1661,7 +1613,11 @@ async def get_performance_summary() -> Dict[str, Any]:
             "summary": "No performance statistics available",
         }
 
-    last_run = dict(last_run_row)  # Convert Row to dict
+    last_run = (
+        dict(last_run_row._mapping)
+        if hasattr(last_run_row, "_mapping")
+        else dict(last_run_row)
+    )
 
     # Build summary similar to PerformanceMetrics.get_summary_report()
     lines = [
@@ -1698,19 +1654,28 @@ _last_catalog_mtime = 0.0
 @app.get("/api/performance/current")
 async def get_current_performance_stats() -> Dict[str, Any]:
     """
-    Get current performance statistics from the SQLite database.
+    Get current performance statistics from the database.
     """
     catalog = get_catalog()
 
-    # Fetch the latest performance snapshot
-    last_run_row = catalog.execute(
-        "SELECT * FROM performance_snapshots ORDER BY timestamp DESC LIMIT 1"
-    ).fetchone()
+    # Fetch from performance_snapshots table filtered by catalog_id
+    try:
+        last_run_row = catalog.execute(
+            "SELECT * FROM performance_snapshots WHERE catalog_id = ? ORDER BY timestamp DESC LIMIT 1",
+            (str(catalog.catalog_id),),
+        ).fetchone()
+    except Exception:
+        # Table doesn't exist - return no_data
+        return {"status": "no_data", "data": None}
 
     if not last_run_row:
         return {"status": "no_data", "data": None}
 
-    last_run = dict(last_run_row)  # Convert Row to dict
+    last_run = (
+        dict(last_run_row._mapping)
+        if hasattr(last_run_row, "_mapping")
+        else dict(last_run_row)
+    )
 
     # Check if analysis is currently running by comparing timestamps
     # If elapsed_seconds is 0 or very small, it might be running or just started
@@ -1722,10 +1687,17 @@ async def get_current_performance_stats() -> Dict[str, Any]:
         status = "running"
 
     # Fetch history (last 5 runs)
-    history_rows = catalog.execute(
-        "SELECT * FROM performance_snapshots ORDER BY timestamp DESC LIMIT 5"
-    ).fetchall()
-    history = [dict(row) for row in history_rows]
+    try:
+        history_rows = catalog.execute(
+            "SELECT * FROM performance_snapshots WHERE catalog_id = ? ORDER BY timestamp DESC LIMIT 5",
+            (str(catalog.catalog_id),),
+        ).fetchall()
+        history = [
+            dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+            for row in history_rows
+        ]
+    except Exception:
+        history = []
 
     return {
         "status": status,

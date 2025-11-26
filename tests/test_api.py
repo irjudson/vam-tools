@@ -33,13 +33,15 @@ def test_db():
 
     yield override_get_db
 
-    # Use CASCADE to drop tables with foreign key constraints
+    # Clean up catalogs created during tests
     from sqlalchemy import text
 
     with engine.connect() as conn:
-        conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-        conn.execute(text("CREATE SCHEMA public"))
+        conn.execute(text("DELETE FROM catalogs"))
         conn.commit()
+
+    # Dispose the engine to close all connections
+    engine.dispose()
 
 
 @pytest.fixture
@@ -47,7 +49,8 @@ def client(test_db):
     """Create a test client."""
     app = create_app()
     app.dependency_overrides[get_db] = test_db
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 
 def test_health_check(client):

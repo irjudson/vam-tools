@@ -25,10 +25,17 @@ from vam_tools.organization.strategy import (
 
 
 @pytest.fixture
-def test_catalog(tmp_path):
+def test_catalog(tmp_path, engine):
     """Create a test catalog with sample images."""
+    import uuid
+
     catalog_dir = tmp_path / "catalog"
     catalog_dir.mkdir()
+
+    # Ensure tables exist in the test database
+    from vam_tools.db import Base
+
+    Base.metadata.create_all(bind=engine)
 
     # Create a catalog database
     with CatalogDatabase(catalog_dir) as db:
@@ -45,7 +52,7 @@ def test_catalog(tmp_path):
 
         db.add_image(
             ImageRecord(
-                id="img1",
+                id=f"img1-{uuid.uuid4()}",
                 source_path=img1_path,
                 file_type=FileType.IMAGE,
                 checksum="d8175d4fcc6b88ab5449aa424540d1bdf8dc3bf34139983913b4a3dd0ec9b481",
@@ -66,7 +73,7 @@ def test_catalog(tmp_path):
 
         db.add_image(
             ImageRecord(
-                id="img2",
+                id=f"img2-{uuid.uuid4()}",
                 source_path=img2_path,
                 file_type=FileType.IMAGE,
                 checksum="9e27cc6a030bb7b59fa7e05cbabf94a679262b3fe4e52a07a594c98fbf36e6da",
@@ -83,7 +90,7 @@ def test_catalog(tmp_path):
 
         db.add_image(
             ImageRecord(
-                id="img3",
+                id=f"img3-{uuid.uuid4()}",
                 source_path=img3_path,
                 file_type=FileType.IMAGE,
                 checksum="583f1f6c00dbb8689f31c002e9a7be6aaceaddf3d892f573e630bc51b5abd34f",
@@ -486,6 +493,8 @@ class TestErrorHandling:
 
     def test_checksum_verification_failure(self, tmp_path):
         """Test that checksum verification detects corruption."""
+        import uuid
+
         catalog_dir = tmp_path / "catalog"
         catalog_dir.mkdir()
         source_dir = tmp_path / "source"
@@ -511,7 +520,7 @@ class TestErrorHandling:
 
             db.add_image(
                 ImageRecord(
-                    id="test_img",
+                    id=f"test_img_{uuid.uuid4()}",
                     source_path=test_file,
                     file_type=FileType.IMAGE,
                     checksum="wrong_checksum_will_fail_verification",  # Intentionally wrong

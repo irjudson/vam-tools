@@ -1,5 +1,7 @@
 """
 Pytest configuration and fixtures for vam_tools tests.
+
+This version doesn't globally patch SessionLocal, avoiding deadlock issues.
 """
 
 # ==============================================================================
@@ -8,8 +10,13 @@ Pytest configuration and fixtures for vam_tools tests.
 import os
 import sys
 
+# Get worker ID from environment (set by pytest-xdist)
+# This allows each xdist worker to use a separate database
+worker_id = os.getenv("PYTEST_XDIST_WORKER", "master")
+test_db_name = f"vam-tools-test-{worker_id}"
+
 # Set environment variable BEFORE any vam_tools imports
-os.environ["POSTGRES_DB"] = "vam-tools-test"
+os.environ["POSTGRES_DB"] = test_db_name
 
 # Remove any already-imported vam_tools modules to force reload with test settings
 modules_to_remove = [name for name in sys.modules if name.startswith("vam_tools")]
@@ -31,94 +38,165 @@ from vam_tools.db.config import Settings  # noqa: E402
 
 # Create test settings and verify it's using test database
 test_settings = Settings()
-assert test_settings.postgres_db == "vam-tools-test", (
-    f"CRITICAL: Expected test database 'vam-tools-test', got '{test_settings.postgres_db}'. "
+assert test_settings.postgres_db == test_db_name, (
+    f"CRITICAL: Expected test database '{test_db_name}', got '{test_settings.postgres_db}'. "
     f"Tests would write to production database!"
 )
 
-# Patch the global settings object
-import vam_tools.db.config as config_module  # noqa: E402
+# ==============================================================================
+# Database setup WITHOUT global patching
+# ==============================================================================
 
-config_module.settings = test_settings
+# Import after settings are configured
+from vam_tools.db import Base  # noqa: E402
+
+
+def get_test_engine():
+    """Create a test database engine."""
+    engine = create_engine(
+        test_settings.database_url,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+        echo=test_settings.sql_echo,
+    )
+
+    # Safety check: verify test database (accounting for worker-specific DB names)
+    @event.listens_for(engine, "connect")
+    def receive_connect(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("SELECT current_database()")
+        db_name = cursor.fetchone()[0]
+        cursor.close()
+        if not db_name.startswith("vam-tools-test"):
+            raise RuntimeError(
+                f"CRITICAL: Attempted to connect to '{db_name}' "
+                f"instead of a vam-tools-test database!"
+            )
+
+    return engine
+
+
+# Create a single test engine for the session
+_test_engine = get_test_engine()
+
 
 # ==============================================================================
-# Per-Worker Database Context (Engine + Session Factory)
+# Session-scoped fixtures
 # ==============================================================================
-# CRITICAL: pytest-xdist runs tests in parallel workers. Each worker MUST have
-# its own engine AND scoped_session to prevent transaction state pollution.
-
-from sqlalchemy.orm import scoped_session  # noqa: E402
-
-# Storage for per-worker database contexts
-_worker_contexts = {}
 
 
-def get_worker_context():
+@pytest.fixture(scope="session")
+def engine():
+    """Provide the test database engine."""
+    return _test_engine
+
+
+@pytest.fixture(scope="session")
+def tables_created(engine):
     """
-    Get or create isolated database context (engine + session factory) for current worker.
+    Create all tables once for the test session.
 
-    Returns:
-        tuple: (engine, SessionLocal) for this worker
+    This creates tables in the current worker's database.
+    Note: standalone_catalog_db creates its own connections and needs
+    to ensure tables exist independently.
     """
-    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "main")
-
-    if worker_id not in _worker_contexts:
-        # Create isolated engine for this worker
-        engine = create_engine(
-            test_settings.database_url,
-            pool_pre_ping=True,
-            pool_size=5,  # Small pool per worker
-            max_overflow=10,
-            echo=test_settings.sql_echo,
-        )
-
-        # Safety check: verify test database
-        @event.listens_for(engine, "connect")
-        def receive_connect(dbapi_conn, connection_record):
-            cursor = dbapi_conn.cursor()
-            cursor.execute("SELECT current_database()")
-            db_name = cursor.fetchone()[0]
-            cursor.close()
-            if db_name != "vam-tools-test":
-                raise RuntimeError(
-                    f"CRITICAL: Attempted to connect to '{db_name}' "
-                    f"instead of 'vam-tools-test'!"
-                )
-
-        # Create isolated scoped_session for this worker
-        SessionLocal = scoped_session(
-            sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        )
-
-        _worker_contexts[worker_id] = (engine, SessionLocal)
-
-    return _worker_contexts[worker_id]
+    Base.metadata.create_all(bind=engine)
+    yield
+    # Tables persist for the entire test session
+    # Optionally drop them here if needed:
+    # Base.metadata.drop_all(bind=engine)
 
 
-# Get this worker's context
-test_engine, TestSessionLocal = get_worker_context()
+# ==============================================================================
+# Function-scoped fixtures for test isolation
+# ==============================================================================
 
-# Patch connection module to use this worker's context
-import vam_tools.db.connection as connection_module  # noqa: E402
 
-connection_module.engine = test_engine
-connection_module.SessionLocal = TestSessionLocal
+@pytest.fixture
+def db_session(engine, tables_created):
+    """
+    Provide a transactional database session for tests.
 
-# Patch catalog_schema module to use test SessionLocal
-import vam_tools.db.catalog_schema as catalog_schema_module  # noqa: E402
+    Each test gets its own SAVEPOINT that's rolled back after the test.
+    This ensures complete isolation between tests and works with pytest-xdist.
 
-# Now import the rest
-from vam_tools.db import Base, Catalog, CatalogDB  # noqa: E402
+    Uses SAVEPOINT (nested transactions) instead of full transaction rollback
+    to avoid connection pool issues with parallel test execution.
+    """
+    connection = engine.connect()
+    transaction = connection.begin()
 
-catalog_schema_module.SessionLocal = TestSessionLocal
+    # Create a session bound to this specific transaction
+    TestSession = sessionmaker(bind=connection, autoflush=False, autocommit=False)
+    session = TestSession()
 
-# Try to import exiftool for setting EXIF data
-try:
-    import exiftool  # noqa: F401
+    # Create a SAVEPOINT for test isolation
+    nested = connection.begin_nested()
 
-    EXIFTOOL_AVAILABLE = True
-except ImportError:
-    EXIFTOOL_AVAILABLE = False
+    # If the application code calls session.commit(), it will only commit
+    # the SAVEPOINT, not the outer transaction
+    @event.listens_for(session, "after_transaction_end")
+    def restart_savepoint(session, transaction):
+        if transaction.nested and not transaction._parent.nested:
+            # Restart the SAVEPOINT after each commit
+            session.begin_nested()
+
+    yield session
+
+    # Rollback the SAVEPOINT and outer transaction to undo all changes
+    session.close()
+    if nested.is_active:
+        nested.rollback()
+    transaction.rollback()
+    connection.close()
+
+
+@pytest.fixture
+def test_catalog_db(db_session):
+    """
+    Create a CatalogDB instance with an injected test session.
+
+    This allows CatalogDB to work with pytest's transactional testing.
+    """
+
+    def _create_catalog_db(catalog_path: Path):
+        """Factory function to create CatalogDB with injected session."""
+        from vam_tools.db import CatalogDB
+
+        # Pass the test session to CatalogDB
+        return CatalogDB(catalog_path, session=db_session)
+
+    return _create_catalog_db
+
+
+@pytest.fixture
+def standalone_catalog_db(engine):
+    """
+    Create a CatalogDB instance with its own connection.
+
+    Use this for tests that need real database operations (like ImageScanner).
+    These tests won't have transactional rollback, but will have test isolation
+    through unique catalog IDs.
+
+    Note: Ensures tables exist in the test database before creating CatalogDB.
+    """
+    # Ensure tables exist in this worker's database
+    Base.metadata.create_all(bind=engine)
+
+    def _create_catalog_db(catalog_path: Path):
+        """Factory function to create standalone CatalogDB."""
+        from vam_tools.db import CatalogDB
+
+        # Don't inject a session - let CatalogDB manage its own
+        return CatalogDB(catalog_path)
+
+    return _create_catalog_db
+
+
+# ==============================================================================
+# File and directory fixtures
+# ==============================================================================
 
 
 @pytest.fixture
@@ -276,111 +354,39 @@ def mixed_directory(
     return temp_dir
 
 
-# ==============================================================================
-# PostgreSQL Database Fixtures - Proper isolation with efficiency
-# ==============================================================================
-
-
-@pytest.fixture(scope="session")
-def _db_tables_created():
+@pytest.fixture(scope="module")
+def shared_test_images(tmp_path_factory):
     """
-    Session-scoped fixture to create tables ONCE for entire test session.
+    Create a shared directory with test images used by multiple tests.
 
-    This runs once across ALL workers. Uses advisory lock to ensure only
-    one process creates tables, preventing deadlocks.
+    This fixture creates images ONCE for the entire module, making tests
+    100x faster than creating images in each test.
     """
-    # Get engine for table creation
-    engine, _ = get_worker_context()
+    images_dir = tmp_path_factory.mktemp("shared_images")
 
-    # Try to acquire advisory lock (non-blocking)
-    # Lock ID: arbitrary number unique to this test suite
-    lock_id = 123456789
+    # Basic colored images (10x10 for speed)
+    Image.new("RGB", (10, 10), color="red").save(images_dir / "red.jpg")
+    Image.new("RGB", (10, 10), color="green").save(images_dir / "green.jpg")
+    Image.new("RGB", (10, 10), color="blue").save(images_dir / "blue.jpg")
+    Image.new("RGB", (10, 10), color="purple").save(images_dir / "purple.jpg")
+    Image.new("RGB", (10, 10), color="orange").save(images_dir / "orange.jpg")
 
-    with engine.connect() as conn:
-        # Try to get advisory lock
-        result = conn.execute(text(f"SELECT pg_try_advisory_lock({lock_id})")).scalar()
+    # Gradient images (for similarity testing)
+    import numpy as np
 
-        if result:
-            # We got the lock - we're responsible for creating tables
-            try:
-                Base.metadata.create_all(engine)
-            finally:
-                # Release the lock
-                conn.execute(text(f"SELECT pg_advisory_unlock({lock_id})"))
-        else:
-            # Another process is creating tables, wait for them to finish
-            # by trying to acquire the lock (blocking), then immediately release
-            conn.execute(text(f"SELECT pg_advisory_lock({lock_id})"))
-            conn.execute(text(f"SELECT pg_advisory_unlock({lock_id})"))
+    gradient1 = np.arange(0, 100, 10).reshape(10, 1) * np.ones((1, 10))
+    Image.fromarray(gradient1.astype("uint8"), mode="L").save(
+        images_dir / "gradient1.jpg"
+    )
 
-    yield
+    gradient2 = (np.arange(0, 100, 10).reshape(10, 1) + 10) * np.ones((1, 10))
+    gradient2 = np.clip(gradient2, 0, 255)
+    Image.fromarray(gradient2.astype("uint8"), mode="L").save(
+        images_dir / "gradient2.jpg"
+    )
 
-    # No cleanup - tables persist for whole test session
+    # Different sizes (for quality testing)
+    Image.new("RGB", (10, 10), color="red").save(images_dir / "small.jpg")
+    Image.new("RGB", (20, 20), color="red").save(images_dir / "large.jpg")
 
-
-@pytest.fixture
-def db_session(_db_tables_created):
-    """
-    Function-scoped database session with transactional isolation.
-
-    Each test gets:
-    - Fresh transaction
-    - Automatic rollback after test
-    - Complete isolation from other tests
-
-    This is the PRIMARY database fixture tests should use.
-    """
-    # Get this worker's context
-    engine, _ = get_worker_context()
-
-    # Create new connection for this test
-    connection = engine.connect()
-
-    # Start transaction
-    transaction = connection.begin()
-
-    # Create session bound to this transaction
-    # Use standard Session (not scoped_session) to avoid cross-test pollution
-    from sqlalchemy.orm import sessionmaker
-    SessionLocal = sessionmaker(bind=connection)
-    session = SessionLocal()
-
-    yield session
-
-    # Cleanup: close session, rollback transaction, close connection
-    session.close()
-    transaction.rollback()
-    connection.close()
-
-
-# Keep backward compatibility with old fixture name
-@pytest.fixture
-def test_db_session(db_session):
-    """Alias for db_session - for backward compatibility."""
-    return db_session
-
-
-@pytest.fixture
-def test_catalog_db(db_session, temp_dir: Path):
-    """
-    Create a CatalogDB instance with proper pytest session injection.
-
-    This fixture ensures:
-    - CatalogDB uses the test session (transactional rollback works)
-    - No separate connection pools created
-    - All changes rolled back after test
-
-    Usage:
-        def test_something(test_catalog_db):
-            catalog_db = test_catalog_db(tmp_path / "catalog")
-            # ... use catalog_db ...
-    """
-    def _create_catalog_db(catalog_path: Path):
-        """Factory function to create CatalogDB with injected session."""
-        from vam_tools.db import CatalogDB
-        return CatalogDB(catalog_path, session=db_session)
-
-    return _create_catalog_db
-
-
-# CatalogDB now handles both Path (for tests) and UUID str (for production) automatically
+    return images_dir

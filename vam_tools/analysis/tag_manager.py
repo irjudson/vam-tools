@@ -72,27 +72,57 @@ class TagManager:
         count = 0
         all_tags = self.taxonomy.get_all_tags()
 
+        # First pass: insert all tags without parent_id (to avoid foreign key issues)
+        # Map taxonomy IDs to database IDs
+        taxonomy_to_db_id = {}
+
         for tag in all_tags:
-            # Pass synonyms as a Python list - psycopg2 will convert to PostgreSQL array format
-            cursor = self.db.execute(
+            # Check if tag already exists
+            existing = self.db.execute(
                 """
-                INSERT INTO tags (
-                    id, catalog_id, name, category, parent_id, synonyms, description, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-                ON CONFLICT (catalog_id, name) DO NOTHING
+                SELECT id FROM tags WHERE catalog_id = ? AND name = ?
                 """,
-                (
-                    tag.id,
-                    str(self.db.catalog_id),  # Explicitly include catalog_id
-                    tag.name,
-                    tag.category.value,
-                    tag.parent_id,
-                    list(tag.synonyms),  # Pass as Python list for PostgreSQL array
-                    tag.description,
-                ),
+                (str(self.db.catalog_id), tag.name),
             )
-            if cursor.rowcount > 0:
-                count += 1
+            existing_row = existing.fetchone()
+
+            if existing_row:
+                # Tag exists, map its ID
+                taxonomy_to_db_id[tag.id] = existing_row[0]
+            else:
+                # Insert new tag without parent_id initially
+                cursor = self.db.execute(
+                    """
+                    INSERT INTO tags (
+                        catalog_id, name, category, synonyms, description, created_at
+                    ) VALUES (?, ?, ?, ?, ?, NOW())
+                    RETURNING id
+                    """,
+                    (
+                        str(self.db.catalog_id),
+                        tag.name,
+                        tag.category.value,
+                        list(tag.synonyms),
+                        tag.description,
+                    ),
+                )
+                result = cursor.fetchone()
+                if result:
+                    taxonomy_to_db_id[tag.id] = result[0]
+                    count += 1
+
+        # Second pass: update parent_id relationships using database IDs
+        for tag in all_tags:
+            if tag.parent_id is not None and tag.id in taxonomy_to_db_id:
+                db_id = taxonomy_to_db_id[tag.id]
+                parent_db_id = taxonomy_to_db_id.get(tag.parent_id)
+                if parent_db_id:
+                    self.db.execute(
+                        """
+                        UPDATE tags SET parent_id = ? WHERE id = ?
+                        """,
+                        (parent_db_id, db_id),
+                    )
 
         logger.info(f"Synced {count} tags from taxonomy to database")
         return count
@@ -132,14 +162,32 @@ class TagManager:
         if source not in valid_sources:
             raise ValueError(f"Source must be one of {valid_sources}, got {source}")
 
+        # Look up database tag ID by name (not taxonomy ID)
+        db_tag = self.db.execute(
+            "SELECT id FROM tags WHERE catalog_id = ? AND name = ?",
+            (str(self.db.catalog_id), tag.name),
+        ).fetchone()
+
+        if not db_tag:
+            logger.warning(
+                f"Tag '{tag_name}' not found in database - run sync_taxonomy_to_db() first"
+            )
+            return False
+
+        db_tag_id = db_tag[0]
+
         # Insert or replace tag
         self.db.execute(
             """
-            INSERT OR REPLACE INTO image_tags (
+            INSERT INTO image_tags (
                 image_id, tag_id, confidence, source, created_at
-            ) VALUES (?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, ?, ?, ?, NOW())
+            ON CONFLICT (image_id, tag_id) DO UPDATE SET
+                confidence = EXCLUDED.confidence,
+                source = EXCLUDED.source,
+                created_at = EXCLUDED.created_at
             """,
-            (image_id, tag.id, confidence, source),
+            (image_id, db_tag_id, confidence, source),
         )
 
         logger.debug(f"Added tag '{tag_name}' to image {image_id}")
@@ -167,9 +215,20 @@ class TagManager:
         if not tag:
             return False
 
+        # Look up database tag ID by name
+        db_tag = self.db.execute(
+            "SELECT id FROM tags WHERE catalog_id = ? AND name = ?",
+            (str(self.db.catalog_id), tag.name),
+        ).fetchone()
+
+        if not db_tag:
+            return False
+
+        db_tag_id = db_tag[0]
+
         cursor = self.db.execute(
             "DELETE FROM image_tags WHERE image_id = ? AND tag_id = ?",
-            (image_id, tag.id),
+            (image_id, db_tag_id),
         )
 
         removed = cursor.rowcount > 0
@@ -207,7 +266,7 @@ class TagManager:
             (image_id, min_confidence),
         )
 
-        return [(row["name"], row["confidence"], row["source"]) for row in cursor]
+        return [(row[0], row[1], row[2]) for row in cursor]
 
     def get_images_with_tag(
         self, tag_name: str, min_confidence: float = 0.0
@@ -232,6 +291,17 @@ class TagManager:
         if not tag:
             return []
 
+        # Look up database tag ID by name
+        db_tag = self.db.execute(
+            "SELECT id FROM tags WHERE catalog_id = ? AND name = ?",
+            (str(self.db.catalog_id), tag.name),
+        ).fetchone()
+
+        if not db_tag:
+            return []
+
+        db_tag_id = db_tag[0]
+
         cursor = self.db.execute(
             """
             SELECT image_id
@@ -239,10 +309,10 @@ class TagManager:
             WHERE tag_id = ? AND confidence >= ?
             ORDER BY confidence DESC
             """,
-            (tag.id, min_confidence),
+            (db_tag_id, min_confidence),
         )
 
-        return [row["image_id"] for row in cursor]
+        return [row[0] for row in cursor]
 
     def get_images_with_any_tag(
         self, tag_names: List[str], min_confidence: float = 0.0
@@ -263,26 +333,32 @@ class TagManager:
             >>> len(images)
             2
         """
-        # Get tag IDs
-        tag_ids = []
+        # Look up database tag IDs by name
+        db_tag_ids = []
         for name in tag_names:
             tag = self.taxonomy.get_tag_by_name(name)
             if tag:
-                tag_ids.append(tag.id)
+                # Look up database tag ID
+                db_tag = self.db.execute(
+                    "SELECT id FROM tags WHERE catalog_id = ? AND name = ?",
+                    (str(self.db.catalog_id), tag.name),
+                ).fetchone()
+                if db_tag:
+                    db_tag_ids.append(db_tag[0])
 
-        if not tag_ids:
+        if not db_tag_ids:
             return set()
 
         # Build query with placeholders
-        placeholders = ",".join("?" * len(tag_ids))
+        placeholders = ",".join("?" * len(db_tag_ids))
         query = f"""
             SELECT DISTINCT image_id
             FROM image_tags
             WHERE tag_id IN ({placeholders}) AND confidence >= ?
         """
 
-        cursor = self.db.execute(query, (*tag_ids, min_confidence))
-        return {row["image_id"] for row in cursor}
+        cursor = self.db.execute(query, (*db_tag_ids, min_confidence))
+        return {row[0] for row in cursor}
 
     def get_images_with_all_tags(
         self, tag_names: List[str], min_confidence: float = 0.0
@@ -303,18 +379,24 @@ class TagManager:
             >>> "img1" in images
             True
         """
-        # Get tag IDs
-        tag_ids = []
+        # Look up database tag IDs by name
+        db_tag_ids = []
         for name in tag_names:
             tag = self.taxonomy.get_tag_by_name(name)
             if tag:
-                tag_ids.append(tag.id)
+                # Look up database tag ID
+                db_tag = self.db.execute(
+                    "SELECT id FROM tags WHERE catalog_id = ? AND name = ?",
+                    (str(self.db.catalog_id), tag.name),
+                ).fetchone()
+                if db_tag:
+                    db_tag_ids.append(db_tag[0])
 
-        if not tag_ids:
+        if not db_tag_ids:
             return set()
 
         # Build query to find images with all tags
-        placeholders = ",".join("?" * len(tag_ids))
+        placeholders = ",".join("?" * len(db_tag_ids))
         query = f"""
             SELECT image_id
             FROM image_tags
@@ -323,8 +405,8 @@ class TagManager:
             HAVING COUNT(DISTINCT tag_id) = ?
         """
 
-        cursor = self.db.execute(query, (*tag_ids, min_confidence, len(tag_ids)))
-        return {row["image_id"] for row in cursor}
+        cursor = self.db.execute(query, (*db_tag_ids, min_confidence, len(db_tag_ids)))
+        return {row[0] for row in cursor}
 
     def get_tag_statistics(self) -> Dict[str, int]:
         """Get statistics about tagged images.
@@ -360,13 +442,13 @@ class TagManager:
         # Count tags by source
         cursor = self.db.execute(
             """
-            SELECT source, COUNT(*) as count
+            SELECT source, COUNT(*)
             FROM image_tags
             GROUP BY source
             """
         )
         for row in cursor:
-            stats[f"tags_from_{row['source']}"] = row["count"]
+            stats[f"tags_from_{row[0]}"] = row[1]
 
         return stats
 
@@ -388,17 +470,17 @@ class TagManager:
         """
         cursor = self.db.execute(
             """
-            SELECT t.name, COUNT(*) as count
+            SELECT t.name, COUNT(*)
             FROM image_tags it
             JOIN tags t ON it.tag_id = t.id
-            GROUP BY t.id
-            ORDER BY count DESC
+            GROUP BY t.id, t.name
+            ORDER BY COUNT(*) DESC
             LIMIT ?
             """,
             (limit,),
         )
 
-        return [(row["name"], row["count"]) for row in cursor]
+        return [(row[0], row[1]) for row in cursor]
 
     def get_tag_by_name(self, tag_name: str) -> Optional[TagDefinition]:
         """Get tag definition by name.

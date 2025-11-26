@@ -36,13 +36,28 @@ def web(catalog_path: str, host: str, port: int, reload: bool) -> None:
     """
     Launch web-based catalog viewer.
 
-    CATALOG_PATH: Path to the catalog directory (containing catalog.json)
+    CATALOG_PATH: Path to the catalog directory
     """
     catalog_dir = Path(catalog_path)
-    catalog_file = catalog_dir / "catalog.json"
 
-    if not catalog_file.exists():
-        console.print(f"[red]Error: Catalog not found at {catalog_file}[/red]")
+    # Check if catalog exists in PostgreSQL database
+    try:
+        from vam_tools.db import CatalogDB
+
+        with CatalogDB(catalog_dir) as db:
+            # Try to query the catalog to see if it exists
+            from vam_tools.db.models import Catalog
+
+            catalog = db.session.query(Catalog).filter_by(id=db.catalog_id).first()
+
+            if not catalog:
+                console.print("[red]Error: Catalog not found in database[/red]")
+                console.print(
+                    "\nRun [cyan]vam-analyze[/cyan] first to create a catalog."
+                )
+                return
+    except Exception as e:
+        console.print(f"[red]Error: Could not connect to catalog database: {e}[/red]")
         console.print("\nRun [cyan]vam-analyze[/cyan] first to create a catalog.")
         return
 

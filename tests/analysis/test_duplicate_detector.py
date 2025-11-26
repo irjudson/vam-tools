@@ -57,20 +57,23 @@ def shared_test_images(tmp_path_factory):
 class TestDuplicateDetector:
     """Tests for DuplicateDetector."""
 
-    def test_detector_initialization(self, tmp_path: Path) -> None:
+    def test_detector_initialization(self, test_catalog_db, tmp_path: Path) -> None:
         """Test that detector initializes correctly."""
         catalog_dir = tmp_path / "catalog"
 
-        with CatalogDatabase(catalog_dir) as db:
-            db.initialize()
-            detector = DuplicateDetector(db, similarity_threshold=5)
+        # Use the test_catalog_db fixture to create CatalogDB with injected session
+        db = test_catalog_db(catalog_dir)
+        db.initialize()
+        detector = DuplicateDetector(db, similarity_threshold=5)
 
-            assert detector.catalog == db
-            assert detector.similarity_threshold == 5
-            assert detector.hash_size == 8
-            assert detector.duplicate_groups == []
+        assert detector.catalog == db
+        assert detector.similarity_threshold == 5
+        assert detector.hash_size == 8
+        assert detector.duplicate_groups == []
 
-    def test_detect_exact_duplicates(self, tmp_path: Path) -> None:
+    def test_detect_exact_duplicates(
+        self, standalone_catalog_db, tmp_path: Path
+    ) -> None:
         """Test detection of exact duplicates (same checksum)."""
         catalog_dir = tmp_path / "catalog"
         photos_dir = tmp_path / "photos"
@@ -82,8 +85,9 @@ class TestDuplicateDetector:
         img.save(photos_dir / "photo2.jpg")
         img.save(photos_dir / "photo3.jpg")
 
-        # Scan images into catalog
-        with CatalogDatabase(catalog_dir) as db:
+        # Use standalone_catalog_db for tests with ImageScanner
+        # This fixture provides a CatalogDB with its own connection
+        with standalone_catalog_db(catalog_dir) as db:
             db.initialize()
             scanner = ImageScanner(db, workers=1)
             scanner.scan_directories([photos_dir])
@@ -95,28 +99,30 @@ class TestDuplicateDetector:
             assert scanner.files_skipped == 2
 
     def test_detect_similar_images(
-        self, tmp_path: Path, shared_test_images: Path
+        self, test_catalog_db, tmp_path: Path, shared_test_images: Path
     ) -> None:
         """Test detection of similar images using perceptual hashing."""
         catalog_dir = tmp_path / "catalog"
         photos_dir = shared_test_images  # Use pre-created images!
 
-        # Scan images
-        with CatalogDatabase(catalog_dir) as db:
-            db.initialize()
-            scanner = ImageScanner(db, workers=1)
-            scanner.scan_directories([photos_dir])
+        # Scan images using the test fixture
+        db = test_catalog_db(catalog_dir)
+        db.initialize()
+        scanner = ImageScanner(db, workers=1)
+        scanner.scan_directories([photos_dir])
 
-            # Run duplicate detection
-            detector = DuplicateDetector(db, similarity_threshold=10)
-            groups = detector.detect_duplicates()
+        # Run duplicate detection
+        detector = DuplicateDetector(db, similarity_threshold=10)
+        groups = detector.detect_duplicates()
 
-            # Should find at least one group (the similar gradients)
-            assert len(groups) >= 1
+        # Should find at least one group (the similar gradients)
+        assert len(groups) >= 1
 
-            # Check that similar images are grouped
-            image_ids = db.list_images()
-            assert len(image_ids) == 8  # 9 files but red.jpg and small.jpg are duplicates (same checksum)
+        # Check that similar images are grouped
+        image_ids = db.list_images()
+        assert (
+            len(image_ids) == 8
+        )  # 9 files but red.jpg and small.jpg are duplicates (same checksum)
 
     def test_quality_scoring(self, tmp_path: Path, shared_test_images: Path) -> None:
         """Test that quality scoring selects the best image."""
@@ -420,6 +426,8 @@ class TestDuplicateDetector:
 
     def test_detect_duplicates_single_image(self, tmp_path: Path) -> None:
         """Test detection with single image."""
+        import uuid
+
         catalog_dir = tmp_path / "catalog"
         photos_dir = tmp_path / "photos"
         photos_dir.mkdir()
@@ -434,7 +442,7 @@ class TestDuplicateDetector:
             db.initialize()
 
             record = ImageRecord(
-                id="single",
+                id=f"single_{uuid.uuid4()}",
                 source_path=str(path),
                 file_size=1000,
                 file_hash="hash1",
@@ -452,9 +460,12 @@ class TestDuplicateDetector:
 
     def test_detect_duplicates_no_similar_images(self, tmp_path: Path) -> None:
         """Test detection with completely different images."""
+        import uuid
+
         catalog_dir = tmp_path / "catalog"
         photos_dir = tmp_path / "photos"
         photos_dir.mkdir()
+        unique_prefix = str(uuid.uuid4())[:8]
 
         from vam_tools.core.types import FileType, ImageRecord
 
@@ -484,7 +495,7 @@ class TestDuplicateDetector:
                 img.save(path)
 
                 record = ImageRecord(
-                    id=f"img_{i}",
+                    id=f"img_{unique_prefix}_{i}",
                     source_path=str(path),
                     file_size=1000,
                     file_hash=f"hash_{i}",
