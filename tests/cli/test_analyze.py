@@ -1,14 +1,19 @@
 """
 Tests for analyze CLI.
+
+Most tests require database connection.
 """
 
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from PIL import Image
 
 from vam_tools.cli.analyze import analyze, display_statistics, setup_logging
 from vam_tools.core.types import Statistics
+
+pytestmark = pytest.mark.integration
 
 
 class TestAnalyzeCLI:

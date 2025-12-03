@@ -1,6 +1,8 @@
 """
 Tests for FastAPI web API.
 
+All tests require database connection.
+
 NOTE: These tests are partially restored but many fail because the web API
 (vam_tools/web/api.py) contains SQL queries that don't match the PostgreSQL schema.
 The API code queries columns like 'format', 'width', 'height' directly, but the
@@ -26,6 +28,8 @@ from vam_tools.core.types import (
 )
 from vam_tools.db import CatalogDB as CatalogDatabase
 from vam_tools.web.api import app, get_catalog, init_catalog
+
+pytestmark = pytest.mark.integration
 
 
 def add_test_image(

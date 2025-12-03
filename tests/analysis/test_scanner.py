@@ -1,13 +1,18 @@
 """
 Tests for scanner module.
+
+All tests require database connection.
 """
 
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from vam_tools.analysis.scanner import ImageScanner
 from vam_tools.db import CatalogDB as CatalogDatabase
+
+pytestmark = pytest.mark.integration
 
 
 class TestImageScanner:
