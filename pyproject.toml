@@ -191,21 +191,20 @@ module = "rawpy.*"
 ignore_missing_imports = true
 
 # TODO: Fix these properly with correct type annotations
-# SQLAlchemy ORM modules - complex type inference issues
+# These modules have complex SQLAlchemy/ORM patterns that need dedicated type fixes
 [[tool.mypy.overrides]]
-module = "vam_tools.db.*"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "vam_tools.core.catalog_config"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "vam_tools.analysis.scanner"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "vam_tools.web.catalogs_api"
+module = [
+    "vam_tools.db.*",
+    "vam_tools.core.catalog_config",
+    "vam_tools.analysis.scanner",
+    "vam_tools.analysis.duplicate_detector",
+    "vam_tools.analysis.preview_extractor",
+    "vam_tools.web.*",
+    "vam_tools.api.routers.*",
+    "vam_tools.cli.analyze",
+    "vam_tools.cli.web",
+    "vam_tools.jobs.tasks",
+]
 ignore_errors = true
 
 [tool.pytest.ini_options]

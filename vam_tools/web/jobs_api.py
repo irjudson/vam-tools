@@ -701,33 +701,24 @@ async def restart_job(job_id: str) -> Dict[str, Any]:
                 status_code=400, detail=f"Unknown task type: {task_name}"
             )
 
-        # Resubmit based on job type
-        if job_type == "analyze_catalog":
-            task = analyze_catalog_task.delay(**params)
-            _track_job(task.id, job_type, params)
-            return {
-                "job_id": task.id,
-                "status": "PENDING",
-                "message": "Analysis job resubmitted successfully",
-            }
-        elif job_type == "organize_catalog":
-            task = organize_catalog_task.delay(**params)
-            _track_job(task.id, job_type, params)
-            return {
-                "job_id": task.id,
-                "status": "PENDING",
-                "message": "Organization job resubmitted successfully",
-            }
-        elif job_type == "generate_thumbnails":
-            task = generate_thumbnails_task.delay(**params)
-            _track_job(task.id, job_type, params)
-            return {
-                "job_id": task.id,
-                "status": "PENDING",
-                "message": "Thumbnail generation job resubmitted successfully",
-            }
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown job type: {job_type}")
+        # Get original parameters from the job
+        # Note: Celery doesn't store original kwargs easily, so we need to
+        # extract them from the job tracking or result info
+        params: Dict[str, Any] = {}
+        if hasattr(result, "kwargs") and result.kwargs:
+            params = result.kwargs
+        elif hasattr(result, "args") and result.args:
+            # Convert positional args to kwargs based on task signature
+            params = {"catalog_id": result.args[0]} if result.args else {}
+
+        # Resubmit the job
+        task = task_func.delay(**params)
+        _track_job(task.id, task_name, params)
+        return {
+            "job_id": task.id,
+            "status": "PENDING",
+            "message": f"{task_name} job resubmitted successfully",
+        }
 
     except HTTPException:
         raise

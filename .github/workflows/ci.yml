@@ -51,11 +51,10 @@ jobs:
         source venv/bin/activate
         flake8 vam_tools/ tests/
 
-    # TODO: Re-enable mypy after fixing type annotations
-    # - name: Type check with mypy
-    #   run: |
-    #     source venv/bin/activate
-    #     mypy vam_tools/
+    - name: Type check with mypy
+      run: |
+        source venv/bin/activate
+        mypy vam_tools/
 
   # Run tests on multiple platforms and Python versions
   test:

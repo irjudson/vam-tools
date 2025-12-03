@@ -414,13 +414,19 @@ class CatalogDB:
 
     def execute(self, sql: str, parameters: tuple = ()) -> Any:
         """
-        Execute raw SQL (for backward compatibility only).
+        Execute raw SQL query.
 
-        This method should be avoided in new code. Use ORM methods instead.
+        This method provides a way to run arbitrary SQL when ORM methods
+        are not sufficient. It handles SQLite-style placeholders (?) and
+        converts them to PostgreSQL named parameters.
+
+        Args:
+            sql: SQL query string (can use ? placeholders)
+            parameters: Tuple of parameter values
+
+        Returns:
+            SQLAlchemy result object
         """
-        logger.warning(
-            "Using deprecated execute() method. Please use ORM methods instead."
-        )
 
         if self.session is None:
             self.connect()
