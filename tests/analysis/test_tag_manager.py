@@ -9,6 +9,7 @@ from vam_tools.analysis.tag_taxonomy import TagCategory
 from vam_tools.db import CatalogDB as CatalogDatabase
 
 
+@pytest.mark.integration
 class TestTagManager:
     """Tests for TagManager class."""
 

@@ -54,6 +54,7 @@ def shared_test_images(tmp_path_factory):
     return images_dir
 
 
+@pytest.mark.integration
 class TestDuplicateDetector:
     """Tests for DuplicateDetector."""
 
