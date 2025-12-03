@@ -1,4 +1,7 @@
-"""Tests for database schema management."""
+"""Tests for database schema management.
+
+All tests require database connection.
+"""
 
 import json
 import uuid
@@ -15,6 +18,8 @@ from vam_tools.db.catalog_schema import (
 )
 from vam_tools.db.connection import SessionLocal
 from vam_tools.db.models import Catalog
+
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture

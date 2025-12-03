@@ -1,15 +1,20 @@
 """
 Tests for web CLI.
+
+All tests require database connection.
 """
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 from PIL import Image
 
 from vam_tools.cli.analyze import analyze
 from vam_tools.cli.web import web
+
+pytestmark = pytest.mark.integration
 
 
 class TestWebCLI:

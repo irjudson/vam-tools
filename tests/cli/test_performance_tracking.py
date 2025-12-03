@@ -1,4 +1,7 @@
-"""Tests for performance tracking in CLI."""
+"""Tests for performance tracking in CLI.
+
+All tests require database connection.
+"""
 
 from unittest.mock import MagicMock, patch
 
@@ -6,6 +9,8 @@ import pytest
 from click.testing import CliRunner
 
 from vam_tools.cli.analyze import analyze
+
+pytestmark = pytest.mark.integration
 
 
 class TestPerformanceTrackerIntegration:

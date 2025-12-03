@@ -1,8 +1,15 @@
-"""Tests for database layer."""
+"""Tests for database layer.
+
+All tests require database connection.
+"""
 
 import uuid
 
+import pytest
+
 from vam_tools.db.models import Catalog
+
+pytestmark = pytest.mark.integration
 
 
 def test_database_connection(db_session):

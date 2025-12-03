@@ -1,4 +1,7 @@
-"""Tests for CatalogDB integration with serializers."""
+"""Tests for CatalogDB integration with serializers.
+
+All tests require database connection.
+"""
 
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +16,8 @@ from vam_tools.core.types import (
     ImageStatus,
 )
 from vam_tools.db import CatalogDB
+
+pytestmark = pytest.mark.integration
 
 
 def test_add_and_retrieve_image_record(tmp_path):

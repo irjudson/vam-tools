@@ -1,4 +1,7 @@
-"""Tests for FastAPI endpoints."""
+"""Tests for FastAPI endpoints.
+
+All tests require database connection.
+"""
 
 import uuid
 
@@ -12,6 +15,8 @@ from vam_tools.db import get_db
 from vam_tools.db.catalog_schema import schema_exists
 from vam_tools.db.config import settings
 from vam_tools.db.models import Base
+
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture

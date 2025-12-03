@@ -1,4 +1,7 @@
-"""Tests for thumbnail generation API endpoints."""
+"""Tests for thumbnail generation API endpoints.
+
+All tests require database connection.
+"""
 
 import uuid
 from pathlib import Path
@@ -6,6 +9,8 @@ from unittest.mock import patch
 
 import pytest
 from PIL import Image
+
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture

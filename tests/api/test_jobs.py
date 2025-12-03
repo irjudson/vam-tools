@@ -1,4 +1,7 @@
-"""Tests for jobs API router endpoints."""
+"""Tests for jobs API router endpoints.
+
+All tests require database connection.
+"""
 
 from unittest.mock import Mock, patch
 
@@ -7,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from vam_tools.api.app import create_app
 from vam_tools.api.routers.jobs import _safe_get_task_info, _safe_get_task_state
+
+pytestmark = pytest.mark.integration
 
 
 class TestSafeTaskAccessors:

@@ -1,12 +1,16 @@
-"""Integration tests for complete job workflows."""
+"""Integration tests for complete job workflows.
+
+All tests require running services (Redis, Celery, FastAPI).
+"""
 
 import time
 
 import pytest
 import requests
 
+pytestmark = pytest.mark.integration
 
-@pytest.mark.integration
+
 class TestJobWorkflowIntegration:
     """End-to-end tests for job workflows."""
 
