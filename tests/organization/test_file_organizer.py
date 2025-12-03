@@ -1,4 +1,7 @@
-"""Tests for file organizer."""
+"""Tests for file organizer.
+
+All tests in this file require database connection.
+"""
 
 from datetime import datetime
 
@@ -22,6 +25,9 @@ from vam_tools.organization.strategy import (
     NamingStrategy,
     OrganizationStrategy,
 )
+
+# Mark all tests in this module as integration tests
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture

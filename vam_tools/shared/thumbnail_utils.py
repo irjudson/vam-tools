@@ -232,16 +232,19 @@ def extract_video_thumbnail(video_path: Path) -> Optional[Image.Image]:
             result = subprocess.run(
                 [
                     "ffmpeg",
+                    "-y",  # Overwrite output file
                     "-i",
                     str(video_path),
                     "-vframes",
                     "1",
                     "-q:v",
                     "2",
+                    "-f",
+                    "image2",  # Force image format
                     str(tmp_path),
                 ],
                 capture_output=True,
-                timeout=10,
+                timeout=30,  # Longer timeout for older video formats
             )
 
             if result.returncode == 0 and tmp_path.exists():
@@ -284,6 +287,14 @@ def is_video_file(path: Path) -> bool:
         ".wmv",
         ".flv",
         ".webm",
+        ".3gp",
+        ".3g2",
+        ".mts",
+        ".m2ts",
+        ".vob",
+        ".ogv",
+        ".divx",
+        ".asf",
     }
     return path.suffix.lower() in video_extensions
 
