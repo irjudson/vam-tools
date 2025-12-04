@@ -1,6 +1,12 @@
 """Integration tests for complete job workflows.
 
-All tests require running services (Redis, Celery, FastAPI).
+These tests require a FULLY running Docker environment with:
+- FastAPI server on port 8765
+- Redis
+- Celery workers
+- PostgreSQL
+
+Run with: docker-compose up && pytest -m e2e
 """
 
 import time
@@ -10,7 +16,8 @@ import pytest
 # Skip collection if requests not installed (not needed for unit tests)
 requests = pytest.importorskip("requests")
 
-pytestmark = pytest.mark.integration
+# Mark as both integration and e2e - these need full Docker stack
+pytestmark = [pytest.mark.integration, pytest.mark.e2e]
 
 
 class TestJobWorkflowIntegration:

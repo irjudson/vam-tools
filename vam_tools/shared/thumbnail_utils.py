@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_THUMBNAIL_SIZE = (200, 200)
 DEFAULT_THUMBNAIL_QUALITY = 85
 
+# Named thumbnail sizes
+THUMBNAIL_SIZES = {
+    "small": (100, 100),
+    "medium": (200, 200),
+    "large": (400, 400),
+}
+
 # RAW file extensions that need special handling
 RAW_EXTENSIONS: Set[str] = {
     ".arw",  # Sony
@@ -203,67 +210,54 @@ def extract_video_thumbnail(video_path: Path) -> Optional[Image.Image]:
     Returns:
         PIL Image object of the first frame, or None if extraction fails
 
-    Uses Pillow's video capabilities if available, otherwise returns None.
-    For production use, consider using ffmpeg or opencv for better video support.
+    Uses ffmpeg for reliable video frame extraction. PIL's built-in video
+    support is very limited and causes "cannot identify image file" errors
+    for most video formats (including .3gp, .avi, .mpg, etc.).
     """
-    try:
-        # Try using Pillow's built-in video support (limited)
-        # For more robust video support, use ffmpeg via subprocess
-        from PIL import ImageSequence
+    import subprocess
+    import tempfile
 
-        with Image.open(video_path) as img:
-            # Get the first frame
-            frame = next(ImageSequence.Iterator(img))
-            return frame.copy()
+    try:
+        # Create temporary file for extracted frame
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+
+        # Extract first frame using ffmpeg
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",  # Overwrite output file
+                "-i",
+                str(video_path),
+                "-vframes",
+                "1",
+                "-q:v",
+                "2",
+                "-f",
+                "image2",  # Force image format
+                str(tmp_path),
+            ],
+            capture_output=True,
+            timeout=30,  # Longer timeout for older video formats
+        )
+
+        if result.returncode == 0 and tmp_path.exists():
+            img = Image.open(tmp_path)
+            frame = img.copy()
+            img.close()
+            tmp_path.unlink()
+            return frame
+        else:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            logger.error(
+                f"ffmpeg extraction failed for {video_path}: {result.stderr.decode()}"
+            )
+            return None
 
     except Exception as e:
-        logger.debug(f"Pillow video extraction failed for {video_path}: {e}")
-
-        # Fallback: try using ffmpeg if available
-        try:
-            import subprocess
-            import tempfile
-
-            # Create temporary file for extracted frame
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                tmp_path = Path(tmp.name)
-
-            # Extract first frame using ffmpeg
-            result = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",  # Overwrite output file
-                    "-i",
-                    str(video_path),
-                    "-vframes",
-                    "1",
-                    "-q:v",
-                    "2",
-                    "-f",
-                    "image2",  # Force image format
-                    str(tmp_path),
-                ],
-                capture_output=True,
-                timeout=30,  # Longer timeout for older video formats
-            )
-
-            if result.returncode == 0 and tmp_path.exists():
-                img = Image.open(tmp_path)
-                frame = img.copy()
-                img.close()
-                tmp_path.unlink()
-                return frame
-            else:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-                logger.error(
-                    f"ffmpeg extraction failed for {video_path}: {result.stderr.decode()}"
-                )
-                return None
-
-        except Exception as ffmpeg_error:
-            logger.debug(f"ffmpeg fallback failed for {video_path}: {ffmpeg_error}")
-            return None
+        logger.error(f"Video thumbnail extraction failed for {video_path}: {e}")
+        return None
 
 
 def is_video_file(path: Path) -> bool:
@@ -300,7 +294,10 @@ def is_video_file(path: Path) -> bool:
 
 
 def get_thumbnail_path(
-    image_id: str, thumbnails_dir: Path, create_dir: bool = True
+    image_id: str,
+    thumbnails_dir: Path,
+    size: str = "medium",
+    create_dir: bool = True,
 ) -> Path:
     """
     Get the path where a thumbnail should be stored for a given image ID.
@@ -308,27 +305,33 @@ def get_thumbnail_path(
     Args:
         image_id: Image ID (checksum)
         thumbnails_dir: Base thumbnails directory (catalog/thumbnails/)
+        size: Size name ("small", "medium", "large")
         create_dir: Whether to create the directory if it doesn't exist
 
     Returns:
         Path object for the thumbnail file
     """
+    # Use size subdirectory for different sizes
+    size_dir = thumbnails_dir / size
     if create_dir:
-        thumbnails_dir.mkdir(parents=True, exist_ok=True)
+        size_dir.mkdir(parents=True, exist_ok=True)
 
-    return thumbnails_dir / f"{image_id}.jpg"
+    return size_dir / f"{image_id}.jpg"
 
 
-def thumbnail_exists(image_id: str, thumbnails_dir: Path) -> bool:
+def thumbnail_exists(image_id: str, thumbnails_dir: Path, size: str = "medium") -> bool:
     """
     Check if a thumbnail already exists for a given image ID.
 
     Args:
         image_id: Image ID (checksum)
         thumbnails_dir: Base thumbnails directory
+        size: Size name ("small", "medium", "large")
 
     Returns:
         True if thumbnail file exists
     """
-    thumb_path = get_thumbnail_path(image_id, thumbnails_dir, create_dir=False)
+    thumb_path = get_thumbnail_path(
+        image_id, thumbnails_dir, size=size, create_dir=False
+    )
     return thumb_path.exists()

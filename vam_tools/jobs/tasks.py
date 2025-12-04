@@ -5,6 +5,8 @@ These tasks wrap operations and provide progress tracking through Celery's state
 Updated for PostgreSQL backend.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -12,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from celery import Task
 
@@ -26,6 +28,7 @@ from ..shared.thumbnail_utils import generate_thumbnail, get_thumbnail_path
 
 # Import app here so that @app.task decorators can find it
 from .celery_app import app
+from .scan_stats import ScanStatistics
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +91,12 @@ def analyze_catalog_task(
         similarity_threshold: Hamming distance threshold for duplicates
 
     Returns:
-        Analysis results dictionary
+        Analysis results dictionary with detailed statistics
     """
     logger.info(f"Starting catalog analysis: {catalog_id}")
+
+    # Initialize statistics tracking
+    stats = ScanStatistics()
 
     try:
         source_dirs = [Path(d) for d in source_directories]
@@ -141,8 +147,6 @@ def analyze_catalog_task(
             0, 1, "Discovering and processing files...", {"phase": "processing"}
         )
 
-        files_added = 0
-        files_skipped = 0
         files_processed = 0
 
         # Reopen database for processing
@@ -151,28 +155,43 @@ def analyze_catalog_task(
                 logger.info(f"Scanning directory: {directory}")
 
                 for root, dirs, files in os.walk(directory):
-                    # Skip synology metadata directories
+                    stats.directories_scanned += 1
+
+                    # Count and skip synology metadata directories
+                    original_dir_count = len(dirs)
                     dirs[:] = [d for d in dirs if not d.startswith("@eaDir")]
+                    stats.skipped_synology_metadata += original_dir_count - len(dirs)
 
                     root_path = Path(root)
 
                     for filename in files:
-                        # Skip synology metadata files and hidden files
-                        if filename.startswith(".") or "@SynoResource" in filename:
+                        stats.files_discovered += 1
+
+                        # Skip synology metadata files
+                        if "@SynoResource" in filename:
+                            stats.skipped_synology_metadata += 1
+                            continue
+
+                        # Skip hidden files
+                        if filename.startswith("."):
+                            stats.skipped_hidden_file += 1
                             continue
 
                         file_path = root_path / filename
 
                         # Skip if file doesn't exist or is not accessible
                         if not file_path.exists():
+                            stats.skipped_file_not_accessible += 1
                             continue
 
                         file_type_str = get_file_type(file_path)
 
                         if file_type_str not in ("image", "video"):
+                            stats.skipped_unsupported_format += 1
                             continue
 
                         # Update progress every 10 files
+                        files_processed += 1
                         if files_processed % 10 == 0:
                             self.update_progress(
                                 files_processed,
@@ -180,8 +199,10 @@ def analyze_catalog_task(
                                 f"Processing {file_path.name}...",
                                 {
                                     "phase": "processing",
-                                    "added": files_added,
-                                    "skipped": files_skipped,
+                                    "added": stats.files_added,
+                                    "skipped": stats.total_skipped
+                                    + stats.skipped_already_in_catalog,
+                                    "errors": stats.total_errors,
                                 },
                             )
 
@@ -190,19 +211,37 @@ def analyze_catalog_task(
 
                         if result is not None:
                             image_record, file_size = result
-                            files_processed += 1
+
+                            # Track file type
+                            if file_type_str == "image":
+                                stats.images_processed += 1
+                            else:
+                                stats.videos_processed += 1
+
+                            # Track size
+                            stats.total_bytes_processed += file_size
+                            if file_size > stats.largest_file_bytes:
+                                stats.largest_file_bytes = file_size
+                                stats.largest_file_path = str(file_path)
 
                             # Check if already in catalog
                             existing_image = db.get_image(image_record.id)
 
                             if not existing_image:
                                 # Add to catalog using CatalogDB.add_image()
-                                db.add_image(image_record)
-                                files_added += 1
+                                try:
+                                    db.add_image(image_record)
+                                    stats.files_added += 1
+                                except Exception as e:
+                                    stats.errors_database += 1
+                                    stats.record_error(file_path, "database", str(e))
                             else:
-                                files_skipped += 1
+                                stats.skipped_already_in_catalog += 1
                         else:
-                            files_skipped += 1
+                            stats.errors_metadata_extraction += 1
+                            stats.record_error(
+                                file_path, "metadata", "Failed to extract metadata"
+                            )
 
             # Update catalog config with completion status
             db.execute(
@@ -227,34 +266,33 @@ def analyze_catalog_task(
             )
             db.save()
 
-        logger.info(
-            f"Analysis complete: {files_processed} processed, "
-            f"{files_added} added, {files_skipped} skipped"
-        )
+        # Finalize statistics
+        stats.finish()
+
+        logger.info(stats.to_summary())
 
         self.update_progress(
             100,
             100,
-            f"Analysis complete: {files_added} files added",
+            f"Analysis complete: {stats.files_added} files added",
             {"phase": "complete"},
         )
 
-        return {
-            "status": "completed",
-            "catalog_id": catalog_id,
-            "total_files": files_processed,
-            "processed": files_processed,
-            "files_added": files_added,
-            "files_skipped": files_skipped,
-        }
+        # Return full statistics
+        result = stats.to_dict()
+        result["catalog_id"] = catalog_id
+        return result
 
     except Exception as e:
         logger.error(f"Analysis failed: {e}", exc_info=True)
+        stats.finish()
+        stats.record_error("", "fatal", str(e))
         self.update_state(
             state="FAILURE",
             meta={
                 "error": str(e),
                 "error_type": type(e).__name__,
+                "statistics": stats.to_dict(),
             },
         )
         raise
@@ -284,9 +322,12 @@ def scan_catalog_task(
         generate_previews: Whether to generate thumbnails (default: True)
 
     Returns:
-        Scan results dictionary
+        Scan results dictionary with detailed statistics
     """
     logger.info(f"Starting catalog scan: {catalog_id}")
+
+    # Initialize statistics tracking
+    stats = ScanStatistics()
 
     try:
         source_dirs = [Path(d) for d in source_directories]
@@ -333,19 +374,27 @@ def scan_catalog_task(
                 db.session.commit()
 
         # Helper function to process a single file
-        def process_single_file(file_path, catalog_id, generate_previews):
-            """Process a single file and return results."""
+        def process_single_file(
+            file_path: Path, catalog_id: str, generate_previews: bool
+        ) -> Tuple[Optional[Dict[str, Any]], str, Optional[str]]:
+            """
+            Process a single file and return results.
+
+            Returns:
+                Tuple of (result_dict, outcome, error_message)
+                outcome is one of: 'success', 'error_metadata', 'error_thumbnail', 'error_other'
+            """
             try:
                 # Process file (extract metadata)
                 result = _process_file_worker(file_path)
 
                 if result is None:
-                    return None
+                    return None, "error_metadata", "Failed to extract metadata"
 
                 image_record, file_size = result
 
                 # Generate thumbnail if requested
-                thumbnail_generated = False
+                thumbnail_status = "not_requested"
                 if generate_previews:
                     try:
                         # Compute thumbnails directory for this catalog
@@ -354,69 +403,97 @@ def scan_catalog_task(
                         thumbnail_path = get_thumbnail_path(
                             image_id=image_record.id, thumbnails_dir=thumbnails_dir
                         )
-                        if not thumbnail_path.exists():
-                            generate_thumbnail(
+                        if thumbnail_path.exists():
+                            thumbnail_status = "existing"
+                        else:
+                            success = generate_thumbnail(
                                 source_path=file_path,
                                 output_path=thumbnail_path,
                                 size=(512, 512),
                                 quality=85,
                             )
-                            thumbnail_generated = True
+                            thumbnail_status = "generated" if success else "failed"
                     except Exception as e:
                         logger.warning(
                             f"Failed to generate thumbnail for {file_path}: {e}"
                         )
+                        thumbnail_status = "failed"
 
-                return {
-                    "image_record": image_record,
-                    "file_size": file_size,
-                    "file_path": file_path,
-                    "thumbnail_generated": thumbnail_generated,
-                }
+                return (
+                    {
+                        "image_record": image_record,
+                        "file_size": file_size,
+                        "file_path": file_path,
+                        "thumbnail_status": thumbnail_status,
+                    },
+                    "success",
+                    None,
+                )
             except Exception as e:
                 logger.error(f"Error processing {file_path}: {e}")
-                return None
+                return None, "error_other", str(e)
 
-        # Collect all media files first
+        # Collect all media files first, tracking skips
         self.update_progress(0, 1, "Discovering files...", {"phase": "discovery"})
 
-        all_files = []
+        all_files: List[Tuple[Path, str]] = []  # (path, file_type)
         for directory in source_dirs:
             logger.info(f"Discovering files in: {directory}")
             for root, dirs, files in os.walk(directory):
-                # Skip synology metadata directories
+                stats.directories_scanned += 1
+
+                # Count and skip synology metadata directories
+                original_dir_count = len(dirs)
                 dirs[:] = [d for d in dirs if not d.startswith("@eaDir")]
+                stats.skipped_synology_metadata += original_dir_count - len(dirs)
 
                 root_path = Path(root)
                 for filename in files:
-                    # Skip synology metadata files and hidden files
-                    if filename.startswith(".") or "@SynoResource" in filename:
+                    stats.files_discovered += 1
+
+                    # Skip synology metadata files
+                    if "@SynoResource" in filename or "@eaDir" in str(root_path):
+                        stats.skipped_synology_metadata += 1
+                        continue
+
+                    # Skip hidden files
+                    if filename.startswith("."):
+                        stats.skipped_hidden_file += 1
                         continue
 
                     file_path = root_path / filename
+
+                    # Check accessibility
                     if not file_path.exists():
+                        stats.skipped_file_not_accessible += 1
                         continue
 
+                    # Check file type
                     file_type_str = get_file_type(file_path)
-                    if file_type_str in ("image", "video"):
-                        all_files.append(file_path)
+                    if file_type_str not in ("image", "video"):
+                        stats.skipped_unsupported_format += 1
+                        continue
+
+                    all_files.append((file_path, file_type_str))
 
         total_files = len(all_files)
-        logger.info(f"Found {total_files} media files to process")
+        logger.info(
+            f"Found {total_files} media files to process "
+            f"(discovered {stats.files_discovered}, "
+            f"skipped {stats.total_skipped} during discovery)"
+        )
 
         # Process files in parallel
         self.update_progress(
             0, total_files, f"Processing {total_files} files...", {"phase": "scanning"}
         )
 
-        files_added = 0
-        files_skipped = 0
-        files_processed = 0
         progress_lock = Lock()
+        files_processed = 0
 
         # Use ThreadPoolExecutor for parallel processing
         # Use 4x CPU count for I/O-bound thumbnail generation
-        max_workers = min(os.cpu_count() * 4, 32)
+        max_workers = min((os.cpu_count() or 4) * 4, 32)
         logger.info(f"Using {max_workers} workers for parallel processing")
 
         with CatalogDatabase(catalog_id) as db:
@@ -425,34 +502,70 @@ def scan_catalog_task(
                 future_to_file = {
                     executor.submit(
                         process_single_file, file_path, catalog_id, generate_previews
-                    ): file_path
-                    for file_path in all_files
+                    ): (file_path, file_type)
+                    for file_path, file_type in all_files
                 }
 
                 # Process completed files as they finish
                 for future in as_completed(future_to_file):
-                    file_path = future_to_file[future]
+                    file_path, file_type = future_to_file[future]
 
                     try:
-                        result = future.result()
+                        result, outcome, error_msg = future.result()
 
                         with progress_lock:
                             files_processed += 1
 
                             if result is not None:
                                 image_record = result["image_record"]
+                                file_size = result["file_size"]
+                                thumbnail_status = result["thumbnail_status"]
+
+                                # Track file type
+                                if file_type == "image":
+                                    stats.images_processed += 1
+                                else:
+                                    stats.videos_processed += 1
+
+                                # Track size
+                                stats.total_bytes_processed += file_size
+                                if file_size > stats.largest_file_bytes:
+                                    stats.largest_file_bytes = file_size
+                                    stats.largest_file_path = str(file_path)
+
+                                # Track thumbnail outcome
+                                if thumbnail_status == "generated":
+                                    stats.thumbnails_generated += 1
+                                elif thumbnail_status == "existing":
+                                    stats.thumbnails_skipped_existing += 1
+                                elif thumbnail_status == "failed":
+                                    stats.thumbnails_failed += 1
 
                                 # Check if already in catalog
                                 existing_image = db.get_image(image_record.id)
 
                                 if not existing_image:
                                     # Add to catalog
-                                    db.add_image(image_record)
-                                    files_added += 1
+                                    try:
+                                        db.add_image(image_record)
+                                        stats.files_added += 1
+                                    except Exception as e:
+                                        stats.errors_database += 1
+                                        stats.record_error(
+                                            file_path, "database", str(e)
+                                        )
                                 else:
-                                    files_skipped += 1
+                                    stats.skipped_already_in_catalog += 1
                             else:
-                                files_skipped += 1
+                                # Processing failed
+                                if outcome == "error_metadata":
+                                    stats.errors_metadata_extraction += 1
+                                elif outcome == "error_thumbnail":
+                                    stats.errors_thumbnail_generation += 1
+                                else:
+                                    stats.errors_other += 1
+                                if error_msg:
+                                    stats.record_error(file_path, outcome, error_msg)
 
                             # Update progress every 10 files
                             if files_processed % 10 == 0:
@@ -463,15 +576,18 @@ def scan_catalog_task(
                                     {
                                         "phase": "scanning",
                                         "processed": files_processed,
-                                        "added": files_added,
-                                        "skipped": files_skipped,
+                                        "added": stats.files_added,
+                                        "skipped": stats.total_skipped
+                                        + stats.skipped_already_in_catalog,
+                                        "errors": stats.total_errors,
                                     },
                                 )
                     except Exception as e:
                         logger.error(f"Error processing {file_path}: {e}")
                         with progress_lock:
                             files_processed += 1
-                            files_skipped += 1
+                            stats.errors_other += 1
+                            stats.record_error(file_path, "executor", str(e))
 
             # Update catalog config with completion status
             db.execute(
@@ -496,34 +612,33 @@ def scan_catalog_task(
             )
             db.save()
 
-        logger.info(
-            f"Scan complete: {files_processed} processed, "
-            f"{files_added} added, {files_skipped} skipped"
-        )
+        # Finalize statistics
+        stats.finish()
+
+        logger.info(stats.to_summary())
 
         self.update_progress(
             100,
             100,
-            f"Scan complete: {files_added} files added",
+            f"Scan complete: {stats.files_added} files added",
             {"phase": "complete"},
         )
 
-        return {
-            "status": "completed",
-            "catalog_id": catalog_id,
-            "total_files": files_processed,
-            "processed": files_processed,
-            "files_added": files_added,
-            "files_skipped": files_skipped,
-        }
+        # Return full statistics
+        result = stats.to_dict()
+        result["catalog_id"] = catalog_id
+        return result
 
     except Exception as e:
         logger.error(f"Scan failed: {e}", exc_info=True)
+        stats.finish()
+        stats.record_error("", "fatal", str(e))
         self.update_state(
             state="FAILURE",
             meta={
                 "error": str(e),
                 "error_type": type(e).__name__,
+                "statistics": stats.to_dict(),
             },
         )
         raise

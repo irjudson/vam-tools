@@ -99,8 +99,8 @@ def test_thumbnail_generation_creates_file(
         assert response.headers["content-type"] == "image/jpeg"
         assert len(response.content) > 0
 
-        # Verify thumbnail file was created
-        thumbnail_path = thumbnails_dir / f"{image_id}.jpg"
+        # Verify thumbnail file was created (now in size subdirectory)
+        thumbnail_path = thumbnails_dir / "medium" / f"{image_id}.jpg"
         assert thumbnail_path.exists()
 
 
@@ -135,8 +135,8 @@ def test_thumbnail_uses_cache_on_second_request(
         )
         assert response1.status_code == 200
 
-        # Get thumbnail modification time
-        thumbnail_path = thumbnails_dir / f"{image_id}.jpg"
+        # Get thumbnail modification time (now in size subdirectory)
+        thumbnail_path = thumbnails_dir / "medium" / f"{image_id}.jpg"
         first_mtime = thumbnail_path.stat().st_mtime
 
         # Second request - should use cached thumbnail
@@ -181,8 +181,8 @@ def test_thumbnail_respects_quality_parameter(
         )
         assert response.status_code == 200
 
-        # Verify thumbnail was created
-        thumbnail_path = thumbnails_dir / f"{image_id}.jpg"
+        # Verify thumbnail was created (now in size subdirectory)
+        thumbnail_path = thumbnails_dir / "medium" / f"{image_id}.jpg"
         assert thumbnail_path.exists()
 
 

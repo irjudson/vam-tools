@@ -322,13 +322,14 @@ class TestGenerateThumbnailsCLI:
 
         assert result.exit_code == 0
         # Verify execute was called to update thumbnail_path for each image
+        # Note: thumbnails are now stored in size subdirectories (e.g., thumbnails/medium/)
         mock_db.execute.assert_any_call(
             "UPDATE images SET thumbnail_path = ? WHERE id = ?",
-            (f"thumbnails/{sample_images[0].id}.jpg", sample_images[0].id),
+            (f"thumbnails/medium/{sample_images[0].id}.jpg", sample_images[0].id),
         )
         mock_db.execute.assert_any_call(
             "UPDATE images SET thumbnail_path = ? WHERE id = ?",
-            (f"thumbnails/{sample_images[1].id}.jpg", sample_images[1].id),
+            (f"thumbnails/medium/{sample_images[1].id}.jpg", sample_images[1].id),
         )
 
     def test_generate_nonexistent_directory(self, runner: CliRunner) -> None:

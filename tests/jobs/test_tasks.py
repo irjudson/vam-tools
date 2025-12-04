@@ -97,8 +97,8 @@ class TestAnalyzeTask:
 
         # Verify
         assert result["status"] == "completed"
-        assert result["processed"] == 2
-        assert result["total_files"] == 2
+        assert result["total_processed"] == 2
+        assert result["files_added"] == 2
 
         # Verify CatalogDatabase was used
         assert mock_catalog_db.called
@@ -127,8 +127,8 @@ class TestAnalyzeTask:
         )
 
         assert result["status"] == "completed"
-        assert result["processed"] == 0
-        assert result["total_files"] == 0
+        assert result["total_processed"] == 0
+        assert result["files_added"] == 0
 
 
 class TestOrganizeTask:

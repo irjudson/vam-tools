@@ -99,6 +99,65 @@
         <!-- Main Browse View (default home page) -->
         <div v-if="currentView === 'browse'" class="view-container">
             <div class="content-wrapper">
+                <!-- Catalog Statistics Panel (Collapsible) -->
+                <div v-if="currentCatalog && catalogStats" class="catalog-stats-panel">
+                    <div class="stats-panel-header" @click="statsExpanded = !statsExpanded">
+                        <h3>
+                            <span class="collapse-icon">{{ statsExpanded ? '▼' : '▶' }}</span>
+                            Catalog Statistics
+                        </h3>
+                        <div class="stats-summary" v-if="!statsExpanded">
+                            {{ formatNumber(catalogStats.statistics.total_files) }} files • {{ catalogStats.statistics.total_gb }} GB
+                        </div>
+                    </div>
+                    <div v-show="statsExpanded" class="stats-panel-content">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value">{{ formatNumber(catalogStats.statistics.total_files) }}</div>
+                                <div class="stat-label">Total Files</div>
+                                <div class="stat-detail">
+                                    {{ formatNumber(catalogStats.statistics.images) }} images,
+                                    {{ formatNumber(catalogStats.statistics.videos) }} videos
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">{{ catalogStats.statistics.total_gb }} GB</div>
+                                <div class="stat-label">Total Size</div>
+                                <div class="stat-detail">{{ formatBytes(catalogStats.statistics.total_bytes) }}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">{{ catalogStats.source_directories.length }}</div>
+                                <div class="stat-label">Source Directories</div>
+                                <div class="stat-detail" :title="catalogStats.source_directories.join('\n')">
+                                    {{ catalogStats.source_directories[0] ? displayPath(catalogStats.source_directories[0]) : 'None' }}
+                                    <span v-if="catalogStats.source_directories.length > 1">+{{ catalogStats.source_directories.length - 1 }} more</span>
+                                </div>
+                            </div>
+                            <div class="stat-card" v-if="catalogStats.statistics.date_range.earliest && isValidDateRange(catalogStats.statistics.date_range)">
+                                <div class="stat-value">{{ getYear(catalogStats.statistics.date_range.earliest) }} - {{ getYear(catalogStats.statistics.date_range.latest) }}</div>
+                                <div class="stat-label">Date Range</div>
+                                <div class="stat-detail">Media dates in catalog</div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Jobs for this catalog -->
+                        <div v-if="catalogStats.recent_jobs && catalogStats.recent_jobs.length > 0" class="recent-jobs-summary">
+                            <h4>Recent Jobs</h4>
+                            <div class="recent-jobs-list">
+                                <div v-for="job in catalogStats.recent_jobs.slice(0, 3)" :key="job.id" class="recent-job-item">
+                                    <span :class="['status-dot', 'status-' + job.status.toLowerCase()]"></span>
+                                    <span class="job-type">{{ job.job_type }}</span>
+                                    <span class="job-date">{{ formatDate(job.created_at) }}</span>
+                                    <span v-if="job.result && job.result.files_added" class="job-result">
+                                        +{{ formatNumber(job.result.files_added) }} files
+                                    </span>
+                                </div>
+                            </div>
+                            <button @click="setView('jobs')" class="btn-link">View all jobs →</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Actions Panel -->
                 <div v-if="currentCatalog" class="actions-panel">
                     <div class="actions-grid">
@@ -134,17 +193,133 @@
                     </div>
                 </div>
 
-                <div class="browse-header">
-                    <h2 v-if="currentCatalog">{{ images.length }} of {{ formatNumber(imagesTotal) }} images</h2>
-                    <h2 v-else>Select a Catalog</h2>
-                    <div v-if="currentCatalog" class="browse-controls">
-                        <!-- Thumbnail Size Selector -->
-                        <select v-model="thumbnailSize" class="size-selector">
-                            <option value="small">Small</option>
-                            <option value="medium">Medium</option>
-                            <option value="large">Large</option>
-                        </select>
+                <!-- Search and Filter Panel -->
+                <div v-if="currentCatalog" class="search-filter-panel">
+                    <!-- Search Bar -->
+                    <div class="search-bar-container">
+                        <input
+                            type="text"
+                            v-model="filters.search"
+                            @input="onSearchInput"
+                            placeholder="Search by filename or path..."
+                            class="search-input"
+                        />
+                        <button v-if="filters.search" @click="filters.search = ''; loadImages(true)" class="search-clear-btn" title="Clear search">
+                            &times;
+                        </button>
                     </div>
+
+                    <!-- Filter Toggle and Sort -->
+                    <div class="filter-sort-row">
+                        <button @click="filtersExpanded = !filtersExpanded" class="filter-toggle-btn" :class="{ 'has-filters': hasActiveFilters() }">
+                            <span class="filter-icon">🔍</span>
+                            <span>Filters</span>
+                            <span v-if="hasActiveFilters()" class="filter-badge">Active</span>
+                            <span class="collapse-icon">{{ filtersExpanded ? '▼' : '▶' }}</span>
+                        </button>
+
+                        <!-- Sort Controls -->
+                        <div class="sort-controls">
+                            <label>Sort:</label>
+                            <select v-model="sortBy" @change="onSortChange" class="sort-select">
+                                <option value="date">Date</option>
+                                <option value="filename">Filename</option>
+                                <option value="size">Size</option>
+                                <option value="camera">Camera</option>
+                                <option value="created_at">Added</option>
+                            </select>
+                            <button @click="sortOrder = sortOrder === 'desc' ? 'asc' : 'desc'; onSortChange()" class="sort-order-btn" :title="sortOrder === 'desc' ? 'Descending' : 'Ascending'">
+                                {{ sortOrder === 'desc' ? '↓' : '↑' }}
+                            </button>
+                        </div>
+
+                        <!-- Thumbnail Size Selector -->
+                        <div class="size-selector-group">
+                            <label>Size:</label>
+                            <select v-model="thumbnailSize" class="size-selector">
+                                <option value="small">Small</option>
+                                <option value="medium">Medium</option>
+                                <option value="large">Large</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Expanded Filters -->
+                    <div v-show="filtersExpanded" class="filters-panel">
+                        <div class="filters-grid">
+                            <!-- File Type -->
+                            <div class="filter-group">
+                                <label>File Type</label>
+                                <select v-model="filters.file_type" @change="applyFilters">
+                                    <option value="">All Types</option>
+                                    <option value="image">Images</option>
+                                    <option value="video">Videos</option>
+                                </select>
+                            </div>
+
+                            <!-- Camera Make -->
+                            <div class="filter-group" v-if="filterOptions && filterOptions.camera_makes && filterOptions.camera_makes.length > 0">
+                                <label>Camera Make</label>
+                                <select v-model="filters.camera_make" @change="applyFilters">
+                                    <option value="">All Makes</option>
+                                    <option v-for="make in filterOptions.camera_makes" :key="make" :value="make">{{ make }}</option>
+                                </select>
+                            </div>
+
+                            <!-- Camera Model -->
+                            <div class="filter-group" v-if="filterOptions && filterOptions.camera_models && filterOptions.camera_models.length > 0">
+                                <label>Camera Model</label>
+                                <select v-model="filters.camera_model" @change="applyFilters">
+                                    <option value="">All Models</option>
+                                    <option v-for="model in filterOptions.camera_models" :key="model" :value="model">{{ model }}</option>
+                                </select>
+                            </div>
+
+                            <!-- Lens -->
+                            <div class="filter-group" v-if="filterOptions && filterOptions.lenses && filterOptions.lenses.length > 0">
+                                <label>Lens</label>
+                                <select v-model="filters.lens" @change="applyFilters">
+                                    <option value="">All Lenses</option>
+                                    <option v-for="lens in filterOptions.lenses" :key="lens" :value="lens">{{ lens }}</option>
+                                </select>
+                            </div>
+
+                            <!-- GPS Filter -->
+                            <div class="filter-group">
+                                <label>Location</label>
+                                <select v-model="filters.has_gps" @change="applyFilters">
+                                    <option :value="null">All</option>
+                                    <option :value="true">With GPS</option>
+                                    <option :value="false">Without GPS</option>
+                                </select>
+                            </div>
+
+                            <!-- Date Range -->
+                            <div class="filter-group filter-date-range">
+                                <label>Date Range</label>
+                                <div class="date-inputs">
+                                    <input type="date" v-model="filters.date_from" @change="applyFilters" placeholder="From" />
+                                    <span>to</span>
+                                    <input type="date" v-model="filters.date_to" @change="applyFilters" placeholder="To" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Clear Filters Button -->
+                        <div class="filter-actions">
+                            <button v-if="hasActiveFilters()" @click="clearFilters" class="btn-secondary btn-small">
+                                Clear All Filters
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="browse-header">
+                    <h2 v-if="currentCatalog">
+                        {{ formatNumber(imagesTotal) }} {{ imagesTotal === 1 ? 'image' : 'images' }}
+                        <span v-if="hasActiveFilters()" class="filtered-label">(filtered)</span>
+                    </h2>
+                    <h2 v-else>Select a Catalog</h2>
                 </div>
 
                 <!-- Loading State -->
@@ -165,7 +340,7 @@
                 </div>
 
                 <!-- Image Grid -->
-                <div v-else :class="['grid', thumbnailGridClass]">
+                <div v-else :class="['image-grid-container', 'size-' + thumbnailSize]">
                     <div
                         v-for="(image, index) in images"
                         :key="image.id"
@@ -184,16 +359,22 @@
                     </div>
                 </div>
 
-                <!-- Load More Button -->
-                <div v-if="hasMoreImages && !imagesLoading" class="text-center mt-lg">
-                    <button @click="loadImages(false)" class="btn">
-                        Load More Images
-                    </button>
+                <!-- Loading More Indicator (inline at bottom) -->
+                <div v-if="imagesLoading && images.length > 0" class="loading-more">
+                    <div class="spinner"></div>
+                    <span>Loading more images...</span>
                 </div>
 
-                <!-- Loading More Indicator -->
-                <div v-if="imagesLoading && images.length > 0" class="text-center mt-lg">
-                    <div class="spinner"></div>
+                <!-- End of images indicator -->
+                <div v-else-if="images.length > 0 && !hasMoreImages" class="end-of-images">
+                    All {{ formatNumber(imagesTotal) }} images loaded
+                </div>
+
+                <!-- Manual load more (fallback if infinite scroll is slow) -->
+                <div v-else-if="hasMoreImages && !imagesLoading" class="load-more-container">
+                    <button @click="loadImages(false)" class="btn-secondary">
+                        Load More ({{ formatNumber(imagesTotal - images.length) }} remaining)
+                    </button>
                 </div>
             </div>
         </div>
@@ -267,90 +448,124 @@
 
                 <!-- All Jobs -->
                 <section class="all-jobs-section">
-                    <h3>All Jobs</h3>
-                    <div class="jobs-table">
-                        <table v-if="jobs.length > 0">
-                            <thead>
-                                <tr>
-                                    <th>Type</th>
-                                    <th>Status</th>
-                                    <th>Result</th>
-                                    <th>Started</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="job in jobs" :key="job.id">
-                                    <td>{{ job.name || 'Unknown' }}</td>
-                                    <td>
+                    <h3>Job History</h3>
+                    <div class="jobs-list">
+                        <div v-if="jobs.length > 0">
+                            <div v-for="job in jobs" :key="job.id" class="job-history-card" :class="'job-' + job.status.toLowerCase()">
+                                <div class="job-history-header">
+                                    <div class="job-history-title">
+                                        <span class="job-type-icon">{{ job.name === 'scan' ? '📂' : job.name === 'analyze' ? '🔍' : '⚙️' }}</span>
+                                        <strong>{{ job.name || 'Job' }}</strong>
                                         <span :class="['status-badge', getJobStatusClass(job.status)]">
                                             {{ formatJobStatus(job.status) }}
                                         </span>
-                                    </td>
-                                    <td>
-                                        <div v-if="(job.progress && Object.keys(job.progress).length > 0) || (job.result && Object.keys(job.result).length > 0)" class="table-result-stats">
-                                            <span v-if="'added' in (job.progress || {}) || 'added' in (job.result || {})" class="result-badge badge-success">
-                                                +{{ job.progress?.added ?? job.result?.added ?? 0 }} added
-                                            </span>
-                                            <span v-if="'skipped' in (job.progress || {}) || 'skipped' in (job.result || {})" class="result-badge badge-muted">
-                                                {{ job.progress?.skipped ?? job.result?.skipped ?? 0 }} skipped
-                                            </span>
-                                            <span v-if="'updated' in (job.progress || {}) || 'updated' in (job.result || {})" class="result-badge badge-warning">
-                                                {{ job.progress?.updated ?? job.result?.updated ?? 0 }} updated
-                                            </span>
-                                            <span v-if="('errors' in (job.progress || {}) && job.progress.errors > 0) || ('errors' in (job.result || {}) && job.result.errors > 0)" class="result-badge badge-danger">
-                                                {{ job.progress?.errors ?? job.result?.errors ?? 0 }} errors
-                                            </span>
-                                            <span v-if="'processed' in (job.progress || {}) || 'processed' in (job.result || {})" class="result-badge badge-info">
-                                                {{ job.progress?.processed ?? job.result?.processed ?? 0 }} processed
-                                            </span>
-                                            <span v-if="'files_added' in (job.progress || {}) || 'files_added' in (job.result || {})" class="result-badge badge-success">
-                                                +{{ job.progress?.files_added ?? job.result?.files_added ?? 0 }} files
-                                            </span>
-                                            <span v-if="'organized' in (job.progress || {}) || 'organized' in (job.result || {})" class="result-badge badge-success">
-                                                {{ job.progress?.organized ?? job.result?.organized ?? 0 }} organized
-                                            </span>
-                                            <span v-if="'generated' in (job.progress || {}) || 'generated' in (job.result || {})" class="result-badge badge-success">
-                                                {{ job.progress?.generated ?? job.result?.generated ?? 0 }} generated
-                                            </span>
-                                        </div>
-                                        <div v-else-if="job.error" class="table-error">
-                                            <span class="result-badge badge-danger">Error</span>
-                                        </div>
-                                        <span v-else>-</span>
-                                    </td>
-                                    <td>{{ formatDate(job.started) }}</td>
-                                    <td>
-                                        <div class="job-actions-inline">
-                                            <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
-                                                @click="cancelJob(job.id)"
-                                                class="btn-secondary btn-small"
-                                                title="Cancel job">
-                                                Cancel
-                                            </button>
-                                            <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
-                                                @click="killJob(job.id)"
-                                                class="btn-danger btn-small"
-                                                title="Force kill">
-                                                Kill
-                                            </button>
-                                            <button
-                                                @click="rerunJob(job.id)"
-                                                class="btn-primary btn-small"
-                                                title="Rerun job">
-                                                🔄
-                                            </button>
-                                            <button
-                                                @click="showJobStream(job.id)"
-                                                class="btn-secondary btn-small"
-                                                title="View streaming output">
-                                                📺
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                                    </div>
+                                    <div class="job-history-meta">
+                                        <span class="job-id" title="Job ID">{{ job.id.substring(0, 8) }}...</span>
+                                        <span class="job-date">{{ formatDate(job.started) }}</span>
+                                    </div>
+                                </div>
+
+                                <!-- Result Summary -->
+                                <div v-if="job.result && Object.keys(job.result).length > 0" class="job-result-summary">
+                                    <!-- New comprehensive stats format -->
+                                    <div v-if="job.result.files_discovered" class="job-stats-row">
+                                        <span class="stat-item">
+                                            <strong>{{ formatNumber(job.result.files_discovered) }}</strong> discovered
+                                        </span>
+                                        <span class="stat-item stat-success">
+                                            <strong>+{{ formatNumber(job.result.files_added) }}</strong> added
+                                        </span>
+                                        <span v-if="job.result.total_skipped > 0" class="stat-item stat-muted">
+                                            {{ formatNumber(job.result.total_skipped) }} skipped
+                                        </span>
+                                        <span v-if="job.result.total_errors > 0" class="stat-item stat-error">
+                                            {{ formatNumber(job.result.total_errors) }} errors
+                                        </span>
+                                    </div>
+
+                                    <!-- Skip reasons breakdown -->
+                                    <div v-if="job.result.skip_reasons" class="job-stats-detail">
+                                        <details>
+                                            <summary>Skip Breakdown</summary>
+                                            <div class="skip-breakdown">
+                                                <span v-if="job.result.skip_reasons.already_in_catalog">Already in catalog: {{ formatNumber(job.result.skip_reasons.already_in_catalog) }}</span>
+                                                <span v-if="job.result.skip_reasons.unsupported_format">Unsupported format: {{ formatNumber(job.result.skip_reasons.unsupported_format) }}</span>
+                                                <span v-if="job.result.skip_reasons.hidden_file">Hidden files: {{ formatNumber(job.result.skip_reasons.hidden_file) }}</span>
+                                                <span v-if="job.result.skip_reasons.synology_metadata">Synology metadata: {{ formatNumber(job.result.skip_reasons.synology_metadata) }}</span>
+                                                <span v-if="job.result.skip_reasons.not_accessible">Not accessible: {{ formatNumber(job.result.skip_reasons.not_accessible) }}</span>
+                                            </div>
+                                        </details>
+                                    </div>
+
+                                    <!-- File types and size -->
+                                    <div v-if="job.result.file_types || job.result.size_stats" class="job-stats-row secondary">
+                                        <span v-if="job.result.file_types" class="stat-item">
+                                            {{ formatNumber(job.result.file_types.images) }} images, {{ formatNumber(job.result.file_types.videos) }} videos
+                                        </span>
+                                        <span v-if="job.result.size_stats" class="stat-item">
+                                            {{ job.result.size_stats.total_gb }} GB processed
+                                        </span>
+                                        <span v-if="job.result.duration_seconds" class="stat-item">
+                                            {{ formatDuration(job.result.duration_seconds) }}
+                                            <small v-if="job.result.files_per_second">({{ job.result.files_per_second.toFixed(1) }} files/sec)</small>
+                                        </span>
+                                    </div>
+
+                                    <!-- Legacy format fallback -->
+                                    <div v-else-if="!job.result.files_discovered" class="job-stats-row">
+                                        <span v-if="'files_added' in job.result" class="stat-item stat-success">
+                                            +{{ formatNumber(job.result.files_added) }} files
+                                        </span>
+                                        <span v-if="'processed' in job.result" class="stat-item">
+                                            {{ formatNumber(job.result.processed) }} processed
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <!-- Progress for active jobs -->
+                                <div v-else-if="job.progress && Object.keys(job.progress).length > 0" class="job-progress-summary">
+                                    <div class="job-stats-row">
+                                        <span v-if="job.progress.added" class="stat-item stat-success">+{{ formatNumber(job.progress.added) }} added</span>
+                                        <span v-if="job.progress.processed" class="stat-item">{{ formatNumber(job.progress.processed) }} processed</span>
+                                        <span v-if="job.progress.message" class="stat-item">{{ job.progress.message }}</span>
+                                    </div>
+                                </div>
+
+                                <!-- Error display -->
+                                <div v-if="job.error" class="job-error-display">
+                                    <span class="error-icon">⚠️</span> {{ job.error }}
+                                </div>
+
+                                <!-- Actions -->
+                                <div class="job-history-actions">
+                                    <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
+                                        @click="cancelJob(job.id)"
+                                        class="btn-secondary btn-small"
+                                        title="Cancel job">
+                                        Cancel
+                                    </button>
+                                    <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
+                                        @click="killJob(job.id)"
+                                        class="btn-danger btn-small"
+                                        title="Force kill">
+                                        Kill
+                                    </button>
+                                    <button v-if="job.status === 'SUCCESS' || job.status === 'FAILURE'"
+                                        @click="showJobDetails(job)"
+                                        class="btn-secondary btn-small"
+                                        title="View full details">
+                                        Details
+                                    </button>
+                                    <button
+                                        @click="deleteJob(job.id)"
+                                        class="btn-danger btn-small"
+                                        title="Delete from history">
+                                        🗑️
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         <div v-else class="empty-state">
                             No jobs yet. Start by using the Quick Actions on the Dashboard!
                         </div>
@@ -1000,6 +1215,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=15"></script>
+    <script src="/static/app.js?v=20"></script>
 </body>
 </html>

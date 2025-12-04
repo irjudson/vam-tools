@@ -1,5 +1,7 @@
 """Celery application for background task processing."""
 
+from __future__ import annotations
+
 import logging
 
 from celery import Celery
@@ -41,15 +43,21 @@ app.conf.update(
 
 
 @task_success.connect
-def task_success_handler(sender=None, **kwargs):
+def task_success_handler(sender: object = None, **kwargs: object) -> None:
     """Log successful task completion."""
-    logger.info(f"Task {sender.name} completed successfully")
+    if sender is not None:
+        logger.info(f"Task {getattr(sender, 'name', 'unknown')} completed successfully")
 
 
 @task_failure.connect
-def task_failure_handler(sender=None, exception=None, **kwargs):
+def task_failure_handler(
+    sender: object = None,
+    exception: BaseException | None = None,
+    **kwargs: object,
+) -> None:
     """Log task failures."""
-    logger.error(f"Task {sender.name} failed: {exception}")
+    if sender is not None:
+        logger.error(f"Task {getattr(sender, 'name', 'unknown')} failed: {exception}")
 
 
 if __name__ == "__main__":

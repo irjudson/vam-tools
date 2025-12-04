@@ -33,7 +33,7 @@ def create_app() -> FastAPI:
 
     # Initialize database on startup
     @app.on_event("startup")
-    async def startup_event():
+    async def startup_event() -> None:
         logger.info("Starting VAM Tools API...")
         init_db()
         logger.info("Database initialized")
@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
 
     # Health check endpoint
     @app.get("/health")
-    async def health_check():
+    async def health_check() -> dict[str, str]:
         return {"status": "healthy"}
 
     # Serve static files and root endpoint
@@ -54,7 +54,7 @@ def create_app() -> FastAPI:
         from fastapi.responses import FileResponse
 
         @app.get("/")
-        async def root():
+        async def serve_index() -> FileResponse:
             return FileResponse(static_dir / "index.html")
 
         # Mount static files at /static prefix
@@ -62,7 +62,7 @@ def create_app() -> FastAPI:
     else:
         # Fallback: redirect to docs if no static files
         @app.get("/")
-        async def root():
+        async def redirect_to_docs() -> RedirectResponse:
             return RedirectResponse(url="/docs")
 
     return app

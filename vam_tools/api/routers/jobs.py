@@ -178,7 +178,7 @@ def _safe_get_task_info(task: AsyncResult) -> Any:
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-def get_job_status(job_id: str):
+def get_job_status(job_id: str, db: Session = Depends(get_db)):
     """Get job status and progress."""
     task = AsyncResult(job_id, app=celery_app)
 
@@ -198,15 +198,38 @@ def get_job_status(job_id: str):
     # Get progress if available
     if state == "PROGRESS":
         response.progress = _safe_get_task_info(task) or {}
+        # Update job status in database
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job and job.status != "PROGRESS":
+            job.status = "PROGRESS"
+            db.commit()
     elif state == "SUCCESS":
         try:
             response.result = task.result or {}
         except Exception as e:
             logger.warning(f"Error getting task result for {job_id}: {e}")
             response.result = {"error": f"Failed to retrieve result: {e}"}
+
+        # Save result to database for history
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job and job.status != "SUCCESS":
+            job.status = "SUCCESS"
+            job.result = response.result
+            db.commit()
+            logger.info(f"Saved job {job_id} result to database")
     elif state == "FAILURE":
         task_info = _safe_get_task_info(task)
         response.result = {"error": str(task_info)}
+
+        # Save error to database
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job and job.status != "FAILURE":
+            job.status = "FAILURE"
+            job.error = str(task_info)
+            # Try to get statistics from failure info if available
+            if isinstance(task_info, dict) and "statistics" in task_info:
+                job.result = task_info.get("statistics")
+            db.commit()
 
     return response
 

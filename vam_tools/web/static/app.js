@@ -66,16 +66,40 @@ createApp({
                 suspicious_dates: 0,
             },
 
+            // Catalog statistics
+            catalogStats: null,
+            catalogStatsLoading: false,
+            statsExpanded: true,
+
             // Browse
             images: [],
             imagesTotal: 0,
             imagesLoading: false,
             imagesPage: 0,
-            imagesPageSize: 50,
+            imagesPageSize: 100,
             currentFilter: 'all',
             searchQuery: '',
             thumbnailSize: 'medium',
             selectedImages: new Set(),
+            infiniteScrollEnabled: true,
+            scrollThreshold: 300, // pixels from bottom to trigger load
+
+            // Search, Filter, Sort
+            filterOptions: null,
+            filtersExpanded: false,
+            filters: {
+                search: '',
+                file_type: '',
+                camera_make: '',
+                camera_model: '',
+                lens: '',
+                has_gps: null,
+                date_from: '',
+                date_to: ''
+            },
+            sortBy: 'date',
+            sortOrder: 'desc',
+            searchDebounceTimer: null,
 
             // Lightbox
             lightboxVisible: false,
@@ -163,6 +187,8 @@ createApp({
                 // Set form defaults
                 if (this.currentCatalog) {
                     this.analyzeForm.catalog_id = this.currentCatalog.id;
+                    // Load stats for the current catalog
+                    this.loadCatalogStats();
                 }
             } catch (error) {
                 console.error('Error loading catalogs:', error);
@@ -175,9 +201,47 @@ createApp({
             this.analyzeForm.catalog_id = catalog.id;
             this.addNotification(`Switched to catalog: ${catalog.name}`, 'success');
 
-            // Load images for the selected catalog if in browse view
+            // Clear any active filters when switching catalogs
+            this.clearFilters();
+
+            // Load catalog stats, filter options, and images
+            this.loadCatalogStats();
+            this.loadFilterOptions();
             if (this.currentView === 'browse') {
                 this.loadImages(true);
+            }
+        },
+
+        async loadCatalogStats() {
+            if (!this.currentCatalog) {
+                this.catalogStats = null;
+                return;
+            }
+
+            this.catalogStatsLoading = true;
+            try {
+                const response = await axios.get(`/api/catalogs/${this.currentCatalog.id}/stats`);
+                this.catalogStats = response.data;
+            } catch (error) {
+                console.error('Error loading catalog stats:', error);
+                this.catalogStats = null;
+            } finally {
+                this.catalogStatsLoading = false;
+            }
+        },
+
+        async loadFilterOptions() {
+            if (!this.currentCatalog) {
+                this.filterOptions = null;
+                return;
+            }
+
+            try {
+                const response = await axios.get(`/api/catalogs/${this.currentCatalog.id}/filter-options`);
+                this.filterOptions = response.data;
+            } catch (error) {
+                console.error('Error loading filter options:', error);
+                this.filterOptions = null;
             }
         },
 
@@ -664,6 +728,41 @@ createApp({
             this.addNotification('Job rerun not yet implemented', 'info');
         },
 
+        showJobDetails(job) {
+            // Show full job details in a modal/alert for now
+            const details = {
+                id: job.id,
+                name: job.name,
+                status: job.status,
+                started: job.started,
+                result: job.result
+            };
+            console.log('Job details:', details);
+            // For now, show as an alert - could be enhanced with a proper modal later
+            alert(JSON.stringify(details, null, 2));
+        },
+
+        async deleteJob(jobId) {
+            if (!confirm('Delete this job from history?')) {
+                return;
+            }
+
+            try {
+                // Delete with force=true to remove from database
+                await axios.delete(`/api/jobs/${jobId}`, {
+                    params: { force: true }
+                });
+
+                // Remove from tracked jobs
+                this.removeJob(jobId);
+
+                this.addNotification('Job deleted from history', 'success');
+            } catch (error) {
+                console.error(`Failed to delete job ${jobId}:`, error);
+                this.addNotification('Failed to delete job', 'error');
+            }
+        },
+
         async loadImages(reset = false) {
             if (!this.currentCatalog) {
                 this.addNotification('Please select a catalog first', 'info');
@@ -680,11 +779,45 @@ createApp({
 
             try {
                 const offset = this.imagesPage * this.imagesPageSize;
+
+                // Build params with filters and sort
+                const params = {
+                    limit: this.imagesPageSize,
+                    offset: offset,
+                    sort_by: this.sortBy,
+                    sort_order: this.sortOrder
+                };
+
+                // Add search filter
+                if (this.filters.search) {
+                    params.search = this.filters.search;
+                }
+
+                // Add other filters
+                if (this.filters.file_type) {
+                    params.file_type = this.filters.file_type;
+                }
+                if (this.filters.camera_make) {
+                    params.camera_make = this.filters.camera_make;
+                }
+                if (this.filters.camera_model) {
+                    params.camera_model = this.filters.camera_model;
+                }
+                if (this.filters.lens) {
+                    params.lens = this.filters.lens;
+                }
+                if (this.filters.has_gps !== null && this.filters.has_gps !== '') {
+                    params.has_gps = this.filters.has_gps;
+                }
+                if (this.filters.date_from) {
+                    params.date_from = this.filters.date_from;
+                }
+                if (this.filters.date_to) {
+                    params.date_to = this.filters.date_to;
+                }
+
                 const response = await axios.get(`/api/catalogs/${this.currentCatalog.id}/images`, {
-                    params: {
-                        limit: this.imagesPageSize,
-                        offset: offset
-                    }
+                    params: params
                 });
 
                 if (reset) {
@@ -701,6 +834,52 @@ createApp({
             } finally {
                 this.imagesLoading = false;
             }
+        },
+
+        // Search and filter methods
+        onSearchInput() {
+            // Debounce search input
+            if (this.searchDebounceTimer) {
+                clearTimeout(this.searchDebounceTimer);
+            }
+            this.searchDebounceTimer = setTimeout(() => {
+                this.loadImages(true);
+            }, 300);
+        },
+
+        applyFilters() {
+            this.loadImages(true);
+        },
+
+        clearFilters() {
+            this.filters = {
+                search: '',
+                file_type: '',
+                camera_make: '',
+                camera_model: '',
+                lens: '',
+                has_gps: null,
+                date_from: '',
+                date_to: ''
+            };
+            this.sortBy = 'date';
+            this.sortOrder = 'desc';
+            this.loadImages(true);
+        },
+
+        hasActiveFilters() {
+            return this.filters.search ||
+                   this.filters.file_type ||
+                   this.filters.camera_make ||
+                   this.filters.camera_model ||
+                   this.filters.lens ||
+                   this.filters.has_gps !== null ||
+                   this.filters.date_from ||
+                   this.filters.date_to;
+        },
+
+        onSortChange() {
+            this.loadImages(true);
         },
 
         getThumbnailUrl(image) {
@@ -722,6 +901,26 @@ createApp({
 
         clearSelection() {
             this.selectedImages.clear();
+        },
+
+        handleScroll() {
+            if (!this.infiniteScrollEnabled || this.imagesLoading || !this.hasMoreImages) {
+                return;
+            }
+
+            // Check if we're in browse view
+            if (this.currentView !== 'browse') {
+                return;
+            }
+
+            const scrollTop = window.scrollY || document.documentElement.scrollTop;
+            const scrollHeight = document.documentElement.scrollHeight;
+            const clientHeight = document.documentElement.clientHeight;
+
+            // Load more when within threshold of bottom
+            if (scrollHeight - scrollTop - clientHeight < this.scrollThreshold) {
+                this.loadImages(false);
+            }
         },
 
         // Lightbox methods
@@ -927,9 +1126,50 @@ createApp({
             return new Intl.NumberFormat().format(num || 0);
         },
 
+        formatBytes(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+        },
+
+        formatDuration(seconds) {
+            if (!seconds || seconds === 0) return '0s';
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+            return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+        },
+
         formatDate(dateStr) {
             if (!dateStr) return 'Unknown';
             return new Date(dateStr).toLocaleString();
+        },
+
+        getYear(dateStr) {
+            if (!dateStr) return '?';
+            try {
+                const year = new Date(dateStr).getFullYear();
+                // Validate year is reasonable (1800-2100)
+                if (year >= 1800 && year <= 2100) {
+                    return year;
+                }
+                return '?';
+            } catch (e) {
+                return '?';
+            }
+        },
+
+        isValidDateRange(dateRange) {
+            if (!dateRange || !dateRange.earliest || !dateRange.latest) return false;
+            try {
+                const earliest = new Date(dateRange.earliest).getFullYear();
+                const latest = new Date(dateRange.latest).getFullYear();
+                // Both years must be reasonable (1800-2100)
+                return earliest >= 1800 && earliest <= 2100 &&
+                       latest >= 1800 && latest <= 2100;
+            } catch (e) {
+                return false;
+            }
         },
 
         displayPath(path) {
@@ -962,6 +1202,10 @@ createApp({
             // Start monitoring worker health
             this.startJobsRefresh();
         });
+
+        // Set up infinite scroll listener
+        this._boundScrollHandler = this.handleScroll.bind(this);
+        window.addEventListener('scroll', this._boundScrollHandler, { passive: true });
     },
 
     beforeUnmount() {
@@ -971,5 +1215,10 @@ createApp({
         Object.keys(this.jobWebSockets).forEach(jobId => {
             this.disconnectJobWebSocket(jobId);
         });
+
+        // Remove scroll listener
+        if (this._boundScrollHandler) {
+            window.removeEventListener('scroll', this._boundScrollHandler);
+        }
     }
 }).mount('#app');

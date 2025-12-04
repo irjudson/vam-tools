@@ -133,13 +133,11 @@ profile = "black"
 line_length = 88
 skip_gitignore = true
 
-# TODO: Re-enable strict mypy checking after fixing type annotations
-# The codebase needs a dedicated pass to fix all type issues
 [tool.mypy]
 python_version = "3.9"
 warn_return_any = false
 warn_unused_configs = true
-disallow_untyped_defs = false
+disallow_untyped_defs = true
 disallow_incomplete_defs = false
 check_untyped_defs = false
 disallow_untyped_decorators = false
@@ -220,7 +218,8 @@ addopts = [
 # Unique worker group name for isolation across multiple projects
 xdist_worker_class = "vam_tools_workers"
 markers = [
-    "integration: marks tests as integration tests requiring running services (Redis, Celery, FastAPI)",
+    "integration: marks tests as integration tests requiring database (PostgreSQL)",
+    "e2e: marks tests as end-to-end tests requiring full Docker stack (docker-compose up)",
 ]
 # Coverage disabled by default for speed - run with: pytest --cov=vam_tools
 # To run with coverage: pytest --cov=vam_tools --cov-report=html

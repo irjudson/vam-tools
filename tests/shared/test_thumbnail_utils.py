@@ -163,29 +163,8 @@ class TestGenerateThumbnail:
 class TestExtractVideoThumbnail:
     """Tests for extract_video_thumbnail function."""
 
-    def test_extract_video_thumbnail_pil_success(self, tmp_path: Path) -> None:
-        """Test video thumbnail extraction with PIL ImageSequence."""
-        video_path = tmp_path / "test.mp4"
-        # Create fake video file
-        video_path.write_bytes(b"fake video")
-
-        # Mock PIL's ImageSequence to return a frame
-        mock_frame = Image.new("RGB", (640, 480), color="blue")
-
-        with patch("PIL.Image.open") as mock_open:
-            mock_img = Mock()
-            mock_open.return_value.__enter__.return_value = mock_img
-
-            with patch("PIL.ImageSequence.Iterator") as mock_iterator:
-                mock_iterator.return_value = iter([mock_frame])
-
-                result = extract_video_thumbnail(video_path)
-
-                assert result is not None
-                assert isinstance(result, Image.Image)
-
     def test_extract_video_thumbnail_ffmpeg_success(self, tmp_path: Path) -> None:
-        """Test video thumbnail extraction with ffmpeg fallback."""
+        """Test video thumbnail extraction with ffmpeg."""
         video_path = tmp_path / "test.mp4"
         video_path.write_bytes(b"fake video")
 
@@ -194,59 +173,50 @@ class TestExtractVideoThumbnail:
         test_img = Image.new("RGB", (640, 480), color="red")
         test_img.save(fake_frame_path)
 
-        # Track PIL.Image.open calls to differentiate between video and extracted frame
-        original_open = Image.open
-        open_call_count = [0]
+        with patch("tempfile.NamedTemporaryFile") as mock_temp:
+            mock_file = MagicMock()
+            mock_file.name = str(fake_frame_path)
+            mock_temp.return_value.__enter__.return_value = mock_file
 
-        def mock_open(path, *args, **kwargs):
-            open_call_count[0] += 1
-            if open_call_count[0] == 1:
-                # First call is for the video - fail to trigger ffmpeg
-                raise Exception("PIL failed")
-            else:
-                # Second call is for the extracted frame - use real open
-                return original_open(path, *args, **kwargs)
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
 
-        with patch("PIL.Image.open", side_effect=mock_open):
-            with patch("tempfile.NamedTemporaryFile") as mock_temp:
-                mock_file = MagicMock()
-                mock_file.name = str(fake_frame_path)
-                mock_temp.return_value.__enter__.return_value = mock_file
+                result = extract_video_thumbnail(video_path)
 
-                with patch("subprocess.run") as mock_run:
-                    mock_run.return_value.returncode = 0
-
-                    result = extract_video_thumbnail(video_path)
-
-                    assert result is not None
-                    assert isinstance(result, Image.Image)
+                assert result is not None
+                assert isinstance(result, Image.Image)
+                # Verify ffmpeg was called with correct arguments
+                mock_run.assert_called_once()
+                call_args = mock_run.call_args[0][0]
+                assert call_args[0] == "ffmpeg"
+                assert "-i" in call_args
+                assert str(video_path) in call_args
 
     def test_extract_video_thumbnail_ffmpeg_fails(self, tmp_path: Path) -> None:
         """Test video thumbnail extraction when ffmpeg fails."""
         video_path = tmp_path / "test.mp4"
         video_path.write_bytes(b"fake video")
 
-        # Mock PIL to fail
-        with patch("PIL.Image.open", side_effect=Exception("PIL failed")):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value.returncode = 1
-                mock_run.return_value.stderr.decode.return_value = "ffmpeg error"
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+            mock_run.return_value.stderr.decode.return_value = "ffmpeg error"
 
-                result = extract_video_thumbnail(video_path)
+            result = extract_video_thumbnail(video_path)
 
-                assert result is None
+            assert result is None
 
     def test_extract_video_thumbnail_ffmpeg_exception(self, tmp_path: Path) -> None:
         """Test video thumbnail extraction when ffmpeg raises exception."""
         video_path = tmp_path / "test.mp4"
         video_path.write_bytes(b"fake video")
 
-        # Mock PIL to fail
-        with patch("PIL.Image.open", side_effect=Exception("PIL failed")):
-            with patch("subprocess.run", side_effect=Exception("ffmpeg not found")):
-                result = extract_video_thumbnail(video_path)
+        with patch(
+            "subprocess.run",
+            side_effect=Exception("ffmpeg not found"),
+        ):
+            result = extract_video_thumbnail(video_path)
 
-                assert result is None
+            assert result is None
 
 
 class TestIsVideoFile:
@@ -297,20 +267,25 @@ class TestGetThumbnailPath:
         thumbnails_dir = tmp_path / "thumbnails"
         image_id = "abc123"
 
-        result = get_thumbnail_path(image_id, thumbnails_dir, create_dir=True)
+        result = get_thumbnail_path(
+            image_id, thumbnails_dir, size="medium", create_dir=True
+        )
 
-        assert thumbnails_dir.exists()
-        assert result == thumbnails_dir / f"{image_id}.jpg"
+        # Now creates size subdirectory
+        assert (thumbnails_dir / "medium").exists()
+        assert result == thumbnails_dir / "medium" / f"{image_id}.jpg"
 
     def test_get_thumbnail_path_no_create_dir(self, tmp_path: Path) -> None:
         """Test get_thumbnail_path without creating directory."""
         thumbnails_dir = tmp_path / "thumbnails"
         image_id = "def456"
 
-        result = get_thumbnail_path(image_id, thumbnails_dir, create_dir=False)
+        result = get_thumbnail_path(
+            image_id, thumbnails_dir, size="medium", create_dir=False
+        )
 
         assert not thumbnails_dir.exists()
-        assert result == thumbnails_dir / f"{image_id}.jpg"
+        assert result == thumbnails_dir / "medium" / f"{image_id}.jpg"
 
     def test_get_thumbnail_path_existing_dir(self, tmp_path: Path) -> None:
         """Test get_thumbnail_path with existing directory."""
@@ -318,10 +293,25 @@ class TestGetThumbnailPath:
         thumbnails_dir.mkdir(parents=True, exist_ok=True)
         image_id = "ghi789"
 
-        result = get_thumbnail_path(image_id, thumbnails_dir, create_dir=True)
+        result = get_thumbnail_path(
+            image_id, thumbnails_dir, size="large", create_dir=True
+        )
 
-        assert thumbnails_dir.exists()
-        assert result == thumbnails_dir / f"{image_id}.jpg"
+        assert (thumbnails_dir / "large").exists()
+        assert result == thumbnails_dir / "large" / f"{image_id}.jpg"
+
+    def test_get_thumbnail_path_different_sizes(self, tmp_path: Path) -> None:
+        """Test get_thumbnail_path with different size options."""
+        thumbnails_dir = tmp_path / "thumbnails"
+        image_id = "test123"
+
+        # Test all sizes
+        for size in ["small", "medium", "large"]:
+            result = get_thumbnail_path(
+                image_id, thumbnails_dir, size=size, create_dir=True
+            )
+            assert result == thumbnails_dir / size / f"{image_id}.jpg"
+            assert (thumbnails_dir / size).exists()
 
 
 class TestThumbnailExists:
@@ -330,24 +320,26 @@ class TestThumbnailExists:
     def test_thumbnail_exists_true(self, tmp_path: Path) -> None:
         """Test thumbnail_exists returns True when thumbnail exists."""
         thumbnails_dir = tmp_path / "thumbnails"
-        thumbnails_dir.mkdir(parents=True, exist_ok=True)
+        size_dir = thumbnails_dir / "medium"
+        size_dir.mkdir(parents=True, exist_ok=True)
 
         image_id = "abc123"
-        thumb_path = thumbnails_dir / f"{image_id}.jpg"
+        thumb_path = size_dir / f"{image_id}.jpg"
         thumb_path.write_bytes(b"fake thumbnail")
 
-        result = thumbnail_exists(image_id, thumbnails_dir)
+        result = thumbnail_exists(image_id, thumbnails_dir, size="medium")
 
         assert result is True
 
     def test_thumbnail_exists_false(self, tmp_path: Path) -> None:
         """Test thumbnail_exists returns False when thumbnail doesn't exist."""
         thumbnails_dir = tmp_path / "thumbnails"
-        thumbnails_dir.mkdir(parents=True, exist_ok=True)
+        size_dir = thumbnails_dir / "medium"
+        size_dir.mkdir(parents=True, exist_ok=True)
 
         image_id = "nonexistent"
 
-        result = thumbnail_exists(image_id, thumbnails_dir)
+        result = thumbnail_exists(image_id, thumbnails_dir, size="medium")
 
         assert result is False
 
@@ -356,6 +348,6 @@ class TestThumbnailExists:
         thumbnails_dir = tmp_path / "nonexistent_thumbnails"
         image_id = "abc123"
 
-        result = thumbnail_exists(image_id, thumbnails_dir)
+        result = thumbnail_exists(image_id, thumbnails_dir, size="medium")
 
         assert result is False
