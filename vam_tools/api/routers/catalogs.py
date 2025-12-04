@@ -130,13 +130,15 @@ def list_catalog_images(
     camera_make: str = None,
     camera_model: str = None,
     lens: str = None,
+    focal_length: str = None,  # Focal length in mm
+    f_stop: str = None,  # F-stop/aperture value
     has_gps: bool = None,
     date_from: str = None,  # ISO date string
     date_to: str = None,  # ISO date string
     min_width: int = None,
     min_height: int = None,
     # Sorting
-    sort_by: str = "date",  # date, filename, size, camera, created_at
+    sort_by: str = "date",  # date, filename, size, created_at
     sort_order: str = "desc",  # asc or desc
     db: Session = Depends(get_db),
 ):
@@ -150,12 +152,14 @@ def list_catalog_images(
         - camera_make: Filter by camera manufacturer
         - camera_model: Filter by camera model
         - lens: Filter by lens model
+        - focal_length: Filter by focal length (mm)
+        - f_stop: Filter by aperture/f-stop
         - has_gps: Filter images with GPS coordinates
         - date_from/date_to: Filter by date range
         - min_width/min_height: Filter by minimum resolution
 
     Sorting:
-        - sort_by: date, filename, size, camera, created_at
+        - sort_by: date, filename, size, created_at
         - sort_order: asc or desc
     """
     # Verify catalog exists
@@ -191,6 +195,16 @@ def list_catalog_images(
     if lens:
         conditions.append("metadata->>'lens_model' ILIKE :lens")
         params["lens"] = f"%{lens}%"
+
+    # Focal length filter
+    if focal_length:
+        conditions.append("metadata->>'focal_length' = :focal_length")
+        params["focal_length"] = focal_length
+
+    # F-stop/aperture filter
+    if f_stop:
+        conditions.append("metadata->>'f_stop' = :f_stop")
+        params["f_stop"] = f_stop
 
     # GPS filter
     if has_gps is True:
@@ -356,6 +370,37 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         row[0] for row in db.execute(lenses_query, {"catalog_id": catalog_id_str})
     ]
 
+    # Get distinct focal lengths
+    focal_lengths_query = text(
+        """
+        SELECT DISTINCT metadata->>'focal_length' as focal_length
+        FROM images
+        WHERE catalog_id = :catalog_id
+            AND metadata->>'focal_length' IS NOT NULL
+            AND metadata->>'focal_length' != ''
+        ORDER BY (metadata->>'focal_length')::float
+        """
+    )
+    focal_lengths = [
+        row[0]
+        for row in db.execute(focal_lengths_query, {"catalog_id": catalog_id_str})
+    ]
+
+    # Get distinct f-stops/apertures
+    f_stops_query = text(
+        """
+        SELECT DISTINCT metadata->>'f_stop' as f_stop
+        FROM images
+        WHERE catalog_id = :catalog_id
+            AND metadata->>'f_stop' IS NOT NULL
+            AND metadata->>'f_stop' != ''
+        ORDER BY (metadata->>'f_stop')::float
+        """
+    )
+    f_stops = [
+        row[0] for row in db.execute(f_stops_query, {"catalog_id": catalog_id_str})
+    ]
+
     # Get date range
     date_range_query = text(
         """
@@ -402,6 +447,8 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         "camera_makes": camera_makes,
         "camera_models": camera_models,
         "lenses": lenses,
+        "focal_lengths": focal_lengths,
+        "f_stops": f_stops,
         "file_types": file_types,
         "date_range": {
             "min": (

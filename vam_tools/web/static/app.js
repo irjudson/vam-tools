@@ -93,6 +93,8 @@ createApp({
                 camera_make: '',
                 camera_model: '',
                 lens: '',
+                focal_length: '',
+                f_stop: '',
                 has_gps: null,
                 date_from: '',
                 date_to: ''
@@ -806,6 +808,12 @@ createApp({
                 if (this.filters.lens) {
                     params.lens = this.filters.lens;
                 }
+                if (this.filters.focal_length) {
+                    params.focal_length = this.filters.focal_length;
+                }
+                if (this.filters.f_stop) {
+                    params.f_stop = this.filters.f_stop;
+                }
                 if (this.filters.has_gps !== null && this.filters.has_gps !== '') {
                     params.has_gps = this.filters.has_gps;
                 }
@@ -858,6 +866,8 @@ createApp({
                 camera_make: '',
                 camera_model: '',
                 lens: '',
+                focal_length: '',
+                f_stop: '',
                 has_gps: null,
                 date_from: '',
                 date_to: ''
@@ -873,6 +883,8 @@ createApp({
                    this.filters.camera_make ||
                    this.filters.camera_model ||
                    this.filters.lens ||
+                   this.filters.focal_length ||
+                   this.filters.f_stop ||
                    this.filters.has_gps !== null ||
                    this.filters.date_from ||
                    this.filters.date_to;

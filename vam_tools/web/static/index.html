@@ -225,7 +225,6 @@
                                 <option value="date">Date</option>
                                 <option value="filename">Filename</option>
                                 <option value="size">Size</option>
-                                <option value="camera">Camera</option>
                                 <option value="created_at">Added</option>
                             </select>
                             <button @click="sortOrder = sortOrder === 'desc' ? 'asc' : 'desc'; onSortChange()" class="sort-order-btn" :title="sortOrder === 'desc' ? 'Descending' : 'Ascending'">
@@ -258,29 +257,47 @@
                             </div>
 
                             <!-- Camera Make -->
-                            <div class="filter-group" v-if="filterOptions && filterOptions.camera_makes && filterOptions.camera_makes.length > 0">
+                            <div class="filter-group">
                                 <label>Camera Make</label>
                                 <select v-model="filters.camera_make" @change="applyFilters">
                                     <option value="">All Makes</option>
-                                    <option v-for="make in filterOptions.camera_makes" :key="make" :value="make">{{ make }}</option>
+                                    <option v-for="make in (filterOptions?.camera_makes || [])" :key="make" :value="make">{{ make }}</option>
                                 </select>
                             </div>
 
                             <!-- Camera Model -->
-                            <div class="filter-group" v-if="filterOptions && filterOptions.camera_models && filterOptions.camera_models.length > 0">
+                            <div class="filter-group">
                                 <label>Camera Model</label>
                                 <select v-model="filters.camera_model" @change="applyFilters">
                                     <option value="">All Models</option>
-                                    <option v-for="model in filterOptions.camera_models" :key="model" :value="model">{{ model }}</option>
+                                    <option v-for="model in (filterOptions?.camera_models || [])" :key="model" :value="model">{{ model }}</option>
                                 </select>
                             </div>
 
                             <!-- Lens -->
-                            <div class="filter-group" v-if="filterOptions && filterOptions.lenses && filterOptions.lenses.length > 0">
+                            <div class="filter-group">
                                 <label>Lens</label>
                                 <select v-model="filters.lens" @change="applyFilters">
                                     <option value="">All Lenses</option>
-                                    <option v-for="lens in filterOptions.lenses" :key="lens" :value="lens">{{ lens }}</option>
+                                    <option v-for="lens in (filterOptions?.lenses || [])" :key="lens" :value="lens">{{ lens }}</option>
+                                </select>
+                            </div>
+
+                            <!-- Focal Length -->
+                            <div class="filter-group">
+                                <label>Focal Length</label>
+                                <select v-model="filters.focal_length" @change="applyFilters">
+                                    <option value="">All</option>
+                                    <option v-for="fl in (filterOptions?.focal_lengths || [])" :key="fl" :value="fl">{{ fl }}mm</option>
+                                </select>
+                            </div>
+
+                            <!-- F-Stop / Aperture -->
+                            <div class="filter-group">
+                                <label>Aperture</label>
+                                <select v-model="filters.f_stop" @change="applyFilters">
+                                    <option value="">All</option>
+                                    <option v-for="fstop in (filterOptions?.f_stops || [])" :key="fstop" :value="fstop">f/{{ fstop }}</option>
                                 </select>
                             </div>
 
@@ -1215,6 +1232,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=20"></script>
+    <script src="/static/app.js?v=21"></script>
 </body>
 </html>
