@@ -131,11 +131,81 @@ jobs:
         fail_ci_if_error: false
         token: ${{ secrets.CODECOV_TOKEN }}
 
+  # Integration tests with database services
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: quality  # Only run if quality checks pass
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vam_tools_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # PostgreSQL settings (used by vam_tools/db/config.py)
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vam_tools_test
+      # Redis settings
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_PASSWORD: ""
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libimage-exiftool-perl
+
+    - name: Install Python dependencies
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Run integration tests
+      run: |
+        source venv/bin/activate
+        pytest -m integration -v --tb=short
+
   # Summary job - reports overall status
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [quality, test]
+    needs: [quality, test, integration]
     if: always()
 
     steps:
@@ -147,6 +217,10 @@ jobs:
         fi
         if [ "${{ needs.test.result }}" != "success" ]; then
           echo "❌ Tests failed"
+          exit 1
+        fi
+        if [ "${{ needs.integration.result }}" != "success" ]; then
+          echo "❌ Integration tests failed"
           exit 1
         fi
         echo "✅ All CI checks passed!"
