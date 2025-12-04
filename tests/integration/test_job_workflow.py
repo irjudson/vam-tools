@@ -6,7 +6,9 @@ All tests require running services (Redis, Celery, FastAPI).
 import time
 
 import pytest
-import requests
+
+# Skip collection if requests not installed (not needed for unit tests)
+requests = pytest.importorskip("requests")
 
 pytestmark = pytest.mark.integration
 
