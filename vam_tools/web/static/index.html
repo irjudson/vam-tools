@@ -333,7 +333,12 @@
 
                 <div class="browse-header">
                     <h2 v-if="currentCatalog">
-                        {{ formatNumber(imagesTotal) }} {{ imagesTotal === 1 ? 'image' : 'images' }}
+                        <span v-if="images.length < imagesTotal">
+                            Showing {{ formatNumber(images.length) }} of {{ formatNumber(imagesTotal) }} {{ imagesTotal === 1 ? 'image' : 'images' }}
+                        </span>
+                        <span v-else>
+                            {{ formatNumber(imagesTotal) }} {{ imagesTotal === 1 ? 'image' : 'images' }}
+                        </span>
                         <span v-if="hasActiveFilters()" class="filtered-label">(filtered)</span>
                     </h2>
                     <h2 v-else>Select a Catalog</h2>
@@ -1232,6 +1237,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=21"></script>
+    <script src="/static/app.js?v=22"></script>
 </body>
 </html>
