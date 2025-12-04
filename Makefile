@@ -1,4 +1,4 @@
-.PHONY: help setup test test-verbose test-docker test-docker-verbose run run-docker clean format lint coverage
+.PHONY: help setup test test-verbose test-integration test-integration-verbose test-all test-docker test-docker-verbose run run-docker clean format lint coverage
 
 # Default target
 help:
@@ -10,8 +10,11 @@ help:
 	@echo "  make setup-docker       - Build Docker images"
 	@echo ""
 	@echo "Testing (local, parallel, quiet by default):"
-	@echo "  make test               - Run tests locally with parallel workers (quiet)"
-	@echo "  make test-verbose       - Run tests locally with verbose output"
+	@echo "  make test               - Run unit tests locally (skips integration tests)"
+	@echo "  make test-verbose       - Run unit tests with verbose output"
+	@echo "  make test-integration   - Run integration tests (requires DB/Redis)"
+	@echo "  make test-integration-verbose - Run integration tests with verbose output"
+	@echo "  make test-all           - Run ALL tests (unit + integration)"
 	@echo "  make test-watch         - Run tests in watch mode"
 	@echo "  make test-sequential    - Run tests without parallelism (quiet)"
 	@echo "  make test-sequential-verbose - Run tests without parallelism (verbose)"
@@ -76,6 +79,20 @@ test:
 # Verbose variant
 test-verbose:
 	@./venv/bin/pytest tests/ -n 4 -v --tb=short
+
+# Integration tests (requires PostgreSQL and Redis running)
+test-integration:
+	@echo "Running integration tests (requires PostgreSQL and Redis)..."
+	@./venv/bin/pytest tests/ -m integration -n 0 -q --tb=line
+
+# Integration tests verbose
+test-integration-verbose:
+	@./venv/bin/pytest tests/ -m integration -n 0 -v --tb=short
+
+# All tests (unit + integration)
+test-all:
+	@echo "Running all tests..."
+	@./venv/bin/pytest tests/ -m "" -n 4 -q --tb=line
 
 # Sequential (no parallelism)
 test-sequential:
