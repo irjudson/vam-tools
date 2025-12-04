@@ -181,39 +181,41 @@ def list_catalog_images(
         conditions.append("file_type = :file_type")
         params["file_type"] = file_type
 
-    # Camera make filter
+    # Camera make filter (from EXIF data)
     if camera_make:
-        conditions.append("metadata->>'camera_make' ILIKE :camera_make")
-        params["camera_make"] = f"%{camera_make}%"
+        conditions.append("metadata->'exif'->>'EXIF:Make' = :camera_make")
+        params["camera_make"] = camera_make
 
-    # Camera model filter
+    # Camera model filter (from EXIF data)
     if camera_model:
-        conditions.append("metadata->>'camera_model' ILIKE :camera_model")
-        params["camera_model"] = f"%{camera_model}%"
+        conditions.append("metadata->'exif'->>'EXIF:Model' = :camera_model")
+        params["camera_model"] = camera_model
 
-    # Lens filter
+    # Lens filter (from EXIF data)
     if lens:
-        conditions.append("metadata->>'lens_model' ILIKE :lens")
-        params["lens"] = f"%{lens}%"
+        conditions.append("metadata->'exif'->>'EXIF:LensModel' = :lens")
+        params["lens"] = lens
 
-    # Focal length filter
+    # Focal length filter (from EXIF data, rounded)
     if focal_length:
-        conditions.append("metadata->>'focal_length' = :focal_length")
-        params["focal_length"] = focal_length
+        conditions.append(
+            "ROUND((metadata->'exif'->>'EXIF:FocalLength')::numeric) = :focal_length"
+        )
+        params["focal_length"] = int(focal_length)
 
-    # F-stop/aperture filter
+    # F-stop/aperture filter (from EXIF data)
     if f_stop:
-        conditions.append("metadata->>'f_stop' = :f_stop")
+        conditions.append("metadata->'exif'->>'EXIF:FNumber' = :f_stop")
         params["f_stop"] = f_stop
 
-    # GPS filter
+    # GPS filter (from EXIF data)
     if has_gps is True:
         conditions.append(
-            "metadata->>'gps_latitude' IS NOT NULL AND metadata->>'gps_longitude' IS NOT NULL"
+            "metadata->'exif'->>'EXIF:GPSLatitude' IS NOT NULL AND metadata->'exif'->>'EXIF:GPSLongitude' IS NOT NULL"
         )
     elif has_gps is False:
         conditions.append(
-            "(metadata->>'gps_latitude' IS NULL OR metadata->>'gps_longitude' IS NULL)"
+            "(metadata->'exif'->>'EXIF:GPSLatitude' IS NULL OR metadata->'exif'->>'EXIF:GPSLongitude' IS NULL)"
         )
 
     # Date range filters
@@ -324,14 +326,14 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
 
     catalog_id_str = str(catalog_id)
 
-    # Get distinct camera makes
+    # Get distinct camera makes (from EXIF data)
     camera_makes_query = text(
         """
-        SELECT DISTINCT metadata->>'camera_make' as camera_make
+        SELECT DISTINCT metadata->'exif'->>'EXIF:Make' as camera_make
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->>'camera_make' IS NOT NULL
-            AND metadata->>'camera_make' != ''
+            AND metadata->'exif'->>'EXIF:Make' IS NOT NULL
+            AND metadata->'exif'->>'EXIF:Make' != ''
         ORDER BY camera_make
         """
     )
@@ -339,14 +341,14 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         row[0] for row in db.execute(camera_makes_query, {"catalog_id": catalog_id_str})
     ]
 
-    # Get distinct camera models
+    # Get distinct camera models (from EXIF data)
     camera_models_query = text(
         """
-        SELECT DISTINCT metadata->>'camera_model' as camera_model
+        SELECT DISTINCT metadata->'exif'->>'EXIF:Model' as camera_model
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->>'camera_model' IS NOT NULL
-            AND metadata->>'camera_model' != ''
+            AND metadata->'exif'->>'EXIF:Model' IS NOT NULL
+            AND metadata->'exif'->>'EXIF:Model' != ''
         ORDER BY camera_model
         """
     )
@@ -355,14 +357,14 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         for row in db.execute(camera_models_query, {"catalog_id": catalog_id_str})
     ]
 
-    # Get distinct lenses
+    # Get distinct lenses (from EXIF data)
     lenses_query = text(
         """
-        SELECT DISTINCT metadata->>'lens_model' as lens_model
+        SELECT DISTINCT metadata->'exif'->>'EXIF:LensModel' as lens_model
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->>'lens_model' IS NOT NULL
-            AND metadata->>'lens_model' != ''
+            AND metadata->'exif'->>'EXIF:LensModel' IS NOT NULL
+            AND metadata->'exif'->>'EXIF:LensModel' != ''
         ORDER BY lens_model
         """
     )
@@ -370,31 +372,29 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         row[0] for row in db.execute(lenses_query, {"catalog_id": catalog_id_str})
     ]
 
-    # Get distinct focal lengths
+    # Get distinct focal lengths (from EXIF data, rounded to nearest mm)
     focal_lengths_query = text(
         """
-        SELECT DISTINCT metadata->>'focal_length' as focal_length
+        SELECT DISTINCT ROUND((metadata->'exif'->>'EXIF:FocalLength')::numeric) as focal_length
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->>'focal_length' IS NOT NULL
-            AND metadata->>'focal_length' != ''
-        ORDER BY (metadata->>'focal_length')::float
+            AND metadata->'exif'->>'EXIF:FocalLength' IS NOT NULL
+        ORDER BY focal_length
         """
     )
     focal_lengths = [
-        row[0]
+        str(int(row[0]))
         for row in db.execute(focal_lengths_query, {"catalog_id": catalog_id_str})
     ]
 
-    # Get distinct f-stops/apertures
+    # Get distinct f-stops/apertures (from EXIF data)
     f_stops_query = text(
         """
-        SELECT DISTINCT metadata->>'f_stop' as f_stop
+        SELECT DISTINCT metadata->'exif'->>'EXIF:FNumber' as f_stop
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->>'f_stop' IS NOT NULL
-            AND metadata->>'f_stop' != ''
-        ORDER BY (metadata->>'f_stop')::float
+            AND metadata->'exif'->>'EXIF:FNumber' IS NOT NULL
+        ORDER BY (metadata->'exif'->>'EXIF:FNumber')::float
         """
     )
     f_stops = [
@@ -431,12 +431,12 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         for row in db.execute(file_types_query, {"catalog_id": catalog_id_str})
     }
 
-    # Get GPS stats
+    # Get GPS stats (from EXIF data)
     gps_query = text(
         """
         SELECT
-            COUNT(*) FILTER (WHERE metadata->>'gps_latitude' IS NOT NULL) as with_gps,
-            COUNT(*) FILTER (WHERE metadata->>'gps_latitude' IS NULL) as without_gps
+            COUNT(*) FILTER (WHERE metadata->'exif'->>'EXIF:GPSLatitude' IS NOT NULL) as with_gps,
+            COUNT(*) FILTER (WHERE metadata->'exif'->>'EXIF:GPSLatitude' IS NULL) as without_gps
         FROM images
         WHERE catalog_id = :catalog_id
         """
