@@ -373,12 +373,14 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
     ]
 
     # Get distinct focal lengths (from EXIF data, rounded to nearest mm)
+    # Filter out non-numeric values like "undef"
     focal_lengths_query = text(
         """
         SELECT DISTINCT ROUND((metadata->'exif'->>'EXIF:FocalLength')::numeric) as focal_length
         FROM images
         WHERE catalog_id = :catalog_id
             AND metadata->'exif'->>'EXIF:FocalLength' IS NOT NULL
+            AND metadata->'exif'->>'EXIF:FocalLength' ~ '^[0-9.]+$'
         ORDER BY focal_length
         """
     )
@@ -388,17 +390,19 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
     ]
 
     # Get distinct f-stops/apertures (from EXIF data)
+    # Filter out non-numeric values like "undef"
     f_stops_query = text(
         """
-        SELECT DISTINCT metadata->'exif'->>'EXIF:FNumber' as f_stop
+        SELECT DISTINCT (metadata->'exif'->>'EXIF:FNumber')::float as f_stop
         FROM images
         WHERE catalog_id = :catalog_id
             AND metadata->'exif'->>'EXIF:FNumber' IS NOT NULL
-        ORDER BY (metadata->'exif'->>'EXIF:FNumber')::float
+            AND metadata->'exif'->>'EXIF:FNumber' ~ '^[0-9.]+$'
+        ORDER BY f_stop
         """
     )
     f_stops = [
-        row[0] for row in db.execute(f_stops_query, {"catalog_id": catalog_id_str})
+        str(row[0]) for row in db.execute(f_stops_query, {"catalog_id": catalog_id_str})
     ]
 
     # Get date range
