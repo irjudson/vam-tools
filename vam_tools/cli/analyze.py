@@ -407,37 +407,34 @@ def analyze(
             def performance_update_callback(stats_data: Dict) -> None:
                 """Write performance stats to catalog for polling endpoint."""
                 try:
-                    # TODO: Re-enable when performance_snapshots table is created
-                    # For now, just log performance stats
-                    logger.debug(f"Performance stats: {stats_data}")
-                    pass
-                    # # Insert a new performance snapshot
-                    # db.execute(
-                    #     """
-                    #     INSERT INTO performance_snapshots (
-                    #         timestamp, phase, files_processed, files_total, bytes_processed,
-                    #         cpu_percent, memory_mb, disk_read_mb, disk_write_mb,
-                    #         elapsed_seconds, rate_files_per_sec, rate_mb_per_sec,
-                    #         gpu_utilization, gpu_memory_mb
-                    #     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    #     """,
-                    #     (
-                    #         datetime.now().isoformat(),
-                    #         stats_data.get("phase"),
-                    #         stats_data.get("files_processed"),
-                    #         stats_data.get("files_total"),
-                    #         stats_data.get("bytes_processed"),
-                    #         stats_data.get("cpu_percent"),
-                    #         stats_data.get("memory_mb"),
-                    #         stats_data.get("disk_read_mb"),
-                    #         stats_data.get("disk_write_mb"),
-                    #         stats_data.get("elapsed_seconds"),
-                    #         stats_data.get("rate_files_per_sec"),
-                    #         stats_data.get("rate_mb_per_sec"),
-                    #         stats_data.get("gpu_utilization"),
-                    #         stats_data.get("gpu_memory_mb"),
-                    #     ),
-                    # )
+                    # Insert a new performance snapshot for real-time monitoring
+                    db.execute(
+                        """
+                        INSERT INTO performance_snapshots (
+                            catalog_id, timestamp, phase, files_processed, files_total,
+                            bytes_processed, cpu_percent, memory_mb, disk_read_mb,
+                            disk_write_mb, elapsed_seconds, rate_files_per_sec,
+                            rate_mb_per_sec, gpu_utilization, gpu_memory_mb
+                        ) VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            db.catalog_id,
+                            stats_data.get("phase"),
+                            stats_data.get("files_processed"),
+                            stats_data.get("files_total"),
+                            stats_data.get("bytes_processed"),
+                            stats_data.get("cpu_percent"),
+                            stats_data.get("memory_mb"),
+                            stats_data.get("disk_read_mb"),
+                            stats_data.get("disk_write_mb"),
+                            stats_data.get("elapsed_seconds"),
+                            stats_data.get("rate_files_per_sec"),
+                            stats_data.get("rate_mb_per_sec"),
+                            stats_data.get("gpu_utilization"),
+                            stats_data.get("gpu_memory_mb"),
+                        ),
+                    )
+                    db.session.commit()
                 except Exception as e:
                     # Don't break analysis if performance tracking fails
                     logger.debug(f"Failed to write performance stats: {e}")

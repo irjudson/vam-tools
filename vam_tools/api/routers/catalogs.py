@@ -1,5 +1,8 @@
 """Catalog management endpoints."""
 
+import csv
+import io
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -8,7 +11,7 @@ from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -1292,3 +1295,377 @@ def get_duplicate_stats(
             (result.duplicate_bytes or 0) / (1024**3), 2
         ),
     }
+
+
+# =============================================================================
+# Export Endpoints
+# =============================================================================
+
+
+@router.get("/{catalog_id}/duplicates/export")
+def export_duplicates(
+    catalog_id: uuid.UUID,
+    format: str = Query("json", pattern="^(json|csv)$"),
+    include_metadata: bool = Query(True, description="Include image metadata"),
+    db: Session = Depends(get_db),
+):
+    """
+    Export duplicate report as JSON or CSV.
+
+    Args:
+        format: Export format - "json" or "csv"
+        include_metadata: Whether to include full image metadata (default: true)
+
+    Returns:
+        StreamingResponse with the export file
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Get all duplicate groups with members
+    groups_query = text(
+        """
+        SELECT
+            dg.id as group_id,
+            dg.primary_image_id,
+            dg.similarity_type,
+            dg.confidence,
+            dg.reviewed,
+            dg.created_at as group_created_at
+        FROM duplicate_groups dg
+        WHERE dg.catalog_id = :catalog_id
+        ORDER BY dg.created_at DESC
+    """
+    )
+    groups_result = db.execute(groups_query, {"catalog_id": catalog_id_str})
+
+    export_data = {
+        "catalog_id": catalog_id_str,
+        "catalog_name": catalog.name,
+        "export_date": datetime.now().isoformat(),
+        "groups": [],
+        "summary": {},
+    }
+
+    total_groups = 0
+    total_duplicates = 0
+    total_savings = 0
+
+    for group_row in groups_result:
+        group_dict = dict(group_row._mapping)
+        group_id = group_dict["group_id"]
+        total_groups += 1
+
+        # Get members for this group
+        members_query = text(
+            """
+            SELECT
+                dm.image_id,
+                dm.similarity_score,
+                i.source_path,
+                i.file_type,
+                i.size_bytes,
+                i.checksum,
+                i.metadata,
+                i.dates
+            FROM duplicate_members dm
+            JOIN images i ON i.id = dm.image_id AND i.catalog_id = :catalog_id
+            WHERE dm.group_id = :group_id
+            ORDER BY dm.similarity_score DESC
+        """
+        )
+        members_result = db.execute(
+            members_query, {"group_id": group_id, "catalog_id": catalog_id_str}
+        )
+
+        members = []
+        for member_row in members_result:
+            member_dict = dict(member_row._mapping)
+            is_primary = member_dict["image_id"] == group_dict["primary_image_id"]
+
+            member_data = {
+                "image_id": member_dict["image_id"],
+                "source_path": member_dict["source_path"],
+                "file_type": member_dict["file_type"],
+                "size_bytes": member_dict["size_bytes"],
+                "checksum": member_dict["checksum"],
+                "similarity_score": member_dict["similarity_score"],
+                "is_primary": is_primary,
+                "recommended_action": "keep" if is_primary else "delete",
+            }
+
+            if include_metadata:
+                member_data["metadata"] = member_dict["metadata"]
+                member_data["dates"] = member_dict["dates"]
+
+            members.append(member_data)
+
+            # Count non-primary images for savings
+            if not is_primary:
+                total_duplicates += 1
+                total_savings += member_dict["size_bytes"] or 0
+
+        export_data["groups"].append(
+            {
+                "group_id": group_id,
+                "similarity_type": group_dict["similarity_type"],
+                "confidence": group_dict["confidence"],
+                "reviewed": group_dict["reviewed"],
+                "created_at": (
+                    group_dict["group_created_at"].isoformat()
+                    if group_dict["group_created_at"]
+                    else None
+                ),
+                "member_count": len(members),
+                "members": members,
+            }
+        )
+
+    export_data["summary"] = {
+        "total_groups": total_groups,
+        "total_duplicate_images": total_duplicates,
+        "potential_savings_bytes": total_savings,
+        "potential_savings_gb": round(total_savings / (1024**3), 2),
+    }
+
+    if format == "json":
+        # Return JSON
+        json_str = json.dumps(export_data, indent=2, default=str)
+        return StreamingResponse(
+            io.StringIO(json_str),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f"attachment; filename=duplicates_{catalog_id_str[:8]}.json"
+            },
+        )
+    else:
+        # Return CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Write header
+        headers = [
+            "group_id",
+            "similarity_type",
+            "confidence",
+            "reviewed",
+            "image_id",
+            "source_path",
+            "file_type",
+            "size_bytes",
+            "checksum",
+            "similarity_score",
+            "is_primary",
+            "recommended_action",
+        ]
+        if include_metadata:
+            headers.extend(["photo_date", "camera_model", "dimensions"])
+        writer.writerow(headers)
+
+        # Write data rows
+        for group in export_data["groups"]:
+            for member in group["members"]:
+                row = [
+                    group["group_id"],
+                    group["similarity_type"],
+                    group["confidence"],
+                    group["reviewed"],
+                    member["image_id"],
+                    member["source_path"],
+                    member["file_type"],
+                    member["size_bytes"],
+                    member["checksum"],
+                    member["similarity_score"],
+                    member["is_primary"],
+                    member["recommended_action"],
+                ]
+                if include_metadata:
+                    metadata = member.get("metadata", {}) or {}
+                    dates = member.get("dates", {}) or {}
+                    row.extend(
+                        [
+                            dates.get("selected_date", ""),
+                            metadata.get("camera_model", ""),
+                            (
+                                f"{metadata.get('width', '')}x{metadata.get('height', '')}"
+                                if metadata.get("width")
+                                else ""
+                            ),
+                        ]
+                    )
+                writer.writerow(row)
+
+        output.seek(0)
+        return StreamingResponse(
+            output,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=duplicates_{catalog_id_str[:8]}.csv"
+            },
+        )
+
+
+@router.get("/{catalog_id}/images/export")
+def export_images(
+    catalog_id: uuid.UUID,
+    format: str = Query("json", pattern="^(json|csv)$"),
+    include_metadata: bool = Query(True, description="Include full metadata"),
+    db: Session = Depends(get_db),
+):
+    """
+    Export all images in a catalog as JSON or CSV.
+
+    Args:
+        format: Export format - "json" or "csv"
+        include_metadata: Whether to include full image metadata
+
+    Returns:
+        StreamingResponse with the export file
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Get all images
+    query = text(
+        """
+        SELECT
+            id,
+            source_path,
+            file_type,
+            checksum,
+            size_bytes,
+            dates,
+            metadata,
+            thumbnail_path,
+            dhash,
+            ahash,
+            quality_score,
+            status,
+            created_at
+        FROM images
+        WHERE catalog_id = :catalog_id
+        ORDER BY (dates->>'selected_date')::timestamp DESC NULLS LAST
+    """
+    )
+    result = db.execute(query, {"catalog_id": catalog_id_str})
+
+    if format == "json":
+        images = []
+        for row in result:
+            row_dict = dict(row._mapping)
+            image_data = {
+                "id": row_dict["id"],
+                "source_path": row_dict["source_path"],
+                "file_type": row_dict["file_type"],
+                "checksum": row_dict["checksum"],
+                "size_bytes": row_dict["size_bytes"],
+                "quality_score": row_dict["quality_score"],
+                "status": row_dict["status"],
+                "created_at": (
+                    row_dict["created_at"].isoformat()
+                    if row_dict["created_at"]
+                    else None
+                ),
+            }
+            if include_metadata:
+                image_data["dates"] = row_dict["dates"]
+                image_data["metadata"] = row_dict["metadata"]
+            images.append(image_data)
+
+        export_data = {
+            "catalog_id": catalog_id_str,
+            "catalog_name": catalog.name,
+            "export_date": datetime.now().isoformat(),
+            "total_images": len(images),
+            "images": images,
+        }
+
+        json_str = json.dumps(export_data, indent=2, default=str)
+        return StreamingResponse(
+            io.StringIO(json_str),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f"attachment; filename=images_{catalog_id_str[:8]}.json"
+            },
+        )
+    else:
+        # CSV export
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Write header
+        headers = [
+            "id",
+            "source_path",
+            "file_type",
+            "checksum",
+            "size_bytes",
+            "quality_score",
+            "status",
+            "created_at",
+        ]
+        if include_metadata:
+            headers.extend(
+                [
+                    "photo_date",
+                    "date_source",
+                    "camera_make",
+                    "camera_model",
+                    "lens_model",
+                    "width",
+                    "height",
+                    "gps_latitude",
+                    "gps_longitude",
+                ]
+            )
+        writer.writerow(headers)
+
+        # Re-execute query for CSV (iterator was consumed)
+        result = db.execute(query, {"catalog_id": catalog_id_str})
+
+        for row in result:
+            row_dict = dict(row._mapping)
+            csv_row = [
+                row_dict["id"],
+                row_dict["source_path"],
+                row_dict["file_type"],
+                row_dict["checksum"],
+                row_dict["size_bytes"],
+                row_dict["quality_score"],
+                row_dict["status"],
+                (row_dict["created_at"].isoformat() if row_dict["created_at"] else ""),
+            ]
+            if include_metadata:
+                metadata = row_dict["metadata"] or {}
+                dates = row_dict["dates"] or {}
+                csv_row.extend(
+                    [
+                        dates.get("selected_date", ""),
+                        dates.get("source", ""),
+                        metadata.get("camera_make", ""),
+                        metadata.get("camera_model", ""),
+                        metadata.get("lens_model", ""),
+                        metadata.get("width", ""),
+                        metadata.get("height", ""),
+                        metadata.get("gps_latitude", ""),
+                        metadata.get("gps_longitude", ""),
+                    ]
+                )
+            writer.writerow(csv_row)
+
+        output.seek(0)
+        return StreamingResponse(
+            output,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=images_{catalog_id_str[:8]}.csv"
+            },
+        )

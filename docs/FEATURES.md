@@ -311,97 +311,71 @@ Verify:
 
 ### Future Enhancements
 
-1. **Job Persistence**:
-   - Store job history in catalog database
-   - Resume interrupted jobs on worker restart
+1. **Job Persistence**: ✅ **COMPLETE**
+   - Jobs stored in PostgreSQL `jobs` table with status, progress, and results
+   - Job history preserved in database for audit trail
 
-2. **Job Scheduling**:
+2. **Job Scheduling**: ⏸️ Deferred - Low Priority
    - Cron-like scheduling for periodic analysis
    - Celery Beat integration
+   - *Reason: Users typically run scans manually when adding photos*
 
-3. **Multi-Catalog Support**:
-   - Select catalog from dropdown in web UI
-   - Catalog auto-discovery
+3. **Multi-Catalog Support**: ✅ **COMPLETE**
+   - Catalog selector dropdown in web UI
+   - Multiple catalog management with color coding
+   - Catalog configuration persisted to database
 
-4. **Advanced Progress**:
-   - Per-phase progress (scanning, processing, duplicates)
-   - ETA calculation
-   - File-level progress details
+4. **Advanced Progress**: ✅ **COMPLETE**
+   - Per-phase progress (scanning, hashing, duplicate detection)
+   - Real-time performance snapshots stored in `performance_snapshots` table
+   - CPU/GPU utilization, throughput metrics, bottleneck analysis
+   - Adaptive batch sizing based on historical timing data
 
-5. **Notifications**:
+5. **Notifications**: ⏸️ Deferred - Low Priority
    - Email/webhook on job completion
    - Browser notifications (web push)
+   - *Reason: Existing WebSocket progress streaming covers main use case*
 
-6. **Result Export**:
-   - Download job results as CSV/JSON
-   - Export duplicate reports
+6. **Result Export**: ✅ **COMPLETE**
+   - Export duplicate reports as JSON or CSV: `GET /api/catalogs/{id}/duplicates/export?format=json|csv`
+   - Export all images as JSON or CSV: `GET /api/catalogs/{id}/images/export?format=json|csv`
+   - Includes metadata, file paths, recommended actions for duplicates
 
 ---
 
-## 🧪 Test Plan (TODO)
+## 🧪 Test Plan ✅ **IMPLEMENTED**
 
-### Unit Tests
+### Unit Tests ✅
 
-**File**: `tests/jobs/test_tasks.py`
+**File**: `tests/jobs/test_tasks.py` - **Implemented**
 
-```python
-def test_analyze_task_submission():
-    """Test job submission returns task ID."""
+- `test_task_registration` - Verify tasks are registered with Celery
+- `test_analyze_task_success` - Test successful analysis with mock database
+- `test_analyze_task_invalid_source_path` - Test handling of invalid paths
+- `test_organize_dry_run` - Test dry-run organization mode
+- `test_thumbnail_generation` - Test thumbnail creation workflow
 
-def test_analyze_task_progress():
-    """Test progress updates during analysis."""
+**File**: `tests/web/test_jobs_api.py` - **Implemented**
 
-def test_analyze_task_success():
-    """Test successful completion."""
+- `test_submit_analyze_job` - Test POST /api/jobs/analyze
+- `test_submit_organize_job` - Test POST /api/jobs/organize
+- `test_submit_thumbnails_job` - Test POST /api/jobs/thumbnails
+- `test_get_job_status_*` - Test GET /api/jobs/{id} for all states
+- `test_cancel_job` - Test DELETE /api/jobs/{id}
+- `test_list_active_jobs` - Test GET /api/jobs
+- `test_rerun_*` - Test POST /api/jobs/{id}/rerun
+- `test_kill_job` - Test POST /api/jobs/{id}/kill
 
-def test_analyze_task_failure():
-    """Test error handling."""
+**File**: `tests/api/test_jobs.py` - **Implemented**
 
-def test_organize_task_dry_run():
-    """Test dry-run organization."""
-
-def test_thumbnail_task_generation():
-    """Test thumbnail creation."""
-```
-
-**File**: `tests/web/test_jobs_api.py`
-
-```python
-@pytest.mark.asyncio
-async def test_submit_analyze_job():
-    """Test POST /api/jobs/analyze."""
-
-@pytest.mark.asyncio
-async def test_get_job_status():
-    """Test GET /api/jobs/{id}."""
-
-@pytest.mark.asyncio
-async def test_cancel_job():
-    """Test DELETE /api/jobs/{id}."""
-
-@pytest.mark.asyncio
-async def test_stream_job_progress():
-    """Test SSE streaming."""
-```
+- `TestSafeTaskAccessors` - Tests for safe Celery task accessor functions
+- `TestJobStatusEndpoint` - Tests for job status endpoint with various states
+- `test_get_job_status_malformed_exception_info` - Regression test for Celery error handling
 
 ### Integration Tests
 
-**File**: `tests/integration/test_job_workflow.py`
-
-```python
-def test_end_to_end_analysis():
-    """Test complete analysis workflow."""
-    # 1. Submit job
-    # 2. Wait for completion
-    # 3. Verify catalog updated
-    # 4. Check results
-
-def test_concurrent_jobs():
-    """Test multiple jobs running simultaneously."""
-
-def test_job_cancellation():
-    """Test cancelling in-progress job."""
-```
+Integration tests require running Docker services (PostgreSQL, Redis, Celery).
+Run with: `pytest -m integration`
 
 ---
 

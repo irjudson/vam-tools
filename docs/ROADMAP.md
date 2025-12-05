@@ -1,0 +1,238 @@
+# VAM Tools Roadmap
+
+This document tracks the development progress of VAM Tools features. GitHub renders task lists as progress bars automatically.
+
+> **Legend**: ✅ Complete | 🚧 In Progress | 📋 Planned | ⏸️ Deferred
+
+---
+
+## Overview
+
+<!-- GitHub will render this as a progress bar -->
+### Overall Progress: 14/22 features complete
+
+- [x] Core scanning and analysis
+- [x] Duplicate detection
+- [x] Web UI with catalog browser
+- [x] Docker deployment
+- [x] Background job processing
+- [x] Multi-catalog support
+- [x] Preview caching
+- [x] Advanced search/filtering
+- [x] Export functionality
+- [x] Performance monitoring
+- [x] Map/timeline views
+- [x] GPU acceleration (with fallback)
+- [x] Adaptive batch sizing
+- [x] Real-time progress tracking
+- [ ] Duplicate resolution UI
+- [ ] Auto-tagging with AI
+- [ ] FAISS index persistence
+- [ ] Batch edit operations
+- [ ] Advanced analytics dashboard
+- [ ] Job scheduling
+- [ ] Notifications
+- [ ] Video tutorials
+
+---
+
+## ✅ Completed Features
+
+### Core Infrastructure
+- [x] **High-performance scanning** - Multi-core parallel processing
+- [x] **Metadata extraction** - EXIF, XMP, filenames, directory dates
+- [x] **RAW file support** - Native metadata extraction (CR2, NEF, ARW, etc.)
+- [x] **Duplicate detection** - Exact (checksum) and perceptual (hash) matching
+- [x] **Quality scoring** - Automatic best-copy selection
+- [x] **Corruption tracking** - Detect truncated/corrupted files
+
+### Web Interface
+- [x] **Modern Vue.js UI** - Dark theme, responsive design
+- [x] **Catalog browser** - Grid view with thumbnails
+- [x] **Advanced filtering** - By date, camera, lens, GPS, resolution
+- [x] **Map view** - Geohash clustering, timeline slider
+- [x] **Job management** - Submit, monitor, cancel background jobs
+
+### Backend Services
+- [x] **Docker deployment** - CUDA-enabled containers
+- [x] **Celery job system** - Background processing with Redis
+- [x] **PostgreSQL backend** - Scalable database with JSONB
+- [x] **WebSocket progress** - Real-time job updates
+- [x] **REST API** - Full CRUD for catalogs, images, jobs
+
+### Performance
+- [x] **Preview caching** - LRU cache for RAW previews ([`preview_cache.py`](../vam_tools/shared/preview_cache.py))
+- [x] **GPU acceleration** - PyTorch CUDA with graceful CPU fallback
+- [x] **Adaptive batching** - Auto-size batches based on timing history
+- [x] **Performance snapshots** - Real-time CPU/GPU/throughput tracking
+
+### Data Management
+- [x] **Multi-catalog support** - Multiple catalogs with color coding
+- [x] **Export functionality** - CSV/JSON export for images and duplicates
+- [x] **Job persistence** - Job history stored in database
+- [x] **Geohash indexing** - Fast spatial queries
+
+---
+
+## 🚧 In Progress
+
+### Auto-Tagging System
+[Issue #13](https://github.com/irjudson/vam-tools/issues/13)
+
+**Status**: Tag taxonomy implemented, AI integration pending
+
+- [x] Tag taxonomy with categories (subject, scene, lighting, mood)
+- [x] Hierarchical tag relationships
+- [x] Database schema for tags and image_tags
+- [ ] CLIP model integration for image classification
+- [ ] Batch tagging during analysis
+- [ ] Tag confidence scores
+- [ ] Manual tag editing UI
+
+**Files**: [`tag_taxonomy.py`](../vam_tools/analysis/tag_taxonomy.py), [`tag_manager.py`](../vam_tools/analysis/tag_manager.py)
+
+---
+
+## 📋 Planned Features
+
+### High Priority
+
+#### Duplicate Resolution UI
+[Issue #12](https://github.com/irjudson/vam-tools/issues/12)
+
+Interactive UI for reviewing and resolving duplicates with confidence.
+
+- [ ] Side-by-side comparison with zoom
+- [ ] Batch keep/delete operations
+- [ ] Undo/redo with operation history
+- [ ] Safe deletion (trash before permanent delete)
+- [ ] Quality score visualization
+- [ ] Metadata diff highlighting
+- [ ] Space savings preview
+
+**Why**: Currently duplicates are detected but resolution requires manual work.
+
+---
+
+### Medium Priority
+
+#### FAISS Index Persistence
+[Issue #14](https://github.com/irjudson/vam-tools/issues/14)
+
+Save and load FAISS indices to disk for instant startup.
+
+- [ ] Save indices to `.faiss` files
+- [ ] Incremental updates (no full rebuild)
+- [ ] Index versioning and migration
+- [ ] Automatic rebuild on corruption
+
+**Why**: Currently indices are rebuilt on each search, slow for large catalogs.
+
+---
+
+#### Batch Edit Operations
+[Issue #15](https://github.com/irjudson/vam-tools/issues/15)
+
+Efficiently perform operations on multiple files.
+
+- [ ] Bulk metadata editing (dates, tags)
+- [ ] Batch move/copy/delete
+- [ ] Transaction support with rollback
+- [ ] Dry-run mode
+
+**Why**: No way to edit multiple files at once in the UI.
+
+---
+
+#### Advanced Analytics Dashboard
+[Issue #16](https://github.com/irjudson/vam-tools/issues/16)
+
+Visualize and understand your photo collection.
+
+- [ ] Photo timeline chart (interactive)
+- [ ] Storage analysis by date/camera/format
+- [ ] Quality distribution visualization
+- [ ] Camera/lens usage statistics
+- [ ] Duplicate savings projections
+
+**Why**: Stats endpoint exists but no visualization.
+
+---
+
+### Low Priority / Deferred
+
+#### Job Scheduling ⏸️
+
+Cron-like scheduling for periodic analysis.
+
+- [ ] Celery Beat integration
+- [ ] Scheduled scan configuration
+- [ ] Run history tracking
+
+**Status**: Deferred - users typically run scans manually when adding photos.
+
+---
+
+#### Notifications ⏸️
+
+Alerts when long jobs complete.
+
+- [ ] Email notifications
+- [ ] Webhook integration
+- [ ] Browser push notifications
+
+**Status**: Deferred - WebSocket progress streaming covers main use case.
+
+---
+
+## 🔧 Technical Debt
+
+### Code Quality
+- [ ] Resolve ignored flake8 warnings
+- [ ] Add comprehensive docstrings
+- [ ] Reduce complexity in flagged functions (C901)
+- [ ] Clean up test warnings
+
+### Documentation
+- [ ] Video tutorials
+- [ ] Migration guides from other tools
+- [ ] Architecture decision records (ADRs)
+- [ ] Performance tuning guide
+
+---
+
+## 📊 Feature Summary
+
+| Category | Complete | In Progress | Planned | Deferred |
+|----------|----------|-------------|---------|----------|
+| Core | 6 | 0 | 0 | 0 |
+| Web UI | 5 | 0 | 2 | 0 |
+| Backend | 5 | 0 | 0 | 0 |
+| Performance | 4 | 0 | 1 | 0 |
+| Data | 4 | 1 | 2 | 0 |
+| Analytics | 0 | 0 | 1 | 0 |
+| Ops | 0 | 0 | 0 | 2 |
+| **Total** | **24** | **1** | **6** | **2** |
+
+---
+
+## Contributing
+
+Interested in implementing a feature?
+
+1. Check if there's an issue for it (links above)
+2. Comment on the issue to express interest
+3. Discuss approach with maintainers
+4. Submit a PR with implementation and tests
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+
+---
+
+## Request a Feature
+
+Have an idea? Open an issue!
+
+- [Submit Feature Request](https://github.com/irjudson/vam-tools/issues/new?template=feature_request.md)
+- [Report Bug](https://github.com/irjudson/vam-tools/issues/new?template=bug_report.md)
+- [Discuss Ideas](https://github.com/irjudson/vam-tools/discussions)
