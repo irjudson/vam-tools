@@ -858,11 +858,13 @@ def detect_duplicates_task(
     Detect duplicate images in a catalog using perceptual hashing.
 
     This task:
+    - Automatically detects and uses GPU acceleration if available
     - Computes perceptual hashes for all images (if not already computed)
     - Finds exact duplicates (same checksum)
     - Finds similar images (similar perceptual hash within threshold)
     - Scores quality and selects primary (best) image in each group
     - Saves duplicate groups to database
+    - Tracks timing metrics for adaptive batch sizing
 
     Args:
         catalog_id: UUID of the catalog to analyze
@@ -872,7 +874,17 @@ def detect_duplicates_task(
     Returns:
         Dictionary with duplicate detection statistics
     """
+    from .job_metrics import JobMetricsTracker, check_gpu_available, get_gpu_info
+
     logger.info(f"Starting duplicate detection for catalog {catalog_id}")
+
+    # Check GPU availability
+    use_gpu = check_gpu_available()
+    gpu_info = get_gpu_info() if use_gpu else None
+    if use_gpu:
+        logger.info(f"GPU acceleration enabled: {gpu_info['device_name']}")
+    else:
+        logger.info("GPU not available, using CPU processing")
 
     try:
         self.update_progress(
@@ -880,6 +892,9 @@ def detect_duplicates_task(
         )
 
         with CatalogDatabase(catalog_id) as db:
+            # Initialize metrics tracker
+            metrics = JobMetricsTracker(db.session, catalog_id)
+
             # Get total image count for progress reporting
             result = db.session.execute(
                 text("SELECT COUNT(*) FROM images WHERE catalog_id = :catalog_id"),
@@ -887,33 +902,56 @@ def detect_duplicates_task(
             )
             total_images = result.scalar() or 0
 
+            # Plan batches based on historical timing data
+            batch_plan = metrics.plan_batches(
+                "hash_computation", total_images, use_gpu=use_gpu
+            )
+
             self.update_progress(
                 0,
                 total_images,
-                f"Analyzing {total_images} images...",
-                {"phase": "analyzing", "total_images": total_images},
+                f"Analyzing {total_images} images "
+                f"(est. {batch_plan.estimated_total_duration:.0f}s)...",
+                {
+                    "phase": "analyzing",
+                    "total_images": total_images,
+                    "use_gpu": use_gpu,
+                    "estimated_duration": batch_plan.estimated_total_duration,
+                },
             )
 
-            # Initialize duplicate detector with single-threaded mode
-            # (Celery workers are daemon processes and can't spawn child processes)
+            # Create progress callback that updates Celery task state
+            def progress_callback(current: int, total: int, message: str) -> None:
+                self.update_progress(
+                    current,
+                    total,
+                    message,
+                    {"phase": "hashing", "use_gpu": use_gpu},
+                )
+
+            # Initialize duplicate detector with GPU support and progress callback
+            # Note: num_workers=1 for CPU because Celery workers are daemon processes
             detector = DuplicateDetector(
                 catalog=db,
                 similarity_threshold=similarity_threshold,
-                num_workers=1,  # Single-threaded to avoid "daemonic processes" error
+                num_workers=1 if not use_gpu else None,
+                use_gpu=use_gpu,
+                progress_callback=progress_callback,
             )
 
-            # Phase 1: Compute perceptual hashes
+            # Phase 1: Compute perceptual hashes (with timing)
             self.update_progress(
                 0,
                 total_images,
                 "Computing perceptual hashes...",
-                {"phase": "hashing"},
+                {"phase": "hashing", "use_gpu": use_gpu},
             )
 
-            # Run duplicate detection
-            duplicate_groups = detector.detect_duplicates(
-                recompute_hashes=recompute_hashes
-            )
+            # Track timing for adaptive batch sizing in future runs
+            with metrics.timed_operation("hash_computation", total_images, use_gpu):
+                duplicate_groups = detector.detect_duplicates(
+                    recompute_hashes=recompute_hashes
+                )
 
             self.update_progress(
                 total_images // 2,
@@ -937,13 +975,15 @@ def detect_duplicates_task(
             self.update_progress(
                 total_images,
                 total_images,
-                f"Complete: {stats['total_groups']} groups, {stats['total_redundant']} redundant images",
+                f"Complete: {stats['total_groups']} groups, "
+                f"{stats['total_redundant']} redundant images",
                 {"phase": "complete", "statistics": stats},
             )
 
             logger.info(
                 f"Duplicate detection complete for {catalog_id}: "
-                f"{stats['total_groups']} groups, {stats['total_redundant']} redundant images"
+                f"{stats['total_groups']} groups, {stats['total_redundant']} redundant "
+                f"(GPU: {use_gpu})"
             )
 
             return {
@@ -951,6 +991,8 @@ def detect_duplicates_task(
                 "catalog_id": catalog_id,
                 "total_images": total_images,
                 "similarity_threshold": similarity_threshold,
+                "use_gpu": use_gpu,
+                "gpu_info": gpu_info,
                 **stats,
             }
 

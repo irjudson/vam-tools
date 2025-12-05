@@ -39,9 +39,14 @@ WORKDIR /app
 # Copy dependency files
 COPY pyproject.toml README.md ./
 
-# Install Python dependencies
+# Install Python dependencies (base)
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -e .
+
+# Install GPU acceleration packages (PyTorch with CUDA support)
+# Using CUDA 12.4 compatible wheels
+RUN pip install --no-cache-dir \
+    torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
 # Copy application code
 COPY vam_tools/ ./vam_tools/

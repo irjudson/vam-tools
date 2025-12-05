@@ -102,6 +102,7 @@ class DuplicateDetector:
         use_faiss: bool = False,
         perf_tracker: Optional[PerformanceTracker] = None,
         num_workers: Optional[int] = None,
+        progress_callback: Optional[callable] = None,
     ):
         """
         Initialize duplicate detector.
@@ -118,6 +119,7 @@ class DuplicateDetector:
             num_workers: Number of CPU workers for parallel processing.
                          Use 1 to disable multiprocessing (for daemon processes like Celery).
                          None (default) = auto-detect CPU count.
+            progress_callback: Optional callback function(current, total, message) for progress updates.
         """
         self.catalog = catalog
         self.similarity_threshold = similarity_threshold
@@ -151,6 +153,15 @@ class DuplicateDetector:
         self.duplicate_groups: List[DuplicateGroup] = []
         self.perf_tracker = perf_tracker
         self.problematic_files: List[ProblematicFile] = []
+        self.progress_callback = progress_callback
+
+    def _report_progress(self, current: int, total: int, message: str) -> None:
+        """Report progress if callback is set."""
+        if self.progress_callback:
+            try:
+                self.progress_callback(current, total, message)
+            except Exception as e:
+                logger.warning(f"Progress callback failed: {e}")
 
     def detect_duplicates(self, recompute_hashes: bool = False) -> List[DuplicateGroup]:
         """
@@ -432,8 +443,22 @@ class DuplicateDetector:
                     )
 
                 try:
+                    processed_count = 0
+                    total_to_process = len(images_to_process)
                     for idx, hashes in results_iter:
                         image = images_to_process[idx]
+                        processed_count += 1
+
+                        # Report progress every 100 items
+                        if (
+                            processed_count % 100 == 0
+                            or processed_count == total_to_process
+                        ):
+                            self._report_progress(
+                                processed_count,
+                                total_to_process,
+                                f"Computing hashes: {processed_count}/{total_to_process}",
+                            )
 
                         if hashes:
                             # Update image metadata with computed hashes directly in JSONB column
