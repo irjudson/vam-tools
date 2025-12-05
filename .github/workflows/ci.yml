@@ -206,7 +206,8 @@ jobs:
         CELERY_RESULT_BACKEND: redis://localhost:6379/0
       run: |
         source venv/bin/activate
-        pytest -m "integration" --cov=vam_tools --cov-report=xml --cov-report=term -v
+        # Override the default marker filter from pyproject.toml to run integration tests
+        pytest -m "integration" -o "addopts=" --cov=vam_tools --cov-report=xml --cov-report=term -v
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
