@@ -49,7 +49,7 @@ def encode(latitude: float, longitude: float, precision: int = 6) -> str:
     lat_range = (-90.0, 90.0)
     lon_range = (-180.0, 180.0)
 
-    geohash = []
+    geohash: list[str] = []
     bits = 0
     bit_count = 0
     is_lon = True  # Start with longitude

@@ -80,7 +80,7 @@ class JobMetricsTracker:
     Uses exponential moving average to weight recent measurements more heavily.
     """
 
-    def __init__(self, session, catalog_id: Optional[str] = None):
+    def __init__(self, session: Any, catalog_id: Optional[str] = None):
         """
         Initialize metrics tracker.
 
@@ -295,7 +295,7 @@ class TimedOperationContext:
         self.start_time = time.perf_counter()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if self.start_time is not None and exc_type is None:
             duration = time.perf_counter() - self.start_time
             metric = TimingMetric(
