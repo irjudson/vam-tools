@@ -308,12 +308,24 @@ class TimedOperationContext:
 
 
 def check_gpu_available() -> bool:
-    """Check if GPU acceleration is available."""
+    """Check if GPU acceleration is available and functional.
+
+    This tests actual CUDA operation, not just detection, to handle cases
+    where CUDA is detected but the GPU architecture isn't supported by
+    the installed PyTorch version (e.g., RTX 5060 Ti Blackwell sm_120).
+    """
     try:
         import torch
 
-        return torch.cuda.is_available()
-    except ImportError:
+        if not torch.cuda.is_available():
+            return False
+
+        # Actually test CUDA operation - detection isn't enough for new GPUs
+        # that may not have kernel support in current PyTorch builds
+        x = torch.zeros(1, device="cuda")
+        del x
+        return True
+    except (ImportError, RuntimeError, Exception):
         return False
 
 

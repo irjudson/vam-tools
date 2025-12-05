@@ -1,6 +1,7 @@
 # Multi-stage build for VAM Tools
 # Use NVIDIA CUDA base image for GPU acceleration
-FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04 as base
+# Using CUDA 12.6 for RTX 5060 Ti Blackwell (sm_120) support
+FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04 as base
 
 # Install Python 3.11
 RUN apt-get update && apt-get install -y \
@@ -44,9 +45,9 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -e .
 
 # Install GPU acceleration packages (PyTorch with CUDA support)
-# Using CUDA 12.4 compatible wheels
+# Using nightly build for RTX 5060 Ti Blackwell (sm_120) support
 RUN pip install --no-cache-dir \
-    torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126
 
 # Copy application code
 COPY vam_tools/ ./vam_tools/
