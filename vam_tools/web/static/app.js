@@ -69,7 +69,7 @@ createApp({
             // Catalog statistics
             catalogStats: null,
             catalogStatsLoading: false,
-            statsExpanded: true,
+            statsExpanded: false,
 
             // Browse
             images: [],
@@ -115,6 +115,35 @@ createApp({
             streamEventSource: null,
             streamConnectionStatus: null,
             streamConnectionStatusText: '',
+
+            // Map/Time View
+            mapInstance: null,
+            mapMarkers: null,
+            mapStats: { displayed: 0, totalPhotos: 0 },
+            mapClustersCache: null, // Cache for cluster data
+            mapLastPrecision: null, // Track last precision level
+            mapLastDateRange: null, // Track last date range
+            timelineSlider: null,
+            timelineRange: { from: null, to: null, min: null, max: null },
+            timelineData: null,
+            timelineBuckets: [],
+            selectedCluster: null,
+            clusterImages: [],
+            clusterImagesLoading: false,
+            mapboxToken: 'pk.eyJ1IjoiaXJqdWRzb24iLCJhIjoiY2lnMTk4dzFuMHBhbnV3bHZsMmE0Ym1hcCJ9.LQSOcDk_TOrObpLYB-7_xw', // Mapbox token for better tiles
+
+            // Duplicates View
+            duplicateGroups: [],
+            duplicatesTotal: 0,
+            duplicatesLoading: false,
+            duplicatesPage: 0,
+            duplicatesPageSize: 20,
+            duplicatesStats: null,
+            duplicatesFilter: {
+                reviewed: null,
+                similarity_type: null
+            },
+            selectedDuplicateGroup: null,
         };
     },
 
@@ -165,13 +194,23 @@ createApp({
     methods: {
         // Navigation
         setView(view) {
+            // Clean up map view when leaving
+            if (this.currentView === 'maptime' && view !== 'maptime') {
+                this.destroyMapView();
+            }
+
             this.currentView = view;
+
             if (view === 'jobs') {
                 this.startJobsRefresh();
             } else if (view === 'browse') {
                 if (this.images.length === 0) {
                     this.loadImages(true);
                 }
+            } else if (view === 'maptime') {
+                this.$nextTick(() => this.initMapView());
+            } else if (view === 'duplicates') {
+                this.loadDuplicates(true);
             }
         },
 
@@ -627,12 +666,12 @@ createApp({
             try {
                 this.showDuplicatesConfirmModal = false;
 
-                const response = await axios.post('/api/jobs/analyze', {
-                    catalog_id: this.currentCatalog.id,
-                    source_directories: this.currentCatalog.source_directories,
-                    detect_duplicates: true,
-                    force_reanalyze: false
-                });
+                // Use the catalogs API for duplicate detection
+                const response = await axios.post(
+                    `/api/catalogs/${this.currentCatalog.id}/detect-duplicates`,
+                    null,
+                    { params: { similarity_threshold: 5, recompute_hashes: false } }
+                );
 
                 this.addNotification('Duplicate detection job submitted successfully', 'success');
 
@@ -1018,6 +1057,503 @@ createApp({
 
         skipReviewItem(itemId) {
             this.addNotification('Review queue not yet implemented', 'info');
+        },
+
+        // =====================================================================
+        // Map/Time View Methods
+        // =====================================================================
+
+        async initMapView() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog first', 'info');
+                return;
+            }
+
+            // Initialize map if not already created
+            if (!this.mapInstance) {
+                const mapElement = document.getElementById('photo-map');
+                if (!mapElement) {
+                    console.error('Map element not found');
+                    return;
+                }
+
+                this.mapInstance = L.map('photo-map', {
+                    center: [39.8283, -98.5795], // Center of US
+                    zoom: 4
+                });
+
+                // Use Mapbox tiles if token provided, otherwise OpenStreetMap
+                if (this.mapboxToken) {
+                    L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}', {
+                        id: 'mapbox/streets-v12',
+                        accessToken: this.mapboxToken,
+                        tileSize: 512,
+                        zoomOffset: -1,
+                        attribution: '&copy; <a href="https://www.mapbox.com/">Mapbox</a>'
+                    }).addTo(this.mapInstance);
+                } else {
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    }).addTo(this.mapInstance);
+                }
+
+                // Add event listeners for map movement
+                // Only update clusters when zoom changes (which affects precision)
+                // Panning within the same precision level uses cached data
+                this.mapInstance.on('zoomend', () => this.updateMapClusters());
+                this.mapInstance.on('moveend', () => this.renderCachedClusters());
+            }
+
+            // Load timeline data and initialize slider
+            await this.loadTimelineData();
+            this.initTimelineSlider();
+            await this.updateMapClusters();
+        },
+
+        async loadTimelineData() {
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/map/timeline`,
+                    { params: { bucket_size: 'month' } }
+                );
+
+                this.timelineData = response.data;
+                this.timelineBuckets = response.data.buckets;
+
+                if (response.data.date_range.min && response.data.date_range.max) {
+                    this.timelineRange.min = new Date(response.data.date_range.min);
+                    this.timelineRange.max = new Date(response.data.date_range.max);
+                    this.timelineRange.from = this.timelineRange.min;
+                    this.timelineRange.to = this.timelineRange.max;
+                }
+
+                this.drawHistogram();
+            } catch (error) {
+                console.error('Error loading timeline data:', error);
+                this.addNotification('Failed to load timeline data', 'error');
+            }
+        },
+
+        drawHistogram() {
+            const canvas = this.$refs.histogramCanvas;
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const container = this.$refs.histogramContainer;
+            if (!container) return;
+
+            // Set canvas size to match container
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (!this.timelineBuckets.length) return;
+
+            const maxCount = Math.max(...this.timelineBuckets.map(b => b.count));
+            if (maxCount === 0) return;
+
+            const barWidth = canvas.width / this.timelineBuckets.length;
+            const padding = 2;
+
+            this.timelineBuckets.forEach((bucket, index) => {
+                const bucketDate = new Date(bucket.date);
+                const inRange = this.timelineRange.from && this.timelineRange.to &&
+                    bucketDate >= this.timelineRange.from && bucketDate <= this.timelineRange.to;
+
+                // Draw total count bar (gray, behind)
+                const totalHeight = (bucket.count / maxCount) * (canvas.height - 4);
+                const x = index * barWidth + 1;
+                const y = canvas.height - totalHeight - 2;
+
+                ctx.fillStyle = inRange ? 'rgba(100, 116, 139, 0.4)' : 'rgba(100, 116, 139, 0.2)';
+                ctx.fillRect(x, y, barWidth - padding, totalHeight);
+
+                // Draw GPS count bar (blue, in front)
+                const gpsHeight = (bucket.count_with_gps / maxCount) * (canvas.height - 4);
+                const gpsY = canvas.height - gpsHeight - 2;
+
+                ctx.fillStyle = inRange ? 'rgba(96, 165, 250, 0.9)' : 'rgba(96, 165, 250, 0.3)';
+                ctx.fillRect(x, gpsY, barWidth - padding, gpsHeight);
+            });
+        },
+
+        initTimelineSlider() {
+            const sliderElement = document.getElementById('timeline-slider');
+            if (!sliderElement || this.timelineSlider) return;
+
+            if (!this.timelineRange.min || !this.timelineRange.max) return;
+
+            const minTime = this.timelineRange.min.getTime();
+            const maxTime = this.timelineRange.max.getTime();
+
+            if (minTime >= maxTime) return;
+
+            this.timelineSlider = noUiSlider.create(sliderElement, {
+                start: [minTime, maxTime],
+                connect: true,
+                range: {
+                    'min': minTime,
+                    'max': maxTime
+                },
+                step: 24 * 60 * 60 * 1000 // 1 day
+            });
+
+            this.timelineSlider.on('slide', (values) => {
+                this.timelineRange.from = new Date(parseInt(values[0]));
+                this.timelineRange.to = new Date(parseInt(values[1]));
+                this.drawHistogram();
+            });
+
+            this.timelineSlider.on('change', () => {
+                this.updateMapClusters();
+            });
+        },
+
+        async updateMapClusters(forceRefresh = false) {
+            if (!this.mapInstance || !this.currentCatalog) return;
+
+            const zoom = this.mapInstance.getZoom();
+
+            // Map zoom to precision
+            let precision = 4;
+            if (zoom <= 4) precision = 2;
+            else if (zoom <= 8) precision = 4;
+            else if (zoom <= 12) precision = 6;
+            else precision = 8;
+
+            // Build current date range key for cache comparison
+            const dateRangeKey = this.timelineRange.from && this.timelineRange.to
+                ? `${this.timelineRange.from.getTime()}-${this.timelineRange.to.getTime()}`
+                : 'all';
+
+            // Check if we can use cached data (same precision and date range)
+            if (!forceRefresh &&
+                this.mapClustersCache &&
+                this.mapLastPrecision === precision &&
+                this.mapLastDateRange === dateRangeKey) {
+                // Use cached data, just re-render visible clusters
+                this.renderCachedClusters();
+                return;
+            }
+
+            try {
+                // Query ALL clusters for this precision/date range (no bounds filter)
+                // This way we cache all data and can pan freely without re-querying
+                const params = { precision };
+
+                if (this.timelineRange.from) {
+                    params.date_from = this.timelineRange.from.toISOString();
+                }
+                if (this.timelineRange.to) {
+                    params.date_to = this.timelineRange.to.toISOString();
+                }
+
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/map/clusters`,
+                    { params }
+                );
+
+                // Cache the cluster data
+                this.mapClustersCache = response.data.clusters;
+                this.mapLastPrecision = precision;
+                this.mapLastDateRange = dateRangeKey;
+                this.mapStats.totalPhotos = response.data.total_with_gps;
+
+                // Render clusters visible in current bounds
+                this.renderCachedClusters();
+            } catch (error) {
+                console.error('Error loading map clusters:', error);
+            }
+        },
+
+        renderCachedClusters() {
+            if (!this.mapInstance || !this.mapClustersCache) return;
+
+            const bounds = this.mapInstance.getBounds();
+
+            // Filter clusters to those visible in current bounds
+            const visibleClusters = this.mapClustersCache.filter(cluster => {
+                return bounds.contains([cluster.center_lat, cluster.center_lon]);
+            });
+
+            this.mapStats.displayed = visibleClusters.length;
+
+            // Clear existing markers
+            if (this.mapMarkers) {
+                this.mapInstance.removeLayer(this.mapMarkers);
+            }
+            this.mapMarkers = L.layerGroup();
+
+            // Add cluster markers for visible clusters only
+            visibleClusters.forEach(cluster => {
+                const marker = this.createClusterMarker(cluster);
+                this.mapMarkers.addLayer(marker);
+            });
+
+            this.mapMarkers.addTo(this.mapInstance);
+        },
+
+        createClusterMarker(cluster) {
+            // Determine size class based on count
+            let sizeClass = 'marker-cluster-small';
+            let size = 40;
+
+            if (cluster.count > 100) {
+                sizeClass = 'marker-cluster-large';
+                size = 50;
+            } else if (cluster.count > 20) {
+                sizeClass = 'marker-cluster-medium';
+                size = 45;
+            }
+
+            // Format count for display
+            const displayCount = cluster.count >= 1000
+                ? Math.round(cluster.count / 1000) + 'K'
+                : cluster.count;
+
+            const icon = L.divIcon({
+                html: `<div>${displayCount}</div>`,
+                className: `marker-cluster ${sizeClass}`,
+                iconSize: L.point(size, size)
+            });
+
+            const marker = L.marker([cluster.center_lat, cluster.center_lon], { icon });
+
+            // Single click: zoom in if not at max zoom
+            marker.on('click', () => {
+                if (this.mapInstance.getZoom() < 16) {
+                    this.mapInstance.setView(
+                        [cluster.center_lat, cluster.center_lon],
+                        this.mapInstance.getZoom() + 3
+                    );
+                } else {
+                    this.showClusterImages(cluster);
+                }
+            });
+
+            // Double click: show cluster images
+            marker.on('dblclick', (e) => {
+                L.DomEvent.stopPropagation(e);
+                this.showClusterImages(cluster);
+            });
+
+            return marker;
+        },
+
+        async showClusterImages(cluster) {
+            this.selectedCluster = cluster;
+            this.clusterImages = [];
+            this.clusterImagesLoading = true;
+
+            try {
+                const params = {
+                    geohash: cluster.geohash,
+                    limit: 30
+                };
+
+                if (this.timelineRange.from) {
+                    params.date_from = this.timelineRange.from.toISOString();
+                }
+                if (this.timelineRange.to) {
+                    params.date_to = this.timelineRange.to.toISOString();
+                }
+
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/map/images`,
+                    { params }
+                );
+
+                this.clusterImages = response.data.images;
+            } catch (error) {
+                console.error('Error loading cluster images:', error);
+                this.addNotification('Failed to load cluster images', 'error');
+            } finally {
+                this.clusterImagesLoading = false;
+            }
+        },
+
+        async loadMoreClusterImages() {
+            if (!this.selectedCluster || this.clusterImagesLoading) return;
+
+            this.clusterImagesLoading = true;
+
+            try {
+                const params = {
+                    geohash: this.selectedCluster.geohash,
+                    limit: 30,
+                    offset: this.clusterImages.length
+                };
+
+                if (this.timelineRange.from) {
+                    params.date_from = this.timelineRange.from.toISOString();
+                }
+                if (this.timelineRange.to) {
+                    params.date_to = this.timelineRange.to.toISOString();
+                }
+
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/map/images`,
+                    { params }
+                );
+
+                this.clusterImages.push(...response.data.images);
+            } catch (error) {
+                console.error('Error loading more cluster images:', error);
+            } finally {
+                this.clusterImagesLoading = false;
+            }
+        },
+
+        getClusterThumbnailUrl(image) {
+            if (image.thumbnail_path) {
+                return `/api/catalogs/${this.currentCatalog.id}/thumbnails/${image.thumbnail_path}`;
+            }
+            return `/api/catalogs/${this.currentCatalog.id}/images/${image.id}/thumbnail?size=small`;
+        },
+
+        openClusterLightbox(image) {
+            // Find image in main images array or create temporary lightbox
+            const index = this.images.findIndex(img => img.id === image.id);
+            if (index >= 0) {
+                this.openLightbox(index);
+            } else {
+                // Open directly with this image
+                this.lightboxImage = image;
+                this.lightboxVisible = true;
+            }
+        },
+
+        formatDateShort(date) {
+            if (!date) return '—';
+            return new Date(date).toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'short'
+            });
+        },
+
+        destroyMapView() {
+            if (this.mapInstance) {
+                this.mapInstance.remove();
+                this.mapInstance = null;
+            }
+            if (this.timelineSlider) {
+                this.timelineSlider.destroy();
+                this.timelineSlider = null;
+            }
+            this.mapMarkers = null;
+            this.mapClustersCache = null;
+            this.mapLastPrecision = null;
+            this.mapLastDateRange = null;
+            this.selectedCluster = null;
+            this.clusterImages = [];
+            this.timelineData = null;
+            this.timelineBuckets = [];
+        },
+
+        // =====================================================================
+        // Duplicates View Methods
+        // =====================================================================
+
+        async loadDuplicates(reset = false) {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog first', 'info');
+                return;
+            }
+
+            if (reset) {
+                this.duplicateGroups = [];
+                this.duplicatesPage = 0;
+                this.duplicatesTotal = 0;
+            }
+
+            this.duplicatesLoading = true;
+
+            try {
+                const offset = this.duplicatesPage * this.duplicatesPageSize;
+
+                const params = {
+                    limit: this.duplicatesPageSize,
+                    offset: offset
+                };
+
+                // Add filters
+                if (this.duplicatesFilter.reviewed !== null) {
+                    params.reviewed = this.duplicatesFilter.reviewed;
+                }
+                if (this.duplicatesFilter.similarity_type) {
+                    params.similarity_type = this.duplicatesFilter.similarity_type;
+                }
+
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/duplicates`,
+                    { params }
+                );
+
+                if (reset) {
+                    this.duplicateGroups = response.data.groups;
+                } else {
+                    this.duplicateGroups.push(...response.data.groups);
+                }
+
+                this.duplicatesTotal = response.data.total;
+                this.duplicatesStats = response.data.statistics;
+                this.duplicatesPage++;
+            } catch (error) {
+                console.error('Error loading duplicates:', error);
+                this.addNotification('Failed to load duplicates', 'error');
+            } finally {
+                this.duplicatesLoading = false;
+            }
+        },
+
+        async loadDuplicatesStats() {
+            if (!this.currentCatalog) return;
+
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/duplicates/stats`
+                );
+                this.duplicatesStats = response.data;
+            } catch (error) {
+                console.error('Error loading duplicate stats:', error);
+            }
+        },
+
+        selectDuplicateGroup(group) {
+            this.selectedDuplicateGroup = group;
+        },
+
+        closeDuplicateGroup() {
+            this.selectedDuplicateGroup = null;
+        },
+
+        getDuplicateThumbnailUrl(member) {
+            if (!this.currentCatalog) return '';
+            return `/api/catalogs/${this.currentCatalog.id}/images/${member.image_id}/thumbnail?size=medium`;
+        },
+
+        getSimilarityLabel(type) {
+            return type === 'exact' ? 'Exact Match' : 'Perceptual Match';
+        },
+
+        getSimilarityClass(type) {
+            return type === 'exact' ? 'badge-exact' : 'badge-perceptual';
+        },
+
+        hasMoreDuplicates() {
+            return this.duplicateGroups.length < this.duplicatesTotal;
+        },
+
+        applyDuplicatesFilter() {
+            this.loadDuplicates(true);
+        },
+
+        clearDuplicatesFilter() {
+            this.duplicatesFilter = {
+                reviewed: null,
+                similarity_type: null
+            };
+            this.loadDuplicates(true);
         },
 
         // Job Streaming

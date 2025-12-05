@@ -8,6 +8,12 @@
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <link rel="stylesheet" href="/static/dark-theme.css">
     <link rel="stylesheet" href="/static/styles.css">
+    <!-- Leaflet.js for mapping -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- noUiSlider for time range -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@15.7.1/dist/nouislider.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/nouislider@15.7.1/dist/nouislider.min.js"></script>
 </head>
 <body>
     <div id="app">
@@ -76,6 +82,18 @@
                         class="nav-button">
                         ⚙️ Jobs
                         <span v-if="hasActiveJobs" class="badge">{{ activeJobs.length }}</span>
+                    </button>
+                    <button
+                        @click="setView('maptime')"
+                        :class="{'active': currentView === 'maptime'}"
+                        class="nav-button">
+                        🗺️ Map/Time
+                    </button>
+                    <button
+                        @click="setView('duplicates')"
+                        :class="{'active': currentView === 'duplicates'}"
+                        class="nav-button">
+                        🔄 Duplicates
                     </button>
 
                     <!-- Worker Health Indicator -->
@@ -660,6 +678,230 @@
             </div>
         </div>
 
+        <!-- Map/Time View -->
+        <div v-if="currentView === 'maptime'" class="view-container">
+            <div class="content-wrapper maptime-wrapper">
+                <div v-if="!currentCatalog" class="text-center p-lg">
+                    <p class="text-secondary">Please select a catalog to view on the map</p>
+                </div>
+
+                <div v-else class="maptime-container">
+                    <!-- Map Container -->
+                    <div class="map-section">
+                        <div id="photo-map" class="photo-map"></div>
+                        <div class="map-controls">
+                            <div class="map-stats">
+                                <span class="stat">{{ formatNumber(mapStats.displayed) }} clusters</span>
+                                <span class="stat">{{ formatNumber(mapStats.totalPhotos) }} photos with GPS</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timeline Section -->
+                    <div class="timeline-section">
+                        <div class="timeline-header">
+                            <h3>Time Range</h3>
+                            <span class="date-display">
+                                {{ formatDateShort(timelineRange.from) }} - {{ formatDateShort(timelineRange.to) }}
+                            </span>
+                            <span class="timeline-totals" v-if="timelineData">
+                                {{ formatNumber(timelineData.total_with_gps) }} GPS / {{ formatNumber(timelineData.total_images) }} total
+                            </span>
+                        </div>
+                        <div class="timeline-histogram" ref="histogramContainer">
+                            <canvas ref="histogramCanvas"></canvas>
+                        </div>
+                        <div id="timeline-slider" class="timeline-slider"></div>
+                    </div>
+
+                    <!-- Cluster Preview Panel -->
+                    <div v-if="selectedCluster" class="cluster-preview-panel">
+                        <div class="panel-header">
+                            <h3>{{ formatNumber(selectedCluster.count) }} Photos</h3>
+                            <button @click="selectedCluster = null" class="close-btn">×</button>
+                        </div>
+                        <div class="cluster-thumbnails">
+                            <div v-for="image in clusterImages" :key="image.id" class="cluster-thumb"
+                                 @click="openClusterLightbox(image)">
+                                <img :src="getClusterThumbnailUrl(image)" :alt="image.source_path" loading="lazy" />
+                            </div>
+                        </div>
+                        <div v-if="clusterImagesLoading" class="cluster-loading">
+                            <div class="spinner"></div>
+                        </div>
+                        <div v-else-if="clusterImages.length < selectedCluster.count" class="load-more">
+                            <button @click="loadMoreClusterImages" class="btn-secondary btn-small">
+                                Load more ({{ selectedCluster.count - clusterImages.length }} remaining)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Duplicates View -->
+        <div v-if="currentView === 'duplicates'" class="view-container">
+            <div class="content-wrapper">
+                <div v-if="!currentCatalog" class="text-center p-lg">
+                    <p class="text-secondary">Please select a catalog to view duplicates</p>
+                </div>
+
+                <div v-else>
+                    <div class="duplicates-header">
+                        <h2>Duplicate Detection</h2>
+                        <button @click="startFindDuplicates" class="btn-primary">
+                            🔍 Find Duplicates
+                        </button>
+                    </div>
+
+                    <!-- Statistics Panel -->
+                    <div v-if="duplicatesStats" class="stats-grid mb-lg">
+                        <div class="stat-card">
+                            <div class="stat-value">{{ formatNumber(duplicatesStats.total_groups || 0) }}</div>
+                            <div class="stat-label">Duplicate Groups</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ formatNumber(duplicatesStats.exact_groups || 0) }}</div>
+                            <div class="stat-label">Exact Matches</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ formatNumber(duplicatesStats.perceptual_groups || 0) }}</div>
+                            <div class="stat-label">Similar Images</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ duplicatesStats.potential_space_savings_gb || 0 }} GB</div>
+                            <div class="stat-label">Potential Savings</div>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="filter-bar mb-md">
+                        <div class="filter-group">
+                            <label>Type:</label>
+                            <select v-model="duplicatesFilter.similarity_type" @change="applyDuplicatesFilter">
+                                <option :value="null">All Types</option>
+                                <option value="exact">Exact Matches</option>
+                                <option value="perceptual">Similar Images</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Status:</label>
+                            <select v-model="duplicatesFilter.reviewed" @change="applyDuplicatesFilter">
+                                <option :value="null">All</option>
+                                <option :value="false">Needs Review</option>
+                                <option :value="true">Reviewed</option>
+                            </select>
+                        </div>
+                        <button v-if="duplicatesFilter.similarity_type || duplicatesFilter.reviewed !== null"
+                                @click="clearDuplicatesFilter"
+                                class="btn-secondary btn-small">
+                            Clear Filters
+                        </button>
+                    </div>
+
+                    <!-- Loading State -->
+                    <div v-if="duplicatesLoading && duplicateGroups.length === 0" class="text-center p-lg">
+                        <div class="spinner"></div>
+                        <p class="text-secondary mt-md">Loading duplicate groups...</p>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div v-else-if="duplicateGroups.length === 0 && !duplicatesLoading" class="text-center p-lg">
+                        <p class="text-secondary">No duplicates found. Run "Find Duplicates" to detect duplicate images.</p>
+                    </div>
+
+                    <!-- Duplicate Groups Grid -->
+                    <div v-else class="duplicates-grid">
+                        <div v-for="group in duplicateGroups" :key="group.id"
+                             class="duplicate-group-card"
+                             :class="{ 'reviewed': group.reviewed }"
+                             @click="selectDuplicateGroup(group)">
+                            <div class="group-header">
+                                <span :class="['badge', getSimilarityClass(group.similarity_type)]">
+                                    {{ getSimilarityLabel(group.similarity_type) }}
+                                </span>
+                                <span class="member-count">{{ group.member_count }} images</span>
+                            </div>
+                            <div class="group-thumbnails">
+                                <div v-for="member in group.members.slice(0, 4)" :key="member.image_id" class="group-thumb">
+                                    <img :src="getDuplicateThumbnailUrl(member)"
+                                         :alt="member.source_path"
+                                         loading="lazy" />
+                                    <span v-if="member.is_primary" class="primary-badge" title="Primary image">★</span>
+                                </div>
+                                <div v-if="group.member_count > 4" class="more-count">
+                                    +{{ group.member_count - 4 }}
+                                </div>
+                            </div>
+                            <div class="group-footer">
+                                <span v-if="group.reviewed" class="reviewed-badge">✓ Reviewed</span>
+                                <span class="confidence">{{ (group.confidence * 100).toFixed(0) }}% match</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Load More -->
+                    <div v-if="hasMoreDuplicates() && !duplicatesLoading" class="load-more-container">
+                        <button @click="loadDuplicates(false)" class="btn-secondary">
+                            Load More ({{ formatNumber(duplicatesTotal - duplicateGroups.length) }} remaining)
+                        </button>
+                    </div>
+
+                    <!-- Loading More Indicator -->
+                    <div v-if="duplicatesLoading && duplicateGroups.length > 0" class="loading-more">
+                        <div class="spinner"></div>
+                        <span>Loading more...</span>
+                    </div>
+                </div>
+
+                <!-- Duplicate Group Detail Modal -->
+                <div v-if="selectedDuplicateGroup" class="modal-overlay" @click="closeDuplicateGroup">
+                    <div class="modal-content modal-large" @click.stop>
+                        <div class="modal-header">
+                            <h3>Duplicate Group Details</h3>
+                            <button @click="closeDuplicateGroup" class="modal-close">×</button>
+                        </div>
+                        <div class="duplicate-detail-content">
+                            <div class="detail-header">
+                                <span :class="['badge', getSimilarityClass(selectedDuplicateGroup.similarity_type)]">
+                                    {{ getSimilarityLabel(selectedDuplicateGroup.similarity_type) }}
+                                </span>
+                                <span class="member-count">{{ selectedDuplicateGroup.member_count }} images</span>
+                                <span class="confidence">{{ (selectedDuplicateGroup.confidence * 100).toFixed(0) }}% similarity</span>
+                            </div>
+                            <div class="duplicate-members-grid">
+                                <div v-for="member in selectedDuplicateGroup.members" :key="member.image_id"
+                                     class="duplicate-member"
+                                     :class="{ 'is-primary': member.is_primary }">
+                                    <div class="member-image">
+                                        <img :src="getDuplicateThumbnailUrl(member)" :alt="member.source_path" />
+                                        <span v-if="member.is_primary" class="primary-badge">★ Primary</span>
+                                    </div>
+                                    <div class="member-info">
+                                        <div class="member-path" :title="member.source_path">
+                                            {{ member.source_path.split('/').pop() }}
+                                        </div>
+                                        <div class="member-details">
+                                            <span>{{ formatFileSize(member.size_bytes) }}</span>
+                                            <span v-if="member.dates && member.dates.selected_date">
+                                                {{ formatDate(member.dates.selected_date) }}
+                                            </span>
+                                        </div>
+                                        <div class="member-similarity">
+                                            Similarity: {{ member.similarity_score || 100 }}%
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button @click="closeDuplicateGroup" class="btn-secondary">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Analyze Form Modal -->
         <div v-if="showAnalyzeForm" class="modal-overlay" @click="showAnalyzeForm = false">
             <div class="modal-content" @click.stop>
@@ -1237,6 +1479,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=22"></script>
+    <script src="/static/app.js?v=28"></script>
 </body>
 </html>

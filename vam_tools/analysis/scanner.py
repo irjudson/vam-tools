@@ -277,9 +277,9 @@ class ImageScannerORM:
             # Track this checksum for the current batch
             batch_checksums.add(image_record.checksum)
 
-            # Generate thumbnail if needed
+            # Generate thumbnail for images and videos
             thumbnail_path = None
-            if image_record.file_type == FileType.IMAGE:
+            if image_record.file_type in (FileType.IMAGE, FileType.VIDEO):
                 try:
                     thumbnail_full_path = get_thumbnail_path(
                         image_record.checksum,

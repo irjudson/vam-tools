@@ -18,6 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 from ..jobs.celery_app import app as celery_app
 from ..jobs.tasks import (
     analyze_catalog_task,
+    detect_duplicates_task,
     generate_thumbnails_task,
     organize_catalog_task,
 )
@@ -99,6 +100,21 @@ class ThumbnailJobRequest(BaseModel):
     )
     quality: int = Field(default=85, ge=1, le=100, description="JPEG quality")
     force: bool = Field(default=False, description="Regenerate existing thumbnails")
+
+
+class DuplicateDetectionJobRequest(BaseModel):
+    """Request to start a duplicate detection job."""
+
+    catalog_id: str = Field(description="Catalog UUID")
+    similarity_threshold: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Max Hamming distance for similar images (lower=stricter)",
+    )
+    recompute_hashes: bool = Field(
+        default=False, description="Force recomputation of perceptual hashes"
+    )
 
 
 class JobResponse(BaseModel):
@@ -264,6 +280,57 @@ async def submit_thumbnail_job(request: ThumbnailJobRequest) -> JobResponse:
 
     except Exception as e:
         logger.error(f"Failed to submit thumbnail job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/detect-duplicates", response_model=JobResponse)
+async def submit_duplicate_detection_job(
+    request: DuplicateDetectionJobRequest,
+) -> JobResponse:
+    """
+    Submit a duplicate detection job.
+
+    Analyzes images to find exact and perceptual duplicates using
+    checksums and perceptual hashing (dHash, aHash, wHash).
+
+    Example:
+        ```bash
+        curl -X POST http://localhost:8000/api/jobs/detect-duplicates \\
+          -H "Content-Type: application/json" \\
+          -d '{
+            "catalog_id": "bd40ca52-c3f7-4877-9c97-1c227389c8c4",
+            "similarity_threshold": 5
+          }'
+        ```
+    """
+    try:
+        task = detect_duplicates_task.delay(
+            catalog_id=request.catalog_id,
+            similarity_threshold=request.similarity_threshold,
+            recompute_hashes=request.recompute_hashes,
+        )
+
+        logger.info(f"Submitted duplicate detection job: {task.id}")
+
+        # Track job for history
+        _track_job(
+            task.id,
+            "detect_duplicates",
+            {
+                "catalog_id": request.catalog_id,
+                "similarity_threshold": request.similarity_threshold,
+                "recompute_hashes": request.recompute_hashes,
+            },
+        )
+
+        return JobResponse(
+            job_id=task.id,
+            status="PENDING",
+            message="Duplicate detection job submitted successfully",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to submit duplicate detection job: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -499,6 +566,14 @@ async def rerun_job(job_id: str) -> Dict[str, Any]:
                 "job_id": task.id,
                 "status": "PENDING",
                 "message": "Thumbnail generation job resubmitted successfully",
+            }
+        elif job_type == "detect_duplicates":
+            task = detect_duplicates_task.delay(**params)
+            _track_job(task.id, job_type, params)
+            return {
+                "job_id": task.id,
+                "status": "PENDING",
+                "message": "Duplicate detection job resubmitted successfully",
             }
         else:
             raise HTTPException(status_code=400, detail=f"Unknown job type: {job_type}")

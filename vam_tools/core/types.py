@@ -153,6 +153,13 @@ class ImageMetadata(BaseModel):
     # GPS information
     gps_latitude: Optional[float] = None
     gps_longitude: Optional[float] = None
+    gps_altitude: Optional[float] = None
+
+    # Additional EXIF fields
+    orientation: Optional[int] = None
+    flash: Optional[int] = None
+    artist: Optional[str] = None
+    copyright: Optional[str] = None
 
     # Perceptual hashes for duplicate detection
     perceptual_hash_dhash: Optional[str] = None

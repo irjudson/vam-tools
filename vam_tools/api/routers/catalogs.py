@@ -2,10 +2,12 @@
 
 import logging
 import uuid
+from datetime import datetime
+from math import cos, radians
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -181,41 +183,39 @@ def list_catalog_images(
         conditions.append("file_type = :file_type")
         params["file_type"] = file_type
 
-    # Camera make filter (from EXIF data)
+    # Camera make filter (from top-level metadata)
     if camera_make:
-        conditions.append("metadata->'exif'->>'EXIF:Make' = :camera_make")
+        conditions.append("metadata->>'camera_make' = :camera_make")
         params["camera_make"] = camera_make
 
-    # Camera model filter (from EXIF data)
+    # Camera model filter (from top-level metadata)
     if camera_model:
-        conditions.append("metadata->'exif'->>'EXIF:Model' = :camera_model")
+        conditions.append("metadata->>'camera_model' = :camera_model")
         params["camera_model"] = camera_model
 
-    # Lens filter (from EXIF data)
+    # Lens filter (from top-level metadata)
     if lens:
-        conditions.append("metadata->'exif'->>'EXIF:LensModel' = :lens")
+        conditions.append("metadata->>'lens_model' = :lens")
         params["lens"] = lens
 
-    # Focal length filter (from EXIF data, rounded)
+    # Focal length filter (from top-level metadata, rounded)
     if focal_length:
-        conditions.append(
-            "ROUND((metadata->'exif'->>'EXIF:FocalLength')::numeric) = :focal_length"
-        )
+        conditions.append("ROUND((metadata->>'focal_length')::numeric) = :focal_length")
         params["focal_length"] = int(focal_length)
 
-    # F-stop/aperture filter (from EXIF data)
+    # F-stop/aperture filter (from top-level metadata)
     if f_stop:
-        conditions.append("metadata->'exif'->>'EXIF:FNumber' = :f_stop")
-        params["f_stop"] = f_stop
+        conditions.append("(metadata->>'aperture')::float = :f_stop")
+        params["f_stop"] = float(f_stop)
 
-    # GPS filter (from EXIF data)
+    # GPS filter (from top-level metadata)
     if has_gps is True:
         conditions.append(
-            "metadata->'exif'->>'EXIF:GPSLatitude' IS NOT NULL AND metadata->'exif'->>'EXIF:GPSLongitude' IS NOT NULL"
+            "metadata->>'gps_latitude' IS NOT NULL AND (metadata->>'gps_latitude')::float != 0"
         )
     elif has_gps is False:
         conditions.append(
-            "(metadata->'exif'->>'EXIF:GPSLatitude' IS NULL OR metadata->'exif'->>'EXIF:GPSLongitude' IS NULL)"
+            "(metadata->>'gps_latitude' IS NULL OR (metadata->>'gps_latitude')::float = 0)"
         )
 
     # Date range filters
@@ -261,6 +261,7 @@ def list_catalog_images(
             size_bytes,
             dates,
             metadata,
+            thumbnail_path,
             created_at
         FROM images
         WHERE {where_clause}
@@ -283,6 +284,7 @@ def list_catalog_images(
                 "size_bytes": row_dict["size_bytes"],
                 "dates": row_dict["dates"],
                 "metadata": row_dict["metadata"],
+                "thumbnail_path": row_dict["thumbnail_path"],
                 "created_at": (
                     row_dict["created_at"].isoformat()
                     if row_dict["created_at"]
@@ -326,14 +328,14 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
 
     catalog_id_str = str(catalog_id)
 
-    # Get distinct camera makes (from EXIF data)
+    # Get distinct camera makes (from top-level metadata)
     camera_makes_query = text(
         """
-        SELECT DISTINCT metadata->'exif'->>'EXIF:Make' as camera_make
+        SELECT DISTINCT metadata->>'camera_make' as camera_make
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->'exif'->>'EXIF:Make' IS NOT NULL
-            AND metadata->'exif'->>'EXIF:Make' != ''
+            AND metadata->>'camera_make' IS NOT NULL
+            AND metadata->>'camera_make' != ''
         ORDER BY camera_make
         """
     )
@@ -341,14 +343,14 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         row[0] for row in db.execute(camera_makes_query, {"catalog_id": catalog_id_str})
     ]
 
-    # Get distinct camera models (from EXIF data)
+    # Get distinct camera models (from top-level metadata)
     camera_models_query = text(
         """
-        SELECT DISTINCT metadata->'exif'->>'EXIF:Model' as camera_model
+        SELECT DISTINCT metadata->>'camera_model' as camera_model
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->'exif'->>'EXIF:Model' IS NOT NULL
-            AND metadata->'exif'->>'EXIF:Model' != ''
+            AND metadata->>'camera_model' IS NOT NULL
+            AND metadata->>'camera_model' != ''
         ORDER BY camera_model
         """
     )
@@ -357,14 +359,14 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         for row in db.execute(camera_models_query, {"catalog_id": catalog_id_str})
     ]
 
-    # Get distinct lenses (from EXIF data)
+    # Get distinct lenses (from top-level metadata)
     lenses_query = text(
         """
-        SELECT DISTINCT metadata->'exif'->>'EXIF:LensModel' as lens_model
+        SELECT DISTINCT metadata->>'lens_model' as lens_model
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->'exif'->>'EXIF:LensModel' IS NOT NULL
-            AND metadata->'exif'->>'EXIF:LensModel' != ''
+            AND metadata->>'lens_model' IS NOT NULL
+            AND metadata->>'lens_model' != ''
         ORDER BY lens_model
         """
     )
@@ -372,15 +374,13 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         row[0] for row in db.execute(lenses_query, {"catalog_id": catalog_id_str})
     ]
 
-    # Get distinct focal lengths (from EXIF data, rounded to nearest mm)
-    # Filter out non-numeric values like "undef"
+    # Get distinct focal lengths (from top-level metadata, rounded to nearest mm)
     focal_lengths_query = text(
         """
-        SELECT DISTINCT ROUND((metadata->'exif'->>'EXIF:FocalLength')::numeric) as focal_length
+        SELECT DISTINCT ROUND((metadata->>'focal_length')::numeric) as focal_length
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->'exif'->>'EXIF:FocalLength' IS NOT NULL
-            AND metadata->'exif'->>'EXIF:FocalLength' ~ '^[0-9.]+$'
+            AND metadata->>'focal_length' IS NOT NULL
         ORDER BY focal_length
         """
     )
@@ -389,15 +389,13 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         for row in db.execute(focal_lengths_query, {"catalog_id": catalog_id_str})
     ]
 
-    # Get distinct f-stops/apertures (from EXIF data)
-    # Filter out non-numeric values like "undef"
+    # Get distinct f-stops/apertures (from top-level metadata)
     f_stops_query = text(
         """
-        SELECT DISTINCT (metadata->'exif'->>'EXIF:FNumber')::float as f_stop
+        SELECT DISTINCT (metadata->>'aperture')::float as f_stop
         FROM images
         WHERE catalog_id = :catalog_id
-            AND metadata->'exif'->>'EXIF:FNumber' IS NOT NULL
-            AND metadata->'exif'->>'EXIF:FNumber' ~ '^[0-9.]+$'
+            AND metadata->>'aperture' IS NOT NULL
         ORDER BY f_stop
         """
     )
@@ -435,12 +433,14 @@ def get_filter_options(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
         for row in db.execute(file_types_query, {"catalog_id": catalog_id_str})
     }
 
-    # Get GPS stats (from EXIF data)
+    # Get GPS stats (from top-level metadata)
     gps_query = text(
         """
         SELECT
-            COUNT(*) FILTER (WHERE metadata->'exif'->>'EXIF:GPSLatitude' IS NOT NULL) as with_gps,
-            COUNT(*) FILTER (WHERE metadata->'exif'->>'EXIF:GPSLatitude' IS NULL) as without_gps
+            COUNT(*) FILTER (WHERE metadata->>'gps_latitude' IS NOT NULL
+                             AND (metadata->>'gps_latitude')::float != 0) as with_gps,
+            COUNT(*) FILTER (WHERE metadata->>'gps_latitude' IS NULL
+                             OR (metadata->>'gps_latitude')::float = 0) as without_gps
         FROM images
         WHERE catalog_id = :catalog_id
         """
@@ -629,3 +629,666 @@ def get_image_thumbnail(
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=31536000"},  # Cache for 1 year
     )
+
+
+# =============================================================================
+# Map/Time View Endpoints
+# =============================================================================
+
+
+@router.get("/{catalog_id}/map/clusters")
+def get_map_clusters(
+    catalog_id: uuid.UUID,
+    precision: int = Query(4, ge=2, le=8, description="Geohash precision (2-8)"),
+    date_from: str = None,
+    date_to: str = None,
+    bounds_sw_lat: float = None,
+    bounds_sw_lon: float = None,
+    bounds_ne_lat: float = None,
+    bounds_ne_lon: float = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Get clustered image counts by geohash for map display.
+
+    Returns clusters with count, center coordinates, and geohash.
+    Precision levels:
+    - 2: ~1250km (world view)
+    - 4: ~39km (country view)
+    - 6: ~1.2km (city view)
+    - 8: ~40m (street view)
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Build date filter
+    date_conditions = []
+    params = {"catalog_id": catalog_id_str}
+
+    if date_from:
+        date_conditions.append(
+            "(dates->>'selected_date')::timestamp >= (:date_from)::timestamp"
+        )
+        params["date_from"] = date_from
+
+    if date_to:
+        date_conditions.append(
+            "(dates->>'selected_date')::timestamp <= (:date_to)::timestamp"
+        )
+        params["date_to"] = date_to
+
+    date_filter = (" AND " + " AND ".join(date_conditions)) if date_conditions else ""
+
+    # Build bounds filter
+    bounds_filter = ""
+    if all([bounds_sw_lat, bounds_sw_lon, bounds_ne_lat, bounds_ne_lon]):
+        bounds_filter = """
+            AND (metadata->>'gps_latitude')::float BETWEEN :sw_lat AND :ne_lat
+            AND (metadata->>'gps_longitude')::float BETWEEN :sw_lon AND :ne_lon
+        """
+        params.update(
+            {
+                "sw_lat": bounds_sw_lat,
+                "ne_lat": bounds_ne_lat,
+                "sw_lon": bounds_sw_lon,
+                "ne_lon": bounds_ne_lon,
+            }
+        )
+
+    # Use pre-computed geohash if available for common precisions
+    geohash_col = f"geohash_{precision}" if precision in [4, 6, 8] else None
+
+    if geohash_col:
+        # Use indexed geohash columns for efficient grouping
+        query = text(
+            f"""
+            SELECT
+                {geohash_col} as geohash,
+                COUNT(*) as count,
+                AVG((metadata->>'gps_latitude')::float) as center_lat,
+                AVG((metadata->>'gps_longitude')::float) as center_lon
+            FROM images
+            WHERE catalog_id = :catalog_id
+                AND {geohash_col} IS NOT NULL
+                {date_filter}
+                {bounds_filter}
+            GROUP BY {geohash_col}
+            ORDER BY count DESC
+            LIMIT 1000
+        """
+        )
+    else:
+        # Fallback: grid-based approximation for non-indexed precisions
+        cell_size = {
+            2: 11.0,
+            3: 3.0,
+            4: 0.7,
+            5: 0.18,
+            6: 0.04,
+            7: 0.01,
+            8: 0.003,
+        }.get(precision, 1.0)
+
+        query = text(
+            f"""
+            WITH geo_images AS (
+                SELECT
+                    (metadata->>'gps_latitude')::float as lat,
+                    (metadata->>'gps_longitude')::float as lon
+                FROM images
+                WHERE catalog_id = :catalog_id
+                    AND metadata->>'gps_latitude' IS NOT NULL
+                    AND (metadata->>'gps_latitude')::float != 0
+                    {date_filter}
+                    {bounds_filter}
+            )
+            SELECT
+                CONCAT(FLOOR(lat / {cell_size})::text, '_', FLOOR(lon / {cell_size})::text) as geohash,
+                COUNT(*) as count,
+                AVG(lat) as center_lat,
+                AVG(lon) as center_lon
+            FROM geo_images
+            GROUP BY FLOOR(lat / {cell_size}), FLOOR(lon / {cell_size})
+            ORDER BY count DESC
+            LIMIT 1000
+        """
+        )
+
+    result = db.execute(query, params)
+
+    clusters = []
+    total_photos = 0
+    for row in result:
+        row_dict = dict(row._mapping)
+        clusters.append(
+            {
+                "geohash": row_dict["geohash"],
+                "count": row_dict["count"],
+                "center_lat": float(row_dict["center_lat"]),
+                "center_lon": float(row_dict["center_lon"]),
+            }
+        )
+        total_photos += row_dict["count"]
+
+    return {
+        "clusters": clusters,
+        "total_with_gps": total_photos,
+        "precision": precision,
+    }
+
+
+@router.get("/{catalog_id}/map/timeline")
+def get_timeline_histogram(
+    catalog_id: uuid.UUID,
+    bucket_size: str = Query("month", pattern="^(day|week|month|year)$"),
+    db: Session = Depends(get_db),
+):
+    """
+    Get photo count histogram over time for the timeline slider.
+
+    Returns buckets with both total count and count_with_gps for each time period.
+    This allows the frontend to show all photos with GPS-enabled ones highlighted.
+    Filters out unrealistic dates (before 1900 or after 2100).
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Filter for realistic dates (1900 to current year + 1) to exclude corrupted metadata
+    max_year = datetime.now().year + 1
+    date_filter = f"""
+        AND (dates->>'selected_date')::timestamp >= '1900-01-01'::timestamp
+        AND (dates->>'selected_date')::timestamp <= '{max_year}-12-31'::timestamp
+    """
+
+    # Get histogram buckets with both total and GPS counts
+    query = text(
+        f"""
+        SELECT
+            DATE_TRUNC(:bucket_size, (dates->>'selected_date')::timestamp) as bucket_start,
+            COUNT(*) as count,
+            COUNT(*) FILTER (
+                WHERE metadata->>'gps_latitude' IS NOT NULL
+                AND (metadata->>'gps_latitude')::float != 0
+            ) as count_with_gps
+        FROM images
+        WHERE catalog_id = :catalog_id
+            AND dates->>'selected_date' IS NOT NULL
+            {date_filter}
+        GROUP BY bucket_start
+        ORDER BY bucket_start
+    """
+    )
+
+    result = db.execute(
+        query, {"catalog_id": catalog_id_str, "bucket_size": bucket_size}
+    )
+
+    buckets = []
+    for row in result:
+        row_dict = dict(row._mapping)
+        buckets.append(
+            {
+                "date": (
+                    row_dict["bucket_start"].isoformat()
+                    if row_dict["bucket_start"]
+                    else None
+                ),
+                "count": row_dict["count"],
+                "count_with_gps": row_dict["count_with_gps"],
+            }
+        )
+
+    # Get overall date range and totals (with same realistic date filter)
+    range_query = text(
+        f"""
+        SELECT
+            MIN((dates->>'selected_date')::timestamp) as min_date,
+            MAX((dates->>'selected_date')::timestamp) as max_date,
+            COUNT(*) as total,
+            COUNT(*) FILTER (
+                WHERE metadata->>'gps_latitude' IS NOT NULL
+                AND (metadata->>'gps_latitude')::float != 0
+            ) as total_with_gps
+        FROM images
+        WHERE catalog_id = :catalog_id
+            AND dates->>'selected_date' IS NOT NULL
+            {date_filter}
+    """
+    )
+    range_result = db.execute(range_query, {"catalog_id": catalog_id_str}).fetchone()
+
+    return {
+        "buckets": buckets,
+        "bucket_size": bucket_size,
+        "date_range": {
+            "min": (
+                range_result.min_date.isoformat() if range_result.min_date else None
+            ),
+            "max": (
+                range_result.max_date.isoformat() if range_result.max_date else None
+            ),
+        },
+        "total_images": range_result.total if range_result else 0,
+        "total_with_gps": range_result.total_with_gps if range_result else 0,
+    }
+
+
+@router.get("/{catalog_id}/map/images")
+def get_images_in_cluster(
+    catalog_id: uuid.UUID,
+    geohash: str = None,
+    lat: float = None,
+    lon: float = None,
+    radius_km: float = 1.0,
+    date_from: str = None,
+    date_to: str = None,
+    limit: int = Query(50, le=200),
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """
+    Get images within a specific geohash cell or radius from a point.
+
+    Either provide:
+    - geohash: Get images matching this geohash prefix
+    - lat/lon: Get images within radius_km of this point
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    conditions = [
+        "catalog_id = :catalog_id",
+        "metadata->>'gps_latitude' IS NOT NULL",
+        "(metadata->>'gps_latitude')::float != 0",
+    ]
+    params = {"catalog_id": catalog_id_str, "limit": limit, "offset": offset}
+
+    if geohash:
+        # Match by geohash prefix using the appropriate indexed column
+        precision = len(geohash)
+        if precision <= 4:
+            conditions.append("geohash_4 LIKE :geohash_prefix")
+            params["geohash_prefix"] = geohash[:4] + "%"
+        elif precision <= 6:
+            conditions.append("geohash_6 LIKE :geohash_prefix")
+            params["geohash_prefix"] = geohash[:6] + "%"
+        else:
+            conditions.append("geohash_8 LIKE :geohash_prefix")
+            params["geohash_prefix"] = geohash[:8] + "%"
+    elif lat is not None and lon is not None:
+        # Bounding box approximation for radius search
+        lat_delta = radius_km / 111.0  # ~111km per degree latitude
+        lon_delta = radius_km / (
+            111.0 * abs(cos(radians(lat))) + 0.001
+        )  # Adjust for longitude
+        conditions.append(
+            """
+            (metadata->>'gps_latitude')::float BETWEEN :lat_min AND :lat_max
+            AND (metadata->>'gps_longitude')::float BETWEEN :lon_min AND :lon_max
+        """
+        )
+        params.update(
+            {
+                "lat_min": lat - lat_delta,
+                "lat_max": lat + lat_delta,
+                "lon_min": lon - lon_delta,
+                "lon_max": lon + lon_delta,
+            }
+        )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Must provide either 'geohash' or 'lat' and 'lon' parameters",
+        )
+
+    # Date filters
+    if date_from:
+        conditions.append(
+            "(dates->>'selected_date')::timestamp >= (:date_from)::timestamp"
+        )
+        params["date_from"] = date_from
+
+    if date_to:
+        conditions.append(
+            "(dates->>'selected_date')::timestamp <= (:date_to)::timestamp"
+        )
+        params["date_to"] = date_to
+
+    where_clause = " AND ".join(conditions)
+
+    # Get images
+    query = text(
+        f"""
+        SELECT
+            id,
+            source_path,
+            file_type,
+            thumbnail_path,
+            (metadata->>'gps_latitude')::float as lat,
+            (metadata->>'gps_longitude')::float as lon,
+            dates->>'selected_date' as photo_date
+        FROM images
+        WHERE {where_clause}
+        ORDER BY (dates->>'selected_date')::timestamp DESC NULLS LAST
+        LIMIT :limit OFFSET :offset
+    """
+    )
+
+    result = db.execute(query, params)
+
+    images = []
+    for row in result:
+        row_dict = dict(row._mapping)
+        images.append(
+            {
+                "id": row_dict["id"],
+                "source_path": row_dict["source_path"],
+                "file_type": row_dict["file_type"],
+                "thumbnail_path": row_dict["thumbnail_path"],
+                "lat": row_dict["lat"],
+                "lon": row_dict["lon"],
+                "photo_date": row_dict["photo_date"],
+            }
+        )
+
+    # Get total count
+    count_query = text(f"SELECT COUNT(*) FROM images WHERE {where_clause}")
+    count_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+    total = db.execute(count_query, count_params).scalar()
+
+    return {
+        "images": images,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+# =============================================================================
+# Duplicate Detection Endpoints
+# =============================================================================
+
+
+@router.post("/{catalog_id}/detect-duplicates")
+def start_duplicate_detection(
+    catalog_id: uuid.UUID,
+    similarity_threshold: int = Query(
+        5, ge=1, le=20, description="Hamming distance threshold for similarity"
+    ),
+    recompute_hashes: bool = Query(
+        False, description="Force recomputation of perceptual hashes"
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Start a duplicate detection job for a catalog.
+
+    This creates a background Celery task that:
+    1. Computes perceptual hashes for all images (if not already computed)
+    2. Finds exact duplicates (same checksum)
+    3. Finds similar images (similar perceptual hash within threshold)
+    4. Scores quality and selects primary (best) image in each group
+    5. Saves duplicate groups to database
+
+    Args:
+        similarity_threshold: Maximum Hamming distance for images to be considered similar (1-20).
+                              Lower values are more strict. Default 5 means ~92% similar.
+        recompute_hashes: Force recomputation of perceptual hashes even if already computed.
+
+    Returns:
+        Job information with task ID to track progress.
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    # Import Celery task
+    from ...db.models import Job
+    from ...jobs.tasks import detect_duplicates_task
+
+    # Generate job ID upfront (used as both DB id and Celery task id)
+    job_id = str(uuid.uuid4())
+
+    # Create job record
+    job = Job(
+        id=job_id,
+        catalog_id=catalog_id,
+        job_type="detect_duplicates",
+        status="pending",
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # Start Celery task with same ID
+    task = detect_duplicates_task.apply_async(
+        kwargs={
+            "catalog_id": str(catalog_id),
+            "similarity_threshold": similarity_threshold,
+            "recompute_hashes": recompute_hashes,
+        },
+        task_id=job_id,
+    )
+
+    logger.info(
+        f"Started duplicate detection job {job.id} for catalog {catalog_id} "
+        f"(threshold={similarity_threshold}, recompute={recompute_hashes})"
+    )
+
+    return {
+        "job_id": str(job.id),
+        "task_id": task.id,
+        "status": "pending",
+        "message": f"Duplicate detection started for catalog {catalog.name}",
+    }
+
+
+@router.get("/{catalog_id}/duplicates")
+def list_duplicate_groups(
+    catalog_id: uuid.UUID,
+    limit: int = Query(50, le=200),
+    offset: int = 0,
+    reviewed: bool = None,
+    similarity_type: str = None,  # "exact" or "perceptual"
+    db: Session = Depends(get_db),
+):
+    """
+    List duplicate groups in a catalog.
+
+    Returns groups with their member images, similarity scores, and review status.
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Build query conditions
+    conditions = ["dg.catalog_id = :catalog_id"]
+    params = {"catalog_id": catalog_id_str, "limit": limit, "offset": offset}
+
+    if reviewed is not None:
+        conditions.append("dg.reviewed = :reviewed")
+        params["reviewed"] = reviewed
+
+    if similarity_type:
+        conditions.append("dg.similarity_type = :similarity_type")
+        params["similarity_type"] = similarity_type
+
+    where_clause = " AND ".join(conditions)
+
+    # Get duplicate groups with member count
+    query = text(
+        f"""
+        SELECT
+            dg.id,
+            dg.primary_image_id,
+            dg.similarity_type,
+            dg.confidence,
+            dg.reviewed,
+            dg.created_at,
+            COUNT(dm.image_id) as member_count
+        FROM duplicate_groups dg
+        LEFT JOIN duplicate_members dm ON dm.group_id = dg.id
+        WHERE {where_clause}
+        GROUP BY dg.id
+        ORDER BY member_count DESC, dg.created_at DESC
+        LIMIT :limit OFFSET :offset
+    """
+    )
+
+    result = db.execute(query, params)
+
+    groups = []
+    for row in result:
+        row_dict = dict(row._mapping)
+        group_id = row_dict["id"]
+
+        # Get members for this group
+        members_query = text(
+            """
+            SELECT
+                dm.image_id,
+                dm.similarity_score,
+                i.source_path,
+                i.file_type,
+                i.size_bytes,
+                i.metadata,
+                i.dates
+            FROM duplicate_members dm
+            JOIN images i ON i.id = dm.image_id AND i.catalog_id = :catalog_id
+            WHERE dm.group_id = :group_id
+            ORDER BY dm.similarity_score DESC
+        """
+        )
+        members_result = db.execute(
+            members_query, {"group_id": group_id, "catalog_id": catalog_id_str}
+        )
+
+        members = []
+        for member_row in members_result:
+            member_dict = dict(member_row._mapping)
+            members.append(
+                {
+                    "image_id": member_dict["image_id"],
+                    "similarity_score": member_dict["similarity_score"],
+                    "source_path": member_dict["source_path"],
+                    "file_type": member_dict["file_type"],
+                    "size_bytes": member_dict["size_bytes"],
+                    "is_primary": member_dict["image_id"]
+                    == row_dict["primary_image_id"],
+                    "metadata": member_dict["metadata"],
+                    "dates": member_dict["dates"],
+                }
+            )
+
+        groups.append(
+            {
+                "id": group_id,
+                "primary_image_id": row_dict["primary_image_id"],
+                "similarity_type": row_dict["similarity_type"],
+                "confidence": row_dict["confidence"],
+                "reviewed": row_dict["reviewed"],
+                "created_at": (
+                    row_dict["created_at"].isoformat()
+                    if row_dict["created_at"]
+                    else None
+                ),
+                "member_count": row_dict["member_count"],
+                "members": members,
+            }
+        )
+
+    # Get total count
+    count_query = text(f"SELECT COUNT(*) FROM duplicate_groups dg WHERE {where_clause}")
+    count_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+    total = db.execute(count_query, count_params).scalar()
+
+    # Get summary stats
+    stats_query = text(
+        """
+        SELECT
+            COUNT(*) as total_groups,
+            COUNT(*) FILTER (WHERE reviewed = true) as reviewed_groups,
+            COUNT(*) FILTER (WHERE similarity_type = 'exact') as exact_groups,
+            COUNT(*) FILTER (WHERE similarity_type = 'perceptual') as perceptual_groups
+        FROM duplicate_groups
+        WHERE catalog_id = :catalog_id
+    """
+    )
+    stats_result = db.execute(stats_query, {"catalog_id": catalog_id_str}).fetchone()
+
+    return {
+        "groups": groups,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "statistics": {
+            "total_groups": stats_result.total_groups if stats_result else 0,
+            "reviewed_groups": stats_result.reviewed_groups if stats_result else 0,
+            "exact_groups": stats_result.exact_groups if stats_result else 0,
+            "perceptual_groups": stats_result.perceptual_groups if stats_result else 0,
+        },
+    }
+
+
+@router.get("/{catalog_id}/duplicates/stats")
+def get_duplicate_stats(
+    catalog_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    """
+    Get duplicate detection statistics for a catalog.
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Get comprehensive stats
+    query = text(
+        """
+        SELECT
+            COUNT(DISTINCT dg.id) as total_groups,
+            COUNT(dm.image_id) as total_duplicate_images,
+            COUNT(*) FILTER (WHERE dg.reviewed = true) as reviewed_groups,
+            COUNT(DISTINCT dg.id) FILTER (WHERE dg.similarity_type = 'exact') as exact_groups,
+            COUNT(DISTINCT dg.id) FILTER (WHERE dg.similarity_type = 'perceptual') as perceptual_groups,
+            COALESCE(SUM(i.size_bytes), 0) as duplicate_bytes
+        FROM duplicate_groups dg
+        LEFT JOIN duplicate_members dm ON dm.group_id = dg.id
+        LEFT JOIN images i ON i.id = dm.image_id AND i.catalog_id = :catalog_id
+            AND i.id != dg.primary_image_id  -- Only count non-primary images for space savings
+        WHERE dg.catalog_id = :catalog_id
+    """
+    )
+    result = db.execute(query, {"catalog_id": catalog_id_str}).fetchone()
+
+    return {
+        "catalog_id": catalog_id_str,
+        "total_groups": result.total_groups if result else 0,
+        "total_duplicate_images": result.total_duplicate_images if result else 0,
+        "reviewed_groups": result.reviewed_groups if result else 0,
+        "exact_groups": result.exact_groups if result else 0,
+        "perceptual_groups": result.perceptual_groups if result else 0,
+        "potential_space_savings_bytes": result.duplicate_bytes if result else 0,
+        "potential_space_savings_gb": round(
+            (result.duplicate_bytes or 0) / (1024**3), 2
+        ),
+    }

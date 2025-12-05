@@ -23,6 +23,8 @@ RUN apt-get update && apt-get install -y \
     libtiff-dev \
     libwebp-dev \
     libheif-dev \
+    # Video processing
+    ffmpeg \
     # Build tools
     gcc \
     g++ \

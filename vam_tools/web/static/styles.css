@@ -2166,3 +2166,552 @@ section h3 {
         grid-column: span 1;
     }
 }
+
+/* ============================================
+   Map/Time View Styles
+   ============================================ */
+
+.maptime-wrapper {
+    padding: 0 !important;
+    max-width: none !important;
+}
+
+.maptime-container {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 80px);
+    position: relative;
+}
+
+.map-section {
+    flex: 1;
+    position: relative;
+    min-height: 400px;
+}
+
+.photo-map {
+    width: 100%;
+    height: 100%;
+    background: #1e293b;
+}
+
+.map-controls {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    z-index: 1000;
+}
+
+.map-stats {
+    background: rgba(15, 23, 42, 0.95);
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.875rem;
+    border: 1px solid #334155;
+}
+
+.map-stats .stat {
+    color: #94a3b8;
+}
+
+/* Timeline Section */
+.timeline-section {
+    background: #1e293b;
+    border-top: 1px solid #334155;
+    padding: 1rem 1.5rem 1.5rem;
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.timeline-header h3 {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.date-display {
+    font-size: 0.875rem;
+    color: #60a5fa;
+    font-weight: 500;
+}
+
+.timeline-totals {
+    font-size: 0.75rem;
+    color: #64748b;
+}
+
+.timeline-histogram {
+    height: 60px;
+    margin-bottom: 0.5rem;
+    position: relative;
+}
+
+.timeline-histogram canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.timeline-slider {
+    margin: 0.5rem 0.5rem 0;
+}
+
+/* noUiSlider dark theme overrides */
+.noUi-target {
+    background: #334155;
+    border: none;
+    box-shadow: none;
+    border-radius: 4px;
+}
+
+.noUi-connect {
+    background: rgba(96, 165, 250, 0.5);
+}
+
+.noUi-handle {
+    background: #60a5fa;
+    border: none;
+    border-radius: 50%;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    cursor: ew-resize;
+    width: 18px !important;
+    height: 18px !important;
+    right: -9px !important;
+    top: -6px !important;
+}
+
+.noUi-handle:before,
+.noUi-handle:after {
+    display: none;
+}
+
+.noUi-handle:hover {
+    background: #93c5fd;
+}
+
+.noUi-horizontal {
+    height: 6px;
+}
+
+/* Cluster Preview Panel */
+.cluster-preview-panel {
+    position: absolute;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 320px;
+    max-height: 60%;
+    background: rgba(15, 23, 42, 0.97);
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    z-index: 1001;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+.cluster-preview-panel .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #334155;
+}
+
+.cluster-preview-panel .panel-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #e2e8f0;
+}
+
+.cluster-preview-panel .close-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+}
+
+.cluster-preview-panel .close-btn:hover {
+    background: #334155;
+    color: #e2e8f0;
+}
+
+.cluster-thumbnails {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.25rem;
+    padding: 0.5rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.cluster-thumb {
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: transform 0.15s, opacity 0.15s;
+}
+
+.cluster-thumb:hover {
+    transform: scale(1.05);
+    z-index: 1;
+}
+
+.cluster-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.cluster-loading {
+    padding: 1rem;
+    display: flex;
+    justify-content: center;
+}
+
+.cluster-preview-panel .load-more {
+    padding: 0.75rem;
+    border-top: 1px solid #334155;
+    display: flex;
+    justify-content: center;
+}
+
+/* Custom cluster markers */
+.marker-cluster {
+    background-clip: padding-box;
+    border-radius: 20px;
+}
+
+.marker-cluster div {
+    width: 30px;
+    height: 30px;
+    margin: 5px;
+    border-radius: 15px;
+    font: bold 12px/30px sans-serif;
+    text-align: center;
+}
+
+.marker-cluster-small {
+    background: rgba(96, 165, 250, 0.6);
+}
+.marker-cluster-small div {
+    background: rgba(96, 165, 250, 0.9);
+    color: white;
+}
+
+.marker-cluster-medium {
+    background: rgba(251, 191, 36, 0.6);
+}
+.marker-cluster-medium div {
+    background: rgba(251, 191, 36, 0.9);
+    color: #1e293b;
+}
+
+.marker-cluster-large {
+    background: rgba(239, 68, 68, 0.6);
+}
+.marker-cluster-large div {
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+}
+
+/* Leaflet popup dark theme */
+.leaflet-popup-content-wrapper {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 0.5rem;
+}
+
+.leaflet-popup-tip {
+    background: #1e293b;
+}
+
+.leaflet-popup-close-button {
+    color: #94a3b8 !important;
+}
+
+/* Leaflet controls dark theme */
+.leaflet-control-zoom a {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border-color: #334155 !important;
+}
+
+.leaflet-control-zoom a:hover {
+    background: #334155 !important;
+}
+
+.leaflet-control-attribution {
+    background: rgba(15, 23, 42, 0.8) !important;
+    color: #64748b !important;
+}
+
+.leaflet-control-attribution a {
+    color: #60a5fa !important;
+}
+
+/* Responsive map adjustments */
+@media (max-width: 768px) {
+    .cluster-preview-panel {
+        position: fixed;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        top: auto;
+        transform: none;
+        width: 100%;
+        max-height: 50%;
+        border-radius: 0.5rem 0.5rem 0 0;
+    }
+
+    .cluster-thumbnails {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+/* ============================================
+   Duplicates View Styles
+   ============================================ */
+
+.duplicates-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.duplicates-header h2 {
+    margin: 0;
+}
+
+.filter-bar {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    padding: 1rem;
+    background: #1e293b;
+    border-radius: 0.5rem;
+}
+
+.filter-bar .filter-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.filter-bar label {
+    color: #94a3b8;
+    font-size: 0.875rem;
+}
+
+.filter-bar select {
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+}
+
+/* Duplicates Grid */
+.duplicates-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.duplicate-group-card {
+    background: #1e293b;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 2px solid transparent;
+}
+
+.duplicate-group-card:hover {
+    border-color: #60a5fa;
+    transform: translateY(-2px);
+}
+
+.duplicate-group-card.reviewed {
+    opacity: 0.7;
+    border-color: #22c55e33;
+}
+
+.group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.group-header .badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.badge-exact {
+    background: #ef444433;
+    color: #f87171;
+}
+
+.badge-perceptual {
+    background: #f9731633;
+    color: #fb923c;
+}
+
+.member-count {
+    color: #94a3b8;
+    font-size: 0.875rem;
+}
+
+.group-thumbnails {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.group-thumb {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 0.375rem;
+    overflow: hidden;
+}
+
+.group-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.group-thumb .primary-badge {
+    position: absolute;
+    top: 0.25rem;
+    left: 0.25rem;
+    background: #22c55e;
+    color: white;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem;
+    font-size: 0.625rem;
+}
+
+.more-count {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #334155;
+    border-radius: 0.375rem;
+    color: #94a3b8;
+    font-size: 0.875rem;
+}
+
+.group-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.reviewed-badge {
+    color: #22c55e;
+    font-size: 0.75rem;
+}
+
+.confidence {
+    color: #64748b;
+    font-size: 0.75rem;
+}
+
+/* Duplicate Detail Modal */
+.duplicate-detail-content {
+    padding: 1rem 0;
+}
+
+.detail-header {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #334155;
+    margin-bottom: 1rem;
+}
+
+.duplicate-members-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.duplicate-member {
+    background: #0f172a;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 2px solid transparent;
+}
+
+.duplicate-member.is-primary {
+    border-color: #22c55e;
+}
+
+.member-image {
+    position: relative;
+    aspect-ratio: 1;
+}
+
+.member-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.member-image .primary-badge {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    background: #22c55e;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+}
+
+.member-info {
+    padding: 0.75rem;
+}
+
+.member-path {
+    font-size: 0.875rem;
+    color: #e2e8f0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0.25rem;
+}
+
+.member-details {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    display: flex;
+    gap: 0.75rem;
+}
+
+.member-similarity {
+    font-size: 0.75rem;
+    color: #60a5fa;
+    margin-top: 0.25rem;
+}

@@ -94,6 +94,11 @@ class Image(Base):
     dhash = Column(Text)
     ahash = Column(Text)
 
+    # Geohash columns for spatial queries (populated for images with GPS)
+    geohash_4 = Column(String(4))  # ~39km precision (country view)
+    geohash_6 = Column(String(6))  # ~1.2km precision (city view)
+    geohash_8 = Column(String(8))  # ~40m precision (street view)
+
     # Analysis results
     quality_score = Column(Integer)
     status = Column(String, default="pending")

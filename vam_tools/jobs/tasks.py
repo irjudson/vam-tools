@@ -17,9 +17,11 @@ from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
 from celery import Task
+from sqlalchemy import text
 
 from vam_tools.core.types import FileType, ImageRecord, ImageStatus
 
+from ..analysis.duplicate_detector import DuplicateDetector
 from ..analysis.scanner import _process_file_worker
 from ..db import CatalogDB as CatalogDatabase
 from ..organization import FileOrganizer, OrganizationStrategy
@@ -835,6 +837,125 @@ def organize_catalog_task(
 
     except Exception as e:
         logger.error(f"Organization failed: {e}", exc_info=True)
+        self.update_state(
+            state="FAILURE",
+            meta={
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
+        raise
+
+
+@app.task(bind=True, base=ProgressTask, name="detect_duplicates")
+def detect_duplicates_task(
+    self: ProgressTask,
+    catalog_id: str,
+    similarity_threshold: int = 5,
+    recompute_hashes: bool = False,
+) -> Dict[str, Any]:
+    """
+    Detect duplicate images in a catalog using perceptual hashing.
+
+    This task:
+    - Computes perceptual hashes for all images (if not already computed)
+    - Finds exact duplicates (same checksum)
+    - Finds similar images (similar perceptual hash within threshold)
+    - Scores quality and selects primary (best) image in each group
+    - Saves duplicate groups to database
+
+    Args:
+        catalog_id: UUID of the catalog to analyze
+        similarity_threshold: Maximum Hamming distance for similar images (default: 5)
+        recompute_hashes: Force recomputation of perceptual hashes
+
+    Returns:
+        Dictionary with duplicate detection statistics
+    """
+    logger.info(f"Starting duplicate detection for catalog {catalog_id}")
+
+    try:
+        self.update_progress(
+            0, 1, "Initializing duplicate detection...", {"phase": "init"}
+        )
+
+        with CatalogDatabase(catalog_id) as db:
+            # Get total image count for progress reporting
+            result = db.session.execute(
+                text("SELECT COUNT(*) FROM images WHERE catalog_id = :catalog_id"),
+                {"catalog_id": catalog_id},
+            )
+            total_images = result.scalar() or 0
+
+            self.update_progress(
+                0,
+                total_images,
+                f"Analyzing {total_images} images...",
+                {"phase": "analyzing", "total_images": total_images},
+            )
+
+            # Initialize duplicate detector with single-threaded mode
+            # (Celery workers are daemon processes and can't spawn child processes)
+            detector = DuplicateDetector(
+                catalog=db,
+                similarity_threshold=similarity_threshold,
+                num_workers=1,  # Single-threaded to avoid "daemonic processes" error
+            )
+
+            # Phase 1: Compute perceptual hashes
+            self.update_progress(
+                0,
+                total_images,
+                "Computing perceptual hashes...",
+                {"phase": "hashing"},
+            )
+
+            # Run duplicate detection
+            duplicate_groups = detector.detect_duplicates(
+                recompute_hashes=recompute_hashes
+            )
+
+            self.update_progress(
+                total_images // 2,
+                total_images,
+                f"Found {len(duplicate_groups)} duplicate groups, saving...",
+                {"phase": "saving", "groups_found": len(duplicate_groups)},
+            )
+
+            # Save duplicate groups to database
+            detector.save_duplicate_groups()
+
+            # Also save any problematic files encountered
+            detector.save_problematic_files()
+
+            # Commit changes
+            db.save()
+
+            # Get final statistics
+            stats = detector.get_statistics()
+
+            self.update_progress(
+                total_images,
+                total_images,
+                f"Complete: {stats['total_groups']} groups, {stats['total_redundant']} redundant images",
+                {"phase": "complete", "statistics": stats},
+            )
+
+            logger.info(
+                f"Duplicate detection complete for {catalog_id}: "
+                f"{stats['total_groups']} groups, {stats['total_redundant']} redundant images"
+            )
+
+            return {
+                "status": "completed",
+                "catalog_id": catalog_id,
+                "total_images": total_images,
+                "similarity_threshold": similarity_threshold,
+                **stats,
+            }
+
+    except Exception as e:
+        logger.error(f"Duplicate detection failed: {e}", exc_info=True)
         self.update_state(
             state="FAILURE",
             meta={

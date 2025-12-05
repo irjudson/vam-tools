@@ -40,6 +40,11 @@ CREATE TABLE IF NOT EXISTS images (
     dhash TEXT,                             -- Difference hash (for duplicates)
     ahash TEXT,                             -- Average hash (for duplicates)
 
+    -- Geohash columns for spatial queries (populated for images with GPS)
+    geohash_4 VARCHAR(4),                   -- ~39km precision (country view)
+    geohash_6 VARCHAR(6),                   -- ~1.2km precision (city view)
+    geohash_8 VARCHAR(8),                   -- ~40m precision (street view)
+
     -- Analysis results
     quality_score INTEGER,                  -- 0-100
     status TEXT DEFAULT 'pending',          -- pending, complete, error
@@ -60,6 +65,11 @@ CREATE INDEX IF NOT EXISTS idx_images_ahash ON images(ahash);
 CREATE INDEX IF NOT EXISTS idx_images_status ON images(status);
 CREATE INDEX IF NOT EXISTS idx_images_dates ON images USING GIN (dates);
 CREATE INDEX IF NOT EXISTS idx_images_metadata ON images USING GIN (metadata);
+
+-- Geohash indexes for spatial queries
+CREATE INDEX IF NOT EXISTS idx_images_geohash_4 ON images(catalog_id, geohash_4) WHERE geohash_4 IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_images_geohash_6 ON images(catalog_id, geohash_6) WHERE geohash_6 IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_images_geohash_8 ON images(catalog_id, geohash_8) WHERE geohash_8 IS NOT NULL;
 
 -- ============================================================================
 -- TAGS TABLE

@@ -71,23 +71,64 @@ class MetadataExtractor:
                 exif_data = self._extract_exif(file_path)
                 metadata.exif = exif_data
 
-                # Extract camera information
-                metadata.camera_make = exif_data.get("Make")
-                metadata.camera_model = exif_data.get("Model")
-                metadata.lens_model = exif_data.get("LensModel")
+                # Extract camera information (ExifTool uses prefixes like "EXIF:")
+                metadata.camera_make = exif_data.get("EXIF:Make") or exif_data.get(
+                    "Make"
+                )
+                metadata.camera_model = exif_data.get("EXIF:Model") or exif_data.get(
+                    "Model"
+                )
+                metadata.lens_model = (
+                    exif_data.get("EXIF:LensModel")
+                    or exif_data.get("Composite:LensID")
+                    or exif_data.get("LensModel")
+                )
 
                 # Extract camera settings
-                metadata.focal_length = self._parse_float(exif_data.get("FocalLength"))
-                metadata.aperture = self._parse_float(exif_data.get("FNumber"))
-                metadata.shutter_speed = exif_data.get("ShutterSpeed") or exif_data.get(
-                    "ExposureTime"
+                metadata.focal_length = self._parse_float(
+                    exif_data.get("EXIF:FocalLength") or exif_data.get("FocalLength")
                 )
-                metadata.iso = self._parse_int(exif_data.get("ISO"))
+                metadata.aperture = self._parse_float(
+                    exif_data.get("EXIF:FNumber") or exif_data.get("FNumber")
+                )
+                metadata.shutter_speed = (
+                    exif_data.get("EXIF:ShutterSpeedValue")
+                    or exif_data.get("EXIF:ExposureTime")
+                    or exif_data.get("ShutterSpeed")
+                    or exif_data.get("ExposureTime")
+                )
+                metadata.iso = self._parse_int(
+                    exif_data.get("EXIF:ISO") or exif_data.get("ISO")
+                )
 
                 # Extract GPS information
-                metadata.gps_latitude = self._parse_float(exif_data.get("GPSLatitude"))
+                # Use Composite values which have proper sign (negative for S/W)
+                metadata.gps_latitude = self._parse_float(
+                    exif_data.get("Composite:GPSLatitude")
+                    or exif_data.get("GPSLatitude")
+                )
                 metadata.gps_longitude = self._parse_float(
-                    exif_data.get("GPSLongitude")
+                    exif_data.get("Composite:GPSLongitude")
+                    or exif_data.get("GPSLongitude")
+                )
+                metadata.gps_altitude = self._parse_float(
+                    exif_data.get("Composite:GPSAltitude")
+                    or exif_data.get("EXIF:GPSAltitude")
+                    or exif_data.get("GPSAltitude")
+                )
+
+                # Extract additional useful metadata
+                metadata.orientation = self._parse_int(
+                    exif_data.get("EXIF:Orientation") or exif_data.get("Orientation")
+                )
+                metadata.flash = self._parse_int(
+                    exif_data.get("EXIF:Flash") or exif_data.get("Flash")
+                )
+                metadata.artist = exif_data.get("EXIF:Artist") or exif_data.get(
+                    "Artist"
+                )
+                metadata.copyright = exif_data.get("EXIF:Copyright") or exif_data.get(
+                    "Copyright"
                 )
 
             # Get format and resolution

@@ -166,7 +166,12 @@ def deserialize_image_metadata(data: Dict[str, Any]) -> ImageMetadata:
         lens_model=data.get("lens_model"),
         focal_length=data.get("focal_length"),
         aperture=data.get("aperture"),
-        shutter_speed=data.get("shutter_speed"),
+        # Convert shutter_speed to string if it's a float (legacy data)
+        shutter_speed=(
+            str(data.get("shutter_speed"))
+            if data.get("shutter_speed") is not None
+            else None
+        ),
         iso=data.get("iso"),
         gps_latitude=data.get("gps_latitude"),
         gps_longitude=data.get("gps_longitude"),

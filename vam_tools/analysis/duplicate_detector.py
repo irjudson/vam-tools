@@ -101,6 +101,7 @@ class DuplicateDetector:
         gpu_batch_size: Optional[int] = None,
         use_faiss: bool = False,
         perf_tracker: Optional[PerformanceTracker] = None,
+        num_workers: Optional[int] = None,
     ):
         """
         Initialize duplicate detector.
@@ -114,6 +115,9 @@ class DuplicateDetector:
             gpu_batch_size: Batch size for GPU processing (None = auto)
             use_faiss: Enable FAISS for fast similarity search (auto-detects if None)
             perf_tracker: Optional performance tracker for collecting metrics
+            num_workers: Number of CPU workers for parallel processing.
+                         Use 1 to disable multiprocessing (for daemon processes like Celery).
+                         None (default) = auto-detect CPU count.
         """
         self.catalog = catalog
         self.similarity_threshold = similarity_threshold
@@ -125,6 +129,7 @@ class DuplicateDetector:
         ]
         self.use_gpu = use_gpu
         self.gpu_batch_size = gpu_batch_size
+        self.num_workers = num_workers if num_workers is not None else mp.cpu_count()
 
         # Auto-detect FAISS availability if not explicitly set
         if use_faiss:
@@ -392,8 +397,8 @@ class DuplicateDetector:
                     progress.advance(task)
 
         else:
-            # CPU parallel processing using multiprocessing
-            num_workers = mp.cpu_count()
+            # CPU processing (single-threaded or multiprocessing)
+            num_workers = self.num_workers
             logger.info(f"Computing hashes with {num_workers} CPU workers")
 
             with Progress(
@@ -414,14 +419,20 @@ class DuplicateDetector:
                     for idx, image in enumerate(images_to_process)
                 ]
 
-                # Process in parallel using multiprocessing pool
-                with mp.Pool(processes=num_workers) as pool:
-                    # Use imap_unordered for better performance
+                # Process: single-threaded if num_workers=1, else multiprocessing pool
+                if num_workers == 1:
+                    # Single-threaded processing (for daemon processes like Celery)
+                    results_iter = (_compute_hash_worker(args) for args in worker_args)
+                else:
+                    # Parallel processing using multiprocessing pool
+                    pool = mp.Pool(processes=num_workers)
                     chunk_size = max(1, len(images_to_process) // (num_workers * 4))
-
-                    for idx, hashes in pool.imap_unordered(
+                    results_iter = pool.imap_unordered(
                         _compute_hash_worker, worker_args, chunk_size
-                    ):
+                    )
+
+                try:
+                    for idx, hashes in results_iter:
                         image = images_to_process[idx]
 
                         if hashes:
@@ -500,6 +511,11 @@ class DuplicateDetector:
                             self.problematic_files.append(problematic)
 
                         progress.advance(task)
+                finally:
+                    # Clean up the pool if we created one
+                    if num_workers > 1:
+                        pool.close()
+                        pool.join()
 
         # Save catalog after hash computation
         self.catalog.save()
@@ -509,8 +525,8 @@ class DuplicateDetector:
         """Compute perceptual hashes for videos using videohash library."""
         logger.info(f"Computing video hashes for {len(videos_to_process)} videos")
 
-        # Videos don't support GPU acceleration (yet), use CPU multiprocessing
-        num_workers = mp.cpu_count()
+        # Videos don't support GPU acceleration (yet), use CPU workers
+        num_workers = self.num_workers
         logger.info(f"Computing video hashes with {num_workers} CPU workers")
 
         with Progress(
@@ -530,14 +546,22 @@ class DuplicateDetector:
                 (idx, video.source_path) for idx, video in enumerate(videos_to_process)
             ]
 
-            # Process in parallel using multiprocessing pool
-            with mp.Pool(processes=num_workers) as pool:
-                # Use imap_unordered for better performance
+            # Process: single-threaded if num_workers=1, else multiprocessing pool
+            if num_workers == 1:
+                # Single-threaded processing (for daemon processes like Celery)
+                results_iter = (
+                    _compute_video_hash_worker(args) for args in worker_args
+                )
+            else:
+                # Parallel processing using multiprocessing pool
+                pool = mp.Pool(processes=num_workers)
                 chunk_size = max(1, len(videos_to_process) // (num_workers * 4))
-
-                for idx, hashes in pool.imap_unordered(
+                results_iter = pool.imap_unordered(
                     _compute_video_hash_worker, worker_args, chunk_size
-                ):
+                )
+
+            try:
+                for idx, hashes in results_iter:
                     video = videos_to_process[idx]
 
                     if hashes and hashes.get("dhash"):
@@ -561,6 +585,11 @@ class DuplicateDetector:
                         self.problematic_files.append(problematic)
 
                     progress.advance(task)
+            finally:
+                # Clean up the pool if we created one
+                if num_workers > 1:
+                    pool.close()
+                    pool.join()
 
         # Save catalog after hash computation
         self.catalog.save()
