@@ -144,7 +144,9 @@ jobs:
         env:
           POSTGRES_USER: pg
           POSTGRES_PASSWORD: test
-          POSTGRES_DB: vam-tools-test
+          # conftest.py appends worker ID to DB name: vam-tools-test-{worker_id}
+          # When not using xdist, worker_id is "master"
+          POSTGRES_DB: vam-tools-test-master
         ports:
           - 5432:5432
         options: >-
@@ -199,7 +201,9 @@ jobs:
         POSTGRES_PORT: 5432
         POSTGRES_USER: pg
         POSTGRES_PASSWORD: test
-        POSTGRES_DB: vam-tools-test
+        # Note: conftest.py overrides this with worker-specific name
+        # The POSTGRES_DB in service must match what conftest.py expects
+        POSTGRES_DB: vam-tools-test-master
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         CELERY_BROKER_URL: redis://localhost:6379/0
