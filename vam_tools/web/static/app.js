@@ -46,7 +46,13 @@ createApp({
             showAnalyzeForm: false,
             showPathHelp: false,
             showScanConfirmModal: false,
+            showAutoTagConfirmModal: false,
             showDuplicatesConfirmModal: false,
+
+            // Pipeline options
+            scanContinuePipeline: false,
+            autoTagContinuePipeline: false,
+            autoTagBackend: 'openclip',
 
             analyzeForm: {
                 catalog_id: null,
@@ -622,6 +628,15 @@ createApp({
             this.showScanConfirmModal = true;
         },
 
+        // Show confirmation modal for auto-tag job
+        startAutoTag() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog', 'error');
+                return;
+            }
+            this.showAutoTagConfirmModal = true;
+        },
+
         // Show confirmation modal for find duplicates job
         startFindDuplicates() {
             if (!this.currentCatalog) {
@@ -635,6 +650,8 @@ createApp({
         async confirmScan() {
             try {
                 this.showScanConfirmModal = false;
+                const continuePipeline = this.scanContinuePipeline;
+                this.scanContinuePipeline = false; // Reset for next time
 
                 const response = await axios.post('/api/jobs/scan', {
                     catalog_id: this.currentCatalog.id,
@@ -648,6 +665,46 @@ createApp({
                     // Store job metadata
                     this.jobMetadata[response.data.job_id] = {
                         name: `Scan: ${this.currentCatalog.name}`,
+                        started: new Date().toISOString(),
+                        continuePipeline: continuePipeline
+                    };
+                    this.persistJobs(); // Save to localStorage
+                    this.loadJobDetails(response.data.job_id);
+
+                    // If pipeline continuation is enabled, watch for job completion
+                    if (continuePipeline) {
+                        this.watchJobForPipeline(response.data.job_id, 'scan');
+                    }
+                }
+
+                this.setView('jobs');
+            } catch (error) {
+                this.addNotification('Failed to submit scan job: ' + (error.response?.data?.detail || error.message), 'error');
+                console.error(error);
+            }
+        },
+
+        // Actually submit the auto-tag job (called after confirmation)
+        async confirmAutoTag() {
+            try {
+                this.showAutoTagConfirmModal = false;
+                const continuePipeline = this.autoTagContinuePipeline;
+                const backend = this.autoTagBackend;
+                this.autoTagContinuePipeline = false; // Reset for next time
+
+                const response = await axios.post(
+                    `/api/catalogs/${this.currentCatalog.id}/auto-tag`,
+                    null,
+                    { params: { backend: backend, continue_pipeline: continuePipeline } }
+                );
+
+                this.addNotification('Auto-tagging job submitted successfully', 'success');
+
+                if (response.data.job_id) {
+                    this.allJobs.unshift(response.data.job_id);
+                    // Store job metadata
+                    this.jobMetadata[response.data.job_id] = {
+                        name: `Auto-Tag (${backend}): ${this.currentCatalog.name}`,
                         started: new Date().toISOString()
                     };
                     this.persistJobs(); // Save to localStorage
@@ -656,7 +713,7 @@ createApp({
 
                 this.setView('jobs');
             } catch (error) {
-                this.addNotification('Failed to submit scan job: ' + (error.response?.data?.detail || error.message), 'error');
+                this.addNotification('Failed to submit auto-tag job: ' + (error.response?.data?.detail || error.message), 'error');
                 console.error(error);
             }
         },
@@ -691,6 +748,49 @@ createApp({
                 this.addNotification('Failed to submit duplicate detection job: ' + (error.response?.data?.detail || error.message), 'error');
                 console.error(error);
             }
+        },
+
+        // Watch a job and continue pipeline when it completes
+        watchJobForPipeline(jobId, jobType) {
+            const checkInterval = setInterval(async () => {
+                try {
+                    const response = await axios.get(`/api/jobs/${jobId}`);
+                    const status = response.data.status;
+
+                    if (status === 'SUCCESS' || status === 'success') {
+                        clearInterval(checkInterval);
+
+                        // Continue to next step based on job type
+                        if (jobType === 'scan') {
+                            this.addNotification('Scan complete, starting Auto-Tag...', 'info');
+                            // Start auto-tag with continue_pipeline=true to chain to duplicates
+                            await axios.post(
+                                `/api/catalogs/${this.currentCatalog.id}/auto-tag`,
+                                null,
+                                { params: { backend: 'openclip', continue_pipeline: true } }
+                            ).then(res => {
+                                if (res.data.job_id) {
+                                    this.allJobs.unshift(res.data.job_id);
+                                    this.jobMetadata[res.data.job_id] = {
+                                        name: `Auto-Tag (pipeline): ${this.currentCatalog.name}`,
+                                        started: new Date().toISOString()
+                                    };
+                                    this.persistJobs();
+                                    this.loadJobDetails(res.data.job_id);
+                                }
+                            });
+                        }
+                    } else if (status === 'FAILURE' || status === 'failure') {
+                        clearInterval(checkInterval);
+                        this.addNotification('Pipeline stopped: previous job failed', 'error');
+                    }
+                } catch (e) {
+                    console.error('Error checking job status for pipeline:', e);
+                }
+            }, 5000); // Check every 5 seconds
+
+            // Stop checking after 2 hours max
+            setTimeout(() => clearInterval(checkInterval), 2 * 60 * 60 * 1000);
         },
 
         startFindFaces() {

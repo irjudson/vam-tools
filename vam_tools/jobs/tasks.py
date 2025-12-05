@@ -1103,3 +1103,332 @@ def generate_thumbnails_task(
             },
         )
         raise
+
+
+@app.task(bind=True, base=ProgressTask, name="auto_tag")
+def auto_tag_task(
+    self: ProgressTask,
+    catalog_id: str,
+    backend: str = "openclip",
+    model: Optional[str] = None,
+    threshold: float = 0.25,
+    max_tags: int = 10,
+    batch_size: int = 32,
+    continue_pipeline: bool = False,
+) -> Dict[str, Any]:
+    """
+    Automatically tag images in a catalog using AI models.
+
+    This task:
+    - Uses OpenCLIP (fast, batch processing) or Ollama (detailed, slower) backends
+    - Tags images based on predefined taxonomy
+    - Stores tags in the database
+    - Optionally continues to the next pipeline step (duplicate detection)
+
+    Args:
+        catalog_id: UUID of the catalog to tag
+        backend: "openclip" or "ollama"
+        model: Model name (backend-specific, e.g., "ViT-B-32" or "llava")
+        threshold: Minimum confidence threshold (0.0-1.0)
+        max_tags: Maximum tags per image
+        batch_size: Batch size for OpenCLIP processing
+        continue_pipeline: Whether to trigger duplicate detection after completion
+
+    Returns:
+        Dictionary with tagging statistics
+    """
+    from .job_metrics import check_gpu_available, get_gpu_info
+
+    logger.info(
+        f"Starting auto-tagging for catalog {catalog_id} with {backend} backend"
+    )
+
+    # Check GPU availability for OpenCLIP
+    use_gpu = check_gpu_available() if backend == "openclip" else False
+    gpu_info = get_gpu_info() if use_gpu else None
+    if use_gpu:
+        logger.info(f"GPU acceleration enabled: {gpu_info['device_name']}")
+
+    try:
+        self.update_progress(
+            0, 1, "Initializing auto-tagging...", {"phase": "init", "backend": backend}
+        )
+
+        # Check backend availability
+        from ..analysis.image_tagger import ImageTagger, check_backends_available
+
+        backends_status = check_backends_available()
+
+        if backend == "openclip" and not backends_status.get("openclip"):
+            raise RuntimeError(
+                "OpenCLIP backend not available. Install with: pip install open-clip-torch"
+            )
+        if backend == "ollama" and not backends_status.get("ollama"):
+            raise RuntimeError(
+                "Ollama backend not available. Ensure Ollama is running with a vision model."
+            )
+
+        with CatalogDatabase(catalog_id) as db:
+            # Get images that need tagging
+            result = db.session.execute(
+                text(
+                    """
+                    SELECT id, source_path FROM images
+                    WHERE catalog_id = :catalog_id
+                    AND (tags IS NULL OR tags = '[]' OR tags = '{}')
+                """
+                ),
+                {"catalog_id": catalog_id},
+            )
+            images_to_tag = result.fetchall()
+            total_images = len(images_to_tag)
+
+            if total_images == 0:
+                # Check if all images are already tagged
+                result = db.session.execute(
+                    text("SELECT COUNT(*) FROM images WHERE catalog_id = :catalog_id"),
+                    {"catalog_id": catalog_id},
+                )
+                total_in_catalog = result.scalar() or 0
+
+                if total_in_catalog > 0:
+                    return {
+                        "status": "completed",
+                        "catalog_id": catalog_id,
+                        "message": f"All {total_in_catalog} images already tagged",
+                        "images_tagged": 0,
+                        "images_skipped": total_in_catalog,
+                    }
+                else:
+                    return {
+                        "status": "completed",
+                        "catalog_id": catalog_id,
+                        "message": "No images in catalog",
+                        "images_tagged": 0,
+                        "images_skipped": 0,
+                    }
+
+            self.update_progress(
+                0,
+                total_images,
+                f"Tagging {total_images} images with {backend}...",
+                {
+                    "phase": "tagging",
+                    "backend": backend,
+                    "total_images": total_images,
+                    "use_gpu": use_gpu,
+                },
+            )
+
+            # Initialize tagger
+            device = "cuda" if use_gpu else "cpu"
+            tagger = ImageTagger(
+                backend=backend,
+                model=model,
+                device=device if backend == "openclip" else None,
+            )
+
+            # Process images
+            tagged_count = 0
+            failed_count = 0
+            tag_stats: Dict[str, int] = {}
+
+            # Process in batches for OpenCLIP
+            if backend == "openclip":
+                for batch_start in range(0, total_images, batch_size):
+                    batch_end = min(batch_start + batch_size, total_images)
+                    batch = images_to_tag[batch_start:batch_end]
+                    batch_paths = [Path(row[1]) for row in batch]
+                    batch_ids = [row[0] for row in batch]
+
+                    self.update_progress(
+                        batch_start,
+                        total_images,
+                        f"Tagging batch {batch_start // batch_size + 1}...",
+                        {
+                            "phase": "tagging",
+                            "current_batch": batch_start // batch_size + 1,
+                        },
+                    )
+
+                    try:
+                        # Tag batch
+                        results = tagger.tag_batch(
+                            batch_paths,
+                            threshold=threshold,
+                            max_tags=max_tags,
+                        )
+
+                        # Update database
+                        for img_id, img_path in zip(batch_ids, batch_paths):
+                            tags = results.get(img_path, [])
+                            if tags:
+                                tag_data = [
+                                    {
+                                        "name": t.tag_name,
+                                        "confidence": t.confidence,
+                                        "category": t.category,
+                                    }
+                                    for t in tags
+                                ]
+                                db.session.execute(
+                                    text(
+                                        """
+                                        UPDATE images SET tags = :tags
+                                        WHERE id = :image_id AND catalog_id = :catalog_id
+                                    """
+                                    ),
+                                    {
+                                        "tags": json.dumps(tag_data),
+                                        "image_id": str(img_id),
+                                        "catalog_id": catalog_id,
+                                    },
+                                )
+                                tagged_count += 1
+                                for t in tags:
+                                    tag_stats[t.tag_name] = (
+                                        tag_stats.get(t.tag_name, 0) + 1
+                                    )
+                            else:
+                                # Mark as processed but no tags found
+                                db.session.execute(
+                                    text(
+                                        """
+                                        UPDATE images SET tags = :tags
+                                        WHERE id = :image_id AND catalog_id = :catalog_id
+                                    """
+                                    ),
+                                    {
+                                        "tags": json.dumps([]),
+                                        "image_id": str(img_id),
+                                        "catalog_id": catalog_id,
+                                    },
+                                )
+
+                        db.session.commit()
+
+                    except Exception as batch_e:
+                        logger.warning(f"Batch tagging failed: {batch_e}")
+                        failed_count += len(batch)
+
+            else:
+                # Process one at a time for Ollama
+                for i, (img_id, source_path) in enumerate(images_to_tag):
+                    self.update_progress(
+                        i,
+                        total_images,
+                        f"Tagging {Path(source_path).name}...",
+                        {"phase": "tagging", "current_file": Path(source_path).name},
+                    )
+
+                    try:
+                        tags = tagger.tag_image(
+                            source_path,
+                            threshold=threshold,
+                            max_tags=max_tags,
+                        )
+
+                        if tags:
+                            tag_data = [
+                                {
+                                    "name": t.tag_name,
+                                    "confidence": t.confidence,
+                                    "category": t.category,
+                                }
+                                for t in tags
+                            ]
+                            db.session.execute(
+                                text(
+                                    """
+                                    UPDATE images SET tags = :tags
+                                    WHERE id = :image_id AND catalog_id = :catalog_id
+                                """
+                                ),
+                                {
+                                    "tags": json.dumps(tag_data),
+                                    "image_id": str(img_id),
+                                    "catalog_id": catalog_id,
+                                },
+                            )
+                            tagged_count += 1
+                            for t in tags:
+                                tag_stats[t.tag_name] = tag_stats.get(t.tag_name, 0) + 1
+                        else:
+                            db.session.execute(
+                                text(
+                                    """
+                                    UPDATE images SET tags = :tags
+                                    WHERE id = :image_id AND catalog_id = :catalog_id
+                                """
+                                ),
+                                {
+                                    "tags": json.dumps([]),
+                                    "image_id": str(img_id),
+                                    "catalog_id": catalog_id,
+                                },
+                            )
+
+                        if i % 10 == 0:
+                            db.session.commit()
+
+                    except Exception as img_e:
+                        logger.warning(f"Failed to tag {source_path}: {img_e}")
+                        failed_count += 1
+
+                db.session.commit()
+
+            # Get top tags
+            top_tags = sorted(tag_stats.items(), key=lambda x: x[1], reverse=True)[:20]
+
+            self.update_progress(
+                total_images,
+                total_images,
+                f"Complete: tagged {tagged_count} images",
+                {
+                    "phase": "complete",
+                    "tagged_count": tagged_count,
+                    "failed_count": failed_count,
+                },
+            )
+
+            logger.info(
+                f"Auto-tagging complete for {catalog_id}: "
+                f"{tagged_count} tagged, {failed_count} failed"
+            )
+
+            result = {
+                "status": "completed",
+                "catalog_id": catalog_id,
+                "backend": backend,
+                "use_gpu": use_gpu,
+                "images_tagged": tagged_count,
+                "images_failed": failed_count,
+                "total_images": total_images,
+                "unique_tags_applied": len(tag_stats),
+                "top_tags": top_tags,
+            }
+
+            # Continue pipeline if requested
+            if continue_pipeline:
+                logger.info(
+                    f"Continuing pipeline: starting duplicate detection for {catalog_id}"
+                )
+                detect_duplicates_task.delay(
+                    catalog_id=catalog_id,
+                    similarity_threshold=5,
+                    recompute_hashes=False,
+                )
+                result["next_job"] = "detect_duplicates"
+
+            return result
+
+    except Exception as e:
+        logger.error(f"Auto-tagging failed: {e}", exc_info=True)
+        self.update_state(
+            state="FAILURE",
+            meta={
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
+        raise
