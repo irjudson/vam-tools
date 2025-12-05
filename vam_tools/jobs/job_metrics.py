@@ -325,7 +325,7 @@ def check_gpu_available() -> bool:
         x = torch.zeros(1, device="cuda")
         del x
         return True
-    except (ImportError, RuntimeError, Exception):
+    except Exception:
         return False
 
 
