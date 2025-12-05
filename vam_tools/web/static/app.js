@@ -32,7 +32,7 @@ createApp({
             jobProgressTracking: {}, // Track last progress update time and value
             jobsRefreshInterval: null,
             jobWebSockets: {}, // WebSocket connections by job ID
-            STUCK_JOB_TIMEOUT: 5 * 60 * 1000, // 5 minutes in milliseconds
+            STUCK_JOB_TIMEOUT: 30 * 60 * 1000, // 30 minutes in milliseconds (long-running jobs like duplicate detection can take time)
 
             // Worker health
             workerHealth: {
