@@ -186,6 +186,13 @@
                                 <div class="action-desc">Scan directories for media</div>
                             </div>
                         </button>
+                        <button @click="startAutoTag" class="action-btn" :disabled="!currentCatalog">
+                            <span class="action-icon">🏷️</span>
+                            <div class="action-text">
+                                <div class="action-title">Auto-Tag</div>
+                                <div class="action-desc">AI-powered image tagging</div>
+                            </div>
+                        </button>
                         <button @click="startFindDuplicates" class="action-btn" :disabled="!currentCatalog">
                             <span class="action-icon">🔍</span>
                             <div class="action-text">
@@ -1264,6 +1271,12 @@
                     <p style="margin-top: 16px; font-size: 14px; color: var(--text-secondary);">
                         This will scan all image and video files in the specified directories, extract metadata, and generate thumbnails.
                     </p>
+                    <div class="form-group" style="margin-top: 16px;">
+                        <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" v-model="scanContinuePipeline" style="width: 18px; height: 18px;">
+                            <span>Continue with Auto-Tag and Find Duplicates when done</span>
+                        </label>
+                    </div>
                 </div>
                 <div class="form-actions">
                     <button type="button" @click="showScanConfirmModal = false" class="btn-secondary">
@@ -1271,6 +1284,40 @@
                     </button>
                     <button type="button" @click="confirmScan" class="btn-primary">
                         Start Scan
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auto-Tag Confirmation Modal -->
+        <div v-if="showAutoTagConfirmModal" class="modal-overlay" @click="showAutoTagConfirmModal = false">
+            <div class="modal-content" @click.stop>
+                <h3>Confirm Auto-Tagging</h3>
+                <div style="margin: 20px 0;">
+                    <p style="margin-bottom: 16px;">Start AI-powered tagging for catalog: <strong>{{ currentCatalog?.name }}</strong></p>
+                    <div class="form-group">
+                        <label>Tagging Backend:</label>
+                        <select v-model="autoTagBackend" style="width: 100%; padding: 8px; margin-top: 4px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                            <option value="openclip">OpenCLIP (Fast, GPU accelerated)</option>
+                            <option value="ollama">Ollama/LLaVA (More accurate, slower)</option>
+                        </select>
+                    </div>
+                    <p style="margin-top: 16px; font-size: 14px; color: var(--text-secondary);">
+                        This will analyze images using AI and automatically assign relevant tags based on content (subjects, scenes, lighting, mood, etc.).
+                    </p>
+                    <div class="form-group" style="margin-top: 16px;">
+                        <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" v-model="autoTagContinuePipeline" style="width: 18px; height: 18px;">
+                            <span>Continue with Find Duplicates when done</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" @click="showAutoTagConfirmModal = false" class="btn-secondary">
+                        Cancel
+                    </button>
+                    <button type="button" @click="confirmAutoTag" class="btn-primary">
+                        Start Auto-Tagging
                     </button>
                 </div>
             </div>

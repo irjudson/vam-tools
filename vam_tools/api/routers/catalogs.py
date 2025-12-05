@@ -1099,6 +1099,102 @@ def start_duplicate_detection(
     }
 
 
+@router.post("/{catalog_id}/auto-tag")
+def start_auto_tagging(
+    catalog_id: uuid.UUID,
+    backend: str = Query("openclip", description="AI backend: 'openclip' or 'ollama'"),
+    model: str = Query(
+        None,
+        description="Model name (e.g., 'ViT-B-32' for OpenCLIP, 'llava' for Ollama)",
+    ),
+    threshold: float = Query(
+        0.25, ge=0.0, le=1.0, description="Minimum confidence threshold"
+    ),
+    max_tags: int = Query(10, ge=1, le=50, description="Maximum tags per image"),
+    continue_pipeline: bool = Query(
+        False, description="Continue to duplicate detection after tagging"
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Start an auto-tagging job for a catalog.
+
+    This creates a background Celery task that:
+    1. Uses AI models (OpenCLIP or Ollama) to analyze images
+    2. Assigns tags from a predefined taxonomy based on image content
+    3. Stores tags in the database for each image
+    4. Optionally continues to duplicate detection
+
+    Backends:
+    - openclip: Fast batch processing using CLIP zero-shot classification (GPU accelerated)
+    - ollama: Vision language models (LLaVA) for detailed understanding (slower, more accurate)
+
+    Args:
+        backend: AI backend to use ('openclip' or 'ollama')
+        model: Model name (optional, uses defaults if not specified)
+        threshold: Minimum confidence threshold for tags (0.0-1.0)
+        max_tags: Maximum number of tags per image
+        continue_pipeline: If True, starts duplicate detection after tagging completes
+
+    Returns:
+        Job information with task ID to track progress.
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    # Validate backend
+    if backend not in ("openclip", "ollama"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid backend. Use 'openclip' or 'ollama'",
+        )
+
+    # Import Celery task
+    from ...db.models import Job
+    from ...jobs.tasks import auto_tag_task
+
+    # Generate job ID upfront (used as both DB id and Celery task id)
+    job_id = str(uuid.uuid4())
+
+    # Create job record
+    job = Job(
+        id=job_id,
+        catalog_id=catalog_id,
+        job_type="auto_tag",
+        status="pending",
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # Start Celery task with same ID
+    task = auto_tag_task.apply_async(
+        kwargs={
+            "catalog_id": str(catalog_id),
+            "backend": backend,
+            "model": model,
+            "threshold": threshold,
+            "max_tags": max_tags,
+            "continue_pipeline": continue_pipeline,
+        },
+        task_id=job_id,
+    )
+
+    logger.info(
+        f"Started auto-tagging job {job.id} for catalog {catalog_id} "
+        f"(backend={backend}, model={model}, continue_pipeline={continue_pipeline})"
+    )
+
+    return {
+        "job_id": str(job.id),
+        "task_id": task.id,
+        "status": "pending",
+        "message": f"Auto-tagging started for catalog {catalog.name} with {backend} backend",
+    }
+
+
 @router.get("/{catalog_id}/duplicates")
 def list_duplicate_groups(
     catalog_id: uuid.UUID,
