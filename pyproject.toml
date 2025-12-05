@@ -92,6 +92,25 @@ gpu-all = [
     "torchvision>=0.15.0",
     "faiss-cpu>=1.7.4",
 ]
+tagging = [
+    # AI-based auto-tagging with OpenCLIP
+    # Install with: pip install -e ".[tagging]"
+    "open-clip-torch>=2.24.0",
+    "ftfy>=6.1.0",  # Text preprocessing for CLIP
+]
+ollama = [
+    # Ollama client for LLaVA vision model integration
+    # Install with: pip install -e ".[ollama]"
+    # Requires Ollama server running locally: ollama serve
+    "ollama>=0.3.0",
+]
+tagging-all = [
+    # Complete tagging stack with both OpenCLIP and Ollama
+    # Install with: pip install -e ".[tagging-all]"
+    "open-clip-torch>=2.24.0",
+    "ftfy>=6.1.0",
+    "ollama>=0.3.0",
+]
 
 [project.scripts]
 vam-analyze = "vam_tools.cli.analyze:analyze"
@@ -182,6 +201,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "videohash.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "open_clip.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "ollama.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "ftfy.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
