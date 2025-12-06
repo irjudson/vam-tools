@@ -110,6 +110,28 @@ fi
 
 echo -e "${GREEN}  ✓ No common issues found${NC}"
 
+# 6. Build Docker images (only if Docker-related files changed)
+echo ""
+echo -e "${YELLOW}6. Checking Docker build...${NC}"
+
+# Check if any Docker-related files changed in this push
+DOCKER_FILES_CHANGED=$(git diff --name-only HEAD~1..HEAD 2>/dev/null | grep -E "(Dockerfile|docker-compose|pyproject.toml|requirements)" || true)
+
+if [ -n "$DOCKER_FILES_CHANGED" ]; then
+    echo "  Docker-related files changed, rebuilding..."
+    if docker compose build 2>&1; then
+        echo -e "${GREEN}  ✓ Docker images built successfully${NC}"
+    else
+        echo -e "${RED}  ✗ Docker image build failed${NC}"
+        echo ""
+        echo "  Run: docker compose build"
+        echo "  Fix any build issues before pushing"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}  ✓ No Docker-related changes, skipping build${NC}"
+fi
+
 # All checks passed!
 echo ""
 echo -e "${GREEN}✓ All pre-push checks passed!${NC}"
