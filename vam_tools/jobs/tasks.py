@@ -1490,28 +1490,29 @@ def auto_tag_task(
                     try:
                         # Tag batch - combined backend has progress_callback
                         if backend == "combined":
+                            # Capture loop variables to avoid B023 closure issue
+                            _batch_start = batch_start
+                            _batch_size = batch_size
 
-                            def make_progress_cb(
-                                batch_start: int = batch_start,
-                                batch_size: int = batch_size,
-                            ) -> callable:
-                                def progress_cb(
-                                    current: int, total: int, phase: str
-                                ) -> None:
-                                    self.update_progress(
-                                        batch_start + current,
-                                        total_images,
-                                        f"Batch {batch_start // batch_size + 1}: {phase} {current}/{total}...",
-                                        {"phase": "tagging", "sub_phase": phase},
-                                    )
-
-                                return progress_cb
+                            def progress_cb(
+                                current: int,
+                                total: int,
+                                phase: str,
+                                _bs: int = _batch_start,
+                                _bsz: int = _batch_size,
+                            ) -> None:
+                                self.update_progress(
+                                    _bs + current,
+                                    total_images,
+                                    f"Batch {_bs // _bsz + 1}: {phase} {current}/{total}...",
+                                    {"phase": "tagging", "sub_phase": phase},
+                                )
 
                             results = tagger.tag_batch(
                                 batch_paths,
                                 threshold=threshold,
                                 max_tags=max_tags,
-                                progress_callback=make_progress_cb(),
+                                progress_callback=progress_cb,
                             )
                         else:
                             results = tagger.tag_batch(
