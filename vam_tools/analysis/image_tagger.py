@@ -233,7 +233,7 @@ class OpenCLIPBackend(TaggerBackend):
 
         # Filter and sort results
         results = []
-        for i, (tag_name, score) in enumerate(zip(tag_names, similarities)):
+        for tag_name, score in zip(tag_names, similarities):
             if score >= threshold:
                 results.append((tag_name, float(score)))
 
