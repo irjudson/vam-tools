@@ -2,12 +2,14 @@
 Tests for Celery tasks.
 """
 
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from vam_tools.jobs.tasks import (
     analyze_catalog_task,
+    auto_tag_task,
     generate_thumbnails_task,
     organize_catalog_task,
 )
@@ -260,3 +262,341 @@ class TestThumbnailTask:
         assert mock_generate_thumbnail.called
         # Should be called once per image per size = 2 * 1 = 2 times
         assert mock_generate_thumbnail.call_count >= 1
+
+
+class TestAutoTagTask:
+    """Test auto_tag_task."""
+
+    def test_task_registration(self):
+        """Test task is registered with Celery."""
+        assert auto_tag_task.name == "auto_tag"
+
+    @patch("vam_tools.jobs.job_metrics.get_gpu_info")
+    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
+    @patch("vam_tools.jobs.tasks.CatalogDatabase")
+    @patch("vam_tools.analysis.image_tagger.ImageTagger")
+    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    def test_auto_tag_no_images_to_tag(
+        self,
+        mock_check_backends,
+        mock_image_tagger,
+        mock_catalog_db,
+        mock_check_gpu,
+        mock_get_gpu_info,
+    ):
+        """Test auto_tag when all images are already tagged."""
+        # Setup mocks
+        mock_check_gpu.return_value = False
+        mock_get_gpu_info.return_value = None
+        mock_check_backends.return_value = {"openclip": True, "ollama": False}
+
+        mock_db = MagicMock()
+        mock_catalog_db.return_value.__enter__.return_value = mock_db
+
+        # Mock session execute to return no images needing tagging
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_result.scalar.return_value = 10  # 10 images already tagged
+        mock_db.session.execute.return_value = mock_result
+
+        # Execute
+        task = auto_tag_task
+        task.update_state = MagicMock()
+
+        catalog_id = str(uuid.uuid4())
+        result = task(catalog_id=catalog_id, backend="openclip")
+
+        # Verify
+        assert result["status"] == "completed"
+        assert result["images_tagged"] == 0
+        assert result["images_skipped"] == 10
+
+    @patch("vam_tools.jobs.job_metrics.get_gpu_info")
+    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
+    @patch("vam_tools.jobs.tasks.CatalogDatabase")
+    @patch("vam_tools.analysis.image_tagger.ImageTagger")
+    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    def test_auto_tag_openclip_success(
+        self,
+        mock_check_backends,
+        mock_image_tagger,
+        mock_catalog_db,
+        mock_check_gpu,
+        mock_get_gpu_info,
+        tmp_path,
+    ):
+        """Test successful auto-tagging with OpenCLIP backend."""
+        from pathlib import Path
+
+        from vam_tools.analysis.image_tagger import TagResult
+
+        # Setup mocks
+        mock_check_gpu.return_value = False
+        mock_get_gpu_info.return_value = None
+        mock_check_backends.return_value = {"openclip": True, "ollama": False}
+
+        mock_db = MagicMock()
+        mock_catalog_db.return_value.__enter__.return_value = mock_db
+
+        # Create test image files
+        img1 = tmp_path / "img1.jpg"
+        img2 = tmp_path / "img2.jpg"
+        img1.touch()
+        img2.touch()
+
+        # Mock session execute - first call returns images to tag, second returns count
+        mock_result_images = MagicMock()
+        mock_result_images.fetchall.return_value = [
+            ("id1", str(img1)),
+            ("id2", str(img2)),
+        ]
+
+        mock_result_count = MagicMock()
+        mock_result_count.scalar.return_value = 2
+
+        mock_db.session.execute.side_effect = [
+            mock_result_images,  # First call: get images to tag
+            MagicMock(),  # UPDATE for img1
+            MagicMock(),  # UPDATE for img2
+        ]
+
+        # Mock ImageTagger
+        mock_tagger = MagicMock()
+        mock_image_tagger.return_value = mock_tagger
+
+        # Mock tag_batch to return results
+        mock_tagger.tag_batch.return_value = {
+            img1: [
+                TagResult(
+                    tag_name="dogs",
+                    confidence=0.9,
+                    category="subject",
+                    source="openclip",
+                ),
+                TagResult(
+                    tag_name="outdoor",
+                    confidence=0.8,
+                    category="scene",
+                    source="openclip",
+                ),
+            ],
+            img2: [
+                TagResult(
+                    tag_name="cats",
+                    confidence=0.85,
+                    category="subject",
+                    source="openclip",
+                ),
+            ],
+        }
+
+        # Execute
+        task = auto_tag_task
+        task.update_state = MagicMock()
+
+        catalog_id = str(uuid.uuid4())
+        result = task(
+            catalog_id=catalog_id,
+            backend="openclip",
+            threshold=0.25,
+            max_tags=10,
+            batch_size=32,
+        )
+
+        # Verify
+        assert result["status"] == "completed"
+        assert result["backend"] == "openclip"
+        assert result["images_tagged"] == 2
+        assert result["total_images"] == 2
+        assert result["unique_tags_applied"] == 3  # dogs, outdoor, cats
+
+        # Verify ImageTagger was initialized correctly
+        mock_image_tagger.assert_called_once()
+
+        # Verify tag_batch was called
+        mock_tagger.tag_batch.assert_called()
+
+    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
+    @patch("vam_tools.jobs.tasks.CatalogDatabase")
+    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    def test_auto_tag_backend_not_available(
+        self,
+        mock_check_backends,
+        mock_catalog_db,
+        mock_check_gpu,
+    ):
+        """Test auto_tag fails gracefully when backend not available."""
+        mock_check_gpu.return_value = False
+        mock_check_backends.return_value = {"openclip": False, "ollama": False}
+
+        mock_db = MagicMock()
+        mock_catalog_db.return_value.__enter__.return_value = mock_db
+
+        task = auto_tag_task
+        task.update_state = MagicMock()
+
+        catalog_id = str(uuid.uuid4())
+
+        with pytest.raises(RuntimeError, match="OpenCLIP backend not available"):
+            task(catalog_id=catalog_id, backend="openclip")
+
+    @patch("vam_tools.jobs.job_metrics.get_gpu_info")
+    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
+    @patch("vam_tools.jobs.tasks.CatalogDatabase")
+    @patch("vam_tools.analysis.image_tagger.ImageTagger")
+    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    def test_auto_tag_ollama_success(
+        self,
+        mock_check_backends,
+        mock_image_tagger,
+        mock_catalog_db,
+        mock_check_gpu,
+        mock_get_gpu_info,
+        tmp_path,
+    ):
+        """Test successful auto-tagging with Ollama backend."""
+        from vam_tools.analysis.image_tagger import TagResult
+
+        # Setup mocks
+        mock_check_gpu.return_value = False
+        mock_get_gpu_info.return_value = None
+        mock_check_backends.return_value = {"openclip": False, "ollama": True}
+
+        mock_db = MagicMock()
+        mock_catalog_db.return_value.__enter__.return_value = mock_db
+
+        # Create test image
+        img1 = tmp_path / "img1.jpg"
+        img1.touch()
+
+        # Mock session execute
+        mock_result_images = MagicMock()
+        mock_result_images.fetchall.return_value = [("id1", str(img1))]
+        mock_db.session.execute.return_value = mock_result_images
+
+        # Mock ImageTagger
+        mock_tagger = MagicMock()
+        mock_image_tagger.return_value = mock_tagger
+
+        # Mock tag_image for Ollama (processes one at a time)
+        mock_tagger.tag_image.return_value = [
+            TagResult(
+                tag_name="portrait",
+                confidence=0.95,
+                category="subject",
+                source="ollama",
+            ),
+        ]
+
+        # Execute
+        task = auto_tag_task
+        task.update_state = MagicMock()
+
+        catalog_id = str(uuid.uuid4())
+        result = task(
+            catalog_id=catalog_id,
+            backend="ollama",
+            model="llava",
+        )
+
+        # Verify
+        assert result["status"] == "completed"
+        assert result["backend"] == "ollama"
+        assert result["images_tagged"] == 1
+
+        # Verify tag_image was called (not tag_batch for Ollama)
+        mock_tagger.tag_image.assert_called()
+
+    @patch("vam_tools.jobs.tasks.detect_duplicates_task")
+    @patch("vam_tools.jobs.job_metrics.get_gpu_info")
+    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
+    @patch("vam_tools.jobs.tasks.CatalogDatabase")
+    @patch("vam_tools.analysis.image_tagger.ImageTagger")
+    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    def test_auto_tag_continue_pipeline(
+        self,
+        mock_check_backends,
+        mock_image_tagger,
+        mock_catalog_db,
+        mock_check_gpu,
+        mock_get_gpu_info,
+        mock_detect_duplicates,
+    ):
+        """Test auto_tag triggers duplicate detection when continue_pipeline=True."""
+        from pathlib import Path
+
+        # Setup mocks
+        mock_check_gpu.return_value = False
+        mock_get_gpu_info.return_value = None
+        mock_check_backends.return_value = {"openclip": True, "ollama": False}
+
+        mock_db = MagicMock()
+        mock_catalog_db.return_value.__enter__.return_value = mock_db
+
+        # Mock images to tag so we don't hit early return
+        image_id = uuid.uuid4()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [(image_id, "/path/to/image.jpg")]
+        mock_db.session.execute.return_value = mock_result
+
+        # Mock the tagger
+        mock_tagger = MagicMock()
+        mock_image_tagger.return_value = mock_tagger
+        # Return empty tags to complete quickly
+        mock_tagger.tag_batch.return_value = {Path("/path/to/image.jpg"): []}
+
+        # Execute
+        task = auto_tag_task
+        task.update_state = MagicMock()
+
+        catalog_id = str(uuid.uuid4())
+        result = task(
+            catalog_id=catalog_id,
+            backend="openclip",
+            continue_pipeline=True,
+        )
+
+        # Verify
+        assert result["status"] == "completed"
+        assert result["next_job"] == "detect_duplicates"
+
+        # Verify detect_duplicates_task.delay was called
+        mock_detect_duplicates.delay.assert_called_once_with(
+            catalog_id=catalog_id,
+            similarity_threshold=5,
+            recompute_hashes=False,
+        )
+
+    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
+    @patch("vam_tools.jobs.tasks.CatalogDatabase")
+    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    def test_auto_tag_empty_catalog(
+        self,
+        mock_check_backends,
+        mock_catalog_db,
+        mock_check_gpu,
+    ):
+        """Test auto_tag with empty catalog."""
+        mock_check_gpu.return_value = False
+        mock_check_backends.return_value = {"openclip": True, "ollama": False}
+
+        mock_db = MagicMock()
+        mock_catalog_db.return_value.__enter__.return_value = mock_db
+
+        # Mock empty results
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_result.scalar.return_value = 0
+        mock_db.session.execute.return_value = mock_result
+
+        # Execute
+        task = auto_tag_task
+        task.update_state = MagicMock()
+
+        catalog_id = str(uuid.uuid4())
+        result = task(catalog_id=catalog_id, backend="openclip")
+
+        # Verify
+        assert result["status"] == "completed"
+        assert result["message"] == "No images in catalog"
+        assert result["images_tagged"] == 0
