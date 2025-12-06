@@ -318,14 +318,41 @@ def check_gpu_available() -> bool:
         import torch
 
         if not torch.cuda.is_available():
+            logger.info("CUDA not available (torch.cuda.is_available() = False)")
             return False
+
+        # Check if GPU architecture is supported
+        device_name = torch.cuda.get_device_name(0)
+        capability = torch.cuda.get_device_capability(0)
+        logger.info(
+            f"Detected GPU: {device_name} (compute capability {capability[0]}.{capability[1]})"
+        )
 
         # Actually test CUDA operation - detection isn't enough for new GPUs
         # that may not have kernel support in current PyTorch builds
-        x = torch.zeros(1, device="cuda")
-        del x
-        return True
-    except Exception:
+        try:
+            x = torch.zeros(1, device="cuda")
+            # Test an actual computation to trigger kernel execution
+            y = x + 1
+            del x, y
+            torch.cuda.synchronize()
+            logger.info("GPU test passed: CUDA operations working")
+            return True
+        except RuntimeError as e:
+            if "no kernel image is available" in str(e) or "sm_" in str(e):
+                logger.warning(
+                    f"GPU detected but not usable: PyTorch doesn't have kernels for {device_name} "
+                    f"(compute capability {capability[0]}.{capability[1]}). "
+                    "Upgrade to PyTorch nightly with CUDA 12.8+ for Blackwell support."
+                )
+            else:
+                logger.warning(f"GPU test failed: {e}")
+            return False
+    except ImportError:
+        logger.info("torch not installed, GPU not available")
+        return False
+    except Exception as e:
+        logger.warning(f"GPU check failed unexpectedly: {e}")
         return False
 
 

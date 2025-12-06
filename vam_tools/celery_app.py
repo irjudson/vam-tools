@@ -31,8 +31,8 @@ app.conf.update(
     enable_utc=True,
     # Task execution settings
     task_track_started=True,
-    task_time_limit=3600 * 4,  # 4 hours max per task
-    task_soft_time_limit=3600 * 3,  # 3 hours soft limit
+    task_time_limit=3600 * 48,  # 48 hours max per task (for large catalogs)
+    task_soft_time_limit=3600 * 47,  # 47 hours soft limit
     # Result backend settings
     result_expires=3600 * 24,  # Keep results for 24 hours
     result_extended=True,  # Store more task metadata

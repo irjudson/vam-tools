@@ -45,9 +45,10 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -e .
 
 # Install GPU acceleration packages (PyTorch with CUDA support)
-# Using nightly build for RTX 5060 Ti Blackwell (sm_120) support
-RUN pip install --no-cache-dir \
-    torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126
+# Using nightly build with CUDA 12.8 for RTX 5060 Ti Blackwell (sm_120) support
+# CUDA 12.8+ is required for Blackwell architecture (sm_120)
+RUN pip install --no-cache-dir --pre \
+    torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128
 
 # Install tagging dependencies (OpenCLIP and Ollama client)
 RUN pip install --no-cache-dir \

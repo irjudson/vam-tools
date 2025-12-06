@@ -1186,6 +1186,86 @@ def generate_thumbnails_task(
         raise
 
 
+def _get_checkpoint(db: CatalogDatabase, catalog_id: str, job_id: str) -> Optional[int]:
+    """Get the last checkpoint (offset) for a tagging job.
+
+    Args:
+        db: Database connection
+        catalog_id: The catalog ID
+        job_id: The Celery task ID
+
+    Returns:
+        The offset to resume from, or None if no checkpoint exists
+    """
+    result = db.session.execute(
+        text(
+            """
+            SELECT value FROM config
+            WHERE catalog_id = :catalog_id AND key = :key
+        """
+        ),
+        {"catalog_id": catalog_id, "key": f"auto_tag_checkpoint_{job_id}"},
+    )
+    row = result.fetchone()
+    if row:
+        import json
+
+        return json.loads(row[0])
+    return None
+
+
+def _save_checkpoint(
+    db: CatalogDatabase, catalog_id: str, job_id: str, offset: int
+) -> None:
+    """Save a checkpoint for resuming the tagging job.
+
+    Args:
+        db: Database connection
+        catalog_id: The catalog ID
+        job_id: The Celery task ID
+        offset: The number of images processed so far
+    """
+    import json
+
+    db.session.execute(
+        text(
+            """
+            INSERT INTO config (catalog_id, key, value, updated_at)
+            VALUES (:catalog_id, :key, :value, NOW())
+            ON CONFLICT (catalog_id, key) DO UPDATE SET
+                value = EXCLUDED.value,
+                updated_at = EXCLUDED.updated_at
+        """
+        ),
+        {
+            "catalog_id": catalog_id,
+            "key": f"auto_tag_checkpoint_{job_id}",
+            "value": json.dumps(offset),
+        },
+    )
+    db.session.commit()
+
+
+def _clear_checkpoint(db: CatalogDatabase, catalog_id: str, job_id: str) -> None:
+    """Clear the checkpoint after job completion.
+
+    Args:
+        db: Database connection
+        catalog_id: The catalog ID
+        job_id: The Celery task ID
+    """
+    db.session.execute(
+        text(
+            """
+            DELETE FROM config
+            WHERE catalog_id = :catalog_id AND key = :key
+        """
+        ),
+        {"catalog_id": catalog_id, "key": f"auto_tag_checkpoint_{job_id}"},
+    )
+    db.session.commit()
+
+
 @app.task(bind=True, base=ProgressTask, name="auto_tag")
 def auto_tag_task(
     self: ProgressTask,
@@ -1198,6 +1278,7 @@ def auto_tag_task(
     continue_pipeline: bool = False,
     max_images: Optional[int] = None,
     tag_mode: str = "untagged_only",
+    resume_from_job: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Automatically tag images in a catalog using AI models.
@@ -1207,6 +1288,7 @@ def auto_tag_task(
       combined (both backends with weighted confidence) backends
     - Tags images based on predefined taxonomy
     - Stores tags in the database with source and per-backend confidence
+    - Saves progress checkpoints for resumability
     - Optionally continues to the next pipeline step (duplicate detection)
 
     Args:
@@ -1219,6 +1301,7 @@ def auto_tag_task(
         continue_pipeline: Whether to trigger duplicate detection after completion
         max_images: Maximum number of images to tag (for testing, None = all)
         tag_mode: "untagged_only" to skip already tagged, "all" to retag everything
+        resume_from_job: Job ID to resume from (uses checkpoint from that job)
 
     Returns:
         Dictionary with tagging statistics
@@ -1363,9 +1446,28 @@ def auto_tag_task(
             failed_count = 0
             tag_stats: Dict[str, int] = {}
 
+            # Get job ID for checkpointing
+            job_id = resume_from_job or self.request.id or "unknown"
+
+            # Check for existing checkpoint to resume from
+            start_offset = 0
+            if resume_from_job:
+                checkpoint = _get_checkpoint(db, catalog_id, resume_from_job)
+                if checkpoint is not None:
+                    start_offset = checkpoint
+                    logger.info(
+                        f"Resuming from checkpoint: {start_offset}/{total_images} images already processed"
+                    )
+                    self.update_progress(
+                        start_offset,
+                        total_images,
+                        f"Resuming from checkpoint ({start_offset} already tagged)...",
+                        {"phase": "resuming", "checkpoint": start_offset},
+                    )
+
             # Process in batches for OpenCLIP or combined backend
             if backend in ("openclip", "combined"):
-                for batch_start in range(0, total_images, batch_size):
+                for batch_start in range(start_offset, total_images, batch_size):
                     batch_end = min(batch_start + batch_size, total_images)
                     batch = images_to_tag[batch_start:batch_end]
                     batch_paths = [Path(row[1]) for row in batch]
@@ -1430,13 +1532,23 @@ def auto_tag_task(
 
                         db.session.commit()
 
+                        # Save checkpoint after each batch
+                        _save_checkpoint(db, catalog_id, job_id, batch_end)
+                        logger.debug(f"Checkpoint saved: {batch_end}/{total_images}")
+
                     except Exception as batch_e:
                         logger.warning(f"Batch tagging failed: {batch_e}")
                         failed_count += len(batch)
+                        # Still save checkpoint so we don't reprocess failed batch
+                        _save_checkpoint(db, catalog_id, job_id, batch_end)
 
             elif backend == "ollama":
                 # Process one at a time for Ollama
                 for i, (img_id, source_path) in enumerate(images_to_tag):
+                    # Skip already processed images when resuming
+                    if i < start_offset:
+                        continue
+
                     self.update_progress(
                         i,
                         total_images,
@@ -1463,8 +1575,11 @@ def auto_tag_task(
                                         tag_stats.get(t.tag_name, 0) + 1
                                     )
 
-                        if i % 10 == 0:
+                        # Commit and checkpoint every 10 images
+                        if (i + 1) % 10 == 0:
                             db.session.commit()
+                            _save_checkpoint(db, catalog_id, job_id, i + 1)
+                            logger.debug(f"Checkpoint saved: {i + 1}/{total_images}")
 
                     except Exception as img_e:
                         logger.warning(f"Failed to tag {source_path}: {img_e}")
@@ -1490,6 +1605,9 @@ def auto_tag_task(
                 f"Auto-tagging complete for {catalog_id}: "
                 f"{tagged_count} tagged, {failed_count} failed"
             )
+
+            # Clear checkpoint on successful completion
+            _clear_checkpoint(db, catalog_id, job_id)
 
             result = {
                 "status": "completed",
