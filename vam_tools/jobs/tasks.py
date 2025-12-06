@@ -1358,12 +1358,13 @@ def auto_tag_task(
             limit_clause = f"LIMIT {max_images}" if max_images else ""
 
             if tag_mode == "untagged_only":
-                # Only images without any tags
+                # Only images without any tags (exclude videos)
                 result = db.session.execute(
                     text(
                         f"""
                         SELECT i.id, i.source_path FROM images i
                         WHERE i.catalog_id = :catalog_id
+                        AND i.file_type = 'image'
                         AND NOT EXISTS (
                             SELECT 1 FROM image_tags it WHERE it.image_id = i.id
                         )
@@ -1373,12 +1374,13 @@ def auto_tag_task(
                     {"catalog_id": catalog_id},
                 )
             else:
-                # All images - for retagging
+                # All images - for retagging (exclude videos)
                 result = db.session.execute(
                     text(
                         f"""
                         SELECT i.id, i.source_path FROM images i
                         WHERE i.catalog_id = :catalog_id
+                        AND i.file_type = 'image'
                         {limit_clause}
                     """
                     ),
