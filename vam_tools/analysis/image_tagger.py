@@ -27,7 +27,7 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from PIL import Image
 
@@ -885,12 +885,12 @@ class CombinedTagger:
                 source = "openclip"
             else:
                 # Only Ollama found this tag
-                combined_conf = ollama_conf
+                combined_conf = ollama_conf if ollama_conf is not None else 0.0
                 source = "ollama"
 
             if combined_conf >= threshold:
                 # Look up category from taxonomy
-                tag_def = self.taxonomy.get_tag(tag_name)
+                tag_def = self.taxonomy.get_tag_by_name(tag_name)
                 category = tag_def.category if tag_def else "unknown"
 
                 results.append(
@@ -952,7 +952,7 @@ class CombinedTagger:
         image_paths: List[Union[str, Path]],
         threshold: float = 0.25,
         max_tags: int = 10,
-        progress_callback: Optional[callable] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> Dict[Path, List[TagResult]]:
         """Tag multiple images using both backends.
 
