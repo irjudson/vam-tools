@@ -99,8 +99,10 @@ CREATE INDEX IF NOT EXISTS idx_tags_parent_id ON tags(parent_id);
 CREATE TABLE IF NOT EXISTS image_tags (
     image_id TEXT NOT NULL,
     tag_id INTEGER NOT NULL,
-    confidence REAL DEFAULT 1.0,            -- 0.0 to 1.0
-    source TEXT DEFAULT 'manual',           -- manual, auto, ai
+    confidence REAL DEFAULT 1.0,            -- 0.0 to 1.0 (combined/final confidence)
+    source TEXT DEFAULT 'manual',           -- manual, openclip, ollama, combined
+    openclip_confidence REAL,               -- Confidence from OpenCLIP backend (NULL if not used)
+    ollama_confidence REAL,                 -- Confidence from Ollama backend (NULL if not used)
     created_at TIMESTAMP DEFAULT NOW(),
 
     PRIMARY KEY (image_id, tag_id),

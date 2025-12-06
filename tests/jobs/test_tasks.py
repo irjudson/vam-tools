@@ -344,21 +344,37 @@ class TestAutoTagTask:
         img1.touch()
         img2.touch()
 
-        # Mock session execute - first call returns images to tag, second returns count
+        # Mock session execute - first call returns images to tag, subsequent calls for tag storage
         mock_result_images = MagicMock()
         mock_result_images.fetchall.return_value = [
             ("id1", str(img1)),
             ("id2", str(img2)),
         ]
 
-        mock_result_count = MagicMock()
-        mock_result_count.scalar.return_value = 2
+        # Create a mock that returns proper tag_id values for INSERT INTO tags calls
+        def mock_execute(query, params=None):
+            mock_result = MagicMock()
+            # Check if this is an INSERT INTO tags query (returns tag_id via scalar())
+            query_str = str(query) if hasattr(query, "__str__") else ""
+            if "INSERT INTO tags" in query_str or (
+                params and "name" in params and "category" in params
+            ):
+                mock_result.scalar.return_value = 1  # Return a tag_id
+            elif "INSERT INTO image_tags" in query_str:
+                pass  # No return value needed
+            return mock_result
 
-        mock_db.session.execute.side_effect = [
-            mock_result_images,  # First call: get images to tag
-            MagicMock(),  # UPDATE for img1
-            MagicMock(),  # UPDATE for img2
-        ]
+        # First call returns images, subsequent calls use mock_execute
+        call_count = [0]
+        original_mock_execute = mock_execute
+
+        def side_effect_execute(query, params=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return mock_result_images
+            return original_mock_execute(query, params)
+
+        mock_db.session.execute.side_effect = side_effect_execute
 
         # Mock ImageTagger
         mock_tagger = MagicMock()

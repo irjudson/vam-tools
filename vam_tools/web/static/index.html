@@ -345,6 +345,47 @@
                                     <input type="date" v-model="filters.date_to" @change="applyFilters" placeholder="To" />
                                 </div>
                             </div>
+
+                            <!-- Has Tags Filter -->
+                            <div class="filter-group">
+                                <label>Tagged</label>
+                                <select v-model="filters.has_tags" @change="applyFilters">
+                                    <option :value="null">All Images</option>
+                                    <option :value="true">With Tags</option>
+                                    <option :value="false">Without Tags</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Tags Filter Section -->
+                        <div v-if="availableTags.length > 0" class="tags-filter-section">
+                            <div class="tags-filter-header">
+                                <label>Filter by Tags</label>
+                                <div class="tag-match-toggle">
+                                    <label>
+                                        <input type="radio" v-model="filters.tag_match" value="any" @change="applyFilters" />
+                                        Any
+                                    </label>
+                                    <label>
+                                        <input type="radio" v-model="filters.tag_match" value="all" @change="applyFilters" />
+                                        All
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="tags-filter-list">
+                                <button
+                                    v-for="tag in availableTags.slice(0, 30)"
+                                    :key="tag.id"
+                                    @click="toggleTagFilter(tag.name)"
+                                    :class="['tag-filter-btn', { active: isTagSelected(tag.name) }]"
+                                    :title="tag.count + ' images'">
+                                    {{ tag.name }}
+                                    <span class="tag-count">{{ tag.count }}</span>
+                                </button>
+                                <span v-if="availableTags.length > 30" class="more-tags">
+                                    +{{ availableTags.length - 30 }} more tags
+                                </span>
+                            </div>
                         </div>
 
                         <!-- Clear Filters Button -->
@@ -402,6 +443,15 @@
                         />
                         <div class="thumbnail-overlay">
                             <div class="text-sm">{{ image.source_path.split('/').pop() }}</div>
+                        </div>
+                        <!-- Tags display on thumbnail -->
+                        <div v-if="image.tags && image.tags.length > 0" class="thumbnail-tags">
+                            <span v-for="tag in image.tags.slice(0, 3)" :key="tag.name" class="thumbnail-tag">
+                                {{ tag.name }}
+                            </span>
+                            <span v-if="image.tags.length > 3" class="thumbnail-tag-more">
+                                +{{ image.tags.length - 3 }}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -495,13 +545,28 @@
 
                 <!-- All Jobs -->
                 <section class="all-jobs-section">
-                    <h3>Job History</h3>
+                    <div class="job-history-header-row">
+                        <h3>Job History</h3>
+                        <button v-if="completedJobs.length > 0"
+                                @click="toggleAllArchived"
+                                class="archive-all-btn">
+                            {{ allJobsArchived ? 'Expand All' : 'Collapse All' }}
+                        </button>
+                    </div>
                     <div class="jobs-list">
                         <div v-if="jobs.length > 0">
-                            <div v-for="job in jobs" :key="job.id" class="job-history-card" :class="'job-' + job.status.toLowerCase()">
+                            <div v-for="job in jobs" :key="job.id"
+                                 class="job-history-card"
+                                 :class="['job-' + job.status.toLowerCase(), { 'archived': isJobArchived(job.id) }]">
                                 <div class="job-history-header">
                                     <div class="job-history-title">
-                                        <span class="job-type-icon">{{ job.name === 'scan' ? '📂' : job.name === 'analyze' ? '🔍' : '⚙️' }}</span>
+                                        <button v-if="job.status === 'SUCCESS' || job.status === 'FAILURE'"
+                                                @click="toggleJobArchived(job.id)"
+                                                class="archive-toggle"
+                                                :title="isJobArchived(job.id) ? 'Expand' : 'Collapse'">
+                                            {{ isJobArchived(job.id) ? '▶' : '▼' }}
+                                        </button>
+                                        <span class="job-type-icon">{{ getJobIcon(job.name) }}</span>
                                         <strong>{{ job.name || 'Job' }}</strong>
                                         <span :class="['status-badge', getJobStatusClass(job.status)]">
                                             {{ formatJobStatus(job.status) }}
@@ -513,10 +578,50 @@
                                     </div>
                                 </div>
 
+                                <!-- Timing Info for completed jobs -->
+                                <div v-if="(job.status === 'SUCCESS' || job.status === 'FAILURE') && !isJobArchived(job.id)" class="job-timing">
+                                    <span class="timing-item" v-if="job.started">
+                                        <span class="timing-icon">🕐</span>
+                                        <span class="timing-value">{{ formatDate(job.started) }}</span>
+                                    </span>
+                                    <span class="timing-item" v-if="job.durationSeconds">
+                                        <span class="timing-icon">⏱️</span>
+                                        <span class="timing-value">{{ formatDuration(job.durationSeconds) }}</span>
+                                    </span>
+                                </div>
+
                                 <!-- Result Summary -->
-                                <div v-if="job.result && Object.keys(job.result).length > 0" class="job-result-summary">
-                                    <!-- New comprehensive stats format -->
-                                    <div v-if="job.result.files_discovered" class="job-stats-row">
+                                <div v-if="job.result && Object.keys(job.result).length > 0 && !isJobArchived(job.id)" class="job-result-summary">
+                                    <!-- Auto-tag job results -->
+                                    <div v-if="job.result.images_tagged !== undefined" class="job-stats-row">
+                                        <span class="stat-item stat-success">
+                                            <strong>🏷️ {{ formatNumber(job.result.images_tagged) }}</strong> tagged
+                                        </span>
+                                        <span class="stat-item">
+                                            of {{ formatNumber(job.result.total_images) }} images
+                                        </span>
+                                        <span v-if="job.result.unique_tags_applied" class="stat-item">
+                                            {{ formatNumber(job.result.unique_tags_applied) }} unique tags
+                                        </span>
+                                        <span v-if="job.result.backend" class="stat-item stat-muted">
+                                            {{ job.result.backend }}
+                                        </span>
+                                    </div>
+
+                                    <!-- Top tags breakdown for auto-tag jobs -->
+                                    <div v-if="job.result.top_tags && job.result.top_tags.length > 0" class="job-stats-detail">
+                                        <details>
+                                            <summary>Top Tags</summary>
+                                            <div class="top-tags-breakdown">
+                                                <span v-for="[tag, count] in job.result.top_tags.slice(0, 8)" :key="tag" class="tag-stat">
+                                                    {{ tag }}: {{ count }}
+                                                </span>
+                                            </div>
+                                        </details>
+                                    </div>
+
+                                    <!-- Scan job results - New comprehensive stats format -->
+                                    <div v-else-if="job.result.files_discovered" class="job-stats-row">
                                         <span class="stat-item">
                                             <strong>{{ formatNumber(job.result.files_discovered) }}</strong> discovered
                                         </span>
@@ -546,7 +651,7 @@
                                     </div>
 
                                     <!-- File types and size -->
-                                    <div v-if="job.result.file_types || job.result.size_stats" class="job-stats-row secondary">
+                                    <div v-if="job.result.file_types || job.result.size_stats || job.result.duration_seconds" class="job-stats-row secondary">
                                         <span v-if="job.result.file_types" class="stat-item">
                                             {{ formatNumber(job.result.file_types.images) }} images, {{ formatNumber(job.result.file_types.videos) }} videos
                                         </span>
@@ -560,7 +665,7 @@
                                     </div>
 
                                     <!-- Legacy format fallback -->
-                                    <div v-else-if="!job.result.files_discovered" class="job-stats-row">
+                                    <div v-else-if="!job.result.files_discovered && !job.result.images_tagged" class="job-stats-row">
                                         <span v-if="'files_added' in job.result" class="stat-item stat-success">
                                             +{{ formatNumber(job.result.files_added) }} files
                                         </span>
@@ -580,12 +685,12 @@
                                 </div>
 
                                 <!-- Error display -->
-                                <div v-if="job.error" class="job-error-display">
+                                <div v-if="job.error && !isJobArchived(job.id)" class="job-error-display">
                                     <span class="error-icon">⚠️</span> {{ job.error }}
                                 </div>
 
                                 <!-- Actions -->
-                                <div class="job-history-actions">
+                                <div v-if="!isJobArchived(job.id)" class="job-history-actions">
                                     <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
                                         @click="cancelJob(job.id)"
                                         class="btn-secondary btn-small"
@@ -1300,6 +1405,14 @@
                         <select v-model="autoTagBackend" style="width: 100%; padding: 8px; margin-top: 4px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border-color);">
                             <option value="openclip">OpenCLIP (Fast, GPU accelerated)</option>
                             <option value="ollama">Ollama/LLaVA (More accurate, slower)</option>
+                            <option value="combined">Combined (Both backends, weighted confidence)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-top: 12px;">
+                        <label>Tagging Mode:</label>
+                        <select v-model="autoTagMode" style="width: 100%; padding: 8px; margin-top: 4px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                            <option value="untagged_only">Tag only untagged images (faster)</option>
+                            <option value="all">Retag all images (overwrites existing AI tags)</option>
                         </select>
                     </div>
                     <p style="margin-top: 16px; font-size: 14px; color: var(--text-secondary);">
@@ -1427,6 +1540,21 @@
                                     {{ lightboxImage.checksum ? lightboxImage.checksum.substring(0, 12) + '...' : 'N/A' }}
                                 </span>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Tags -->
+                    <div class="lightbox-metadata-section" v-if="lightboxImage && lightboxImage.tags && lightboxImage.tags.length > 0">
+                        <h3>Tags</h3>
+                        <div class="lightbox-tags">
+                            <span
+                                v-for="tag in lightboxImage.tags"
+                                :key="tag.name"
+                                class="lightbox-tag"
+                                :title="'Confidence: ' + Math.round((tag.confidence || 0) * 100) + '%'"
+                            >
+                                {{ tag.name }}
+                            </span>
                         </div>
                     </div>
 

@@ -74,6 +74,7 @@ services:
       - REDIS_PASSWORD=buffalo-jump
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - C_FORCE_ROOT=true  # Allow Celery to run as root (only for Docker)
+      - OLLAMA_HOST=http://ollama:11434
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     command: celery -A vam_tools.celery_app worker --loglevel=info --concurrency=2

@@ -168,8 +168,10 @@ class ImageTag(Base):
     tag_id = Column(
         Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
     )
-    confidence = Column(Float, default=1.0)
-    source = Column(String, default="manual")  # manual, auto, ai
+    confidence = Column(Float, default=1.0)  # Combined/final confidence
+    source = Column(String, default="manual")  # manual, openclip, ollama, combined
+    openclip_confidence = Column(Float, nullable=True)  # Confidence from OpenCLIP
+    ollama_confidence = Column(Float, nullable=True)  # Confidence from Ollama
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
@@ -177,7 +179,7 @@ class ImageTag(Base):
     tag = relationship("Tag", back_populates="images")
 
     def __repr__(self) -> str:
-        return f"<ImageTag(image={self.image_id}, tag={self.tag_id}, confidence={self.confidence})>"
+        return f"<ImageTag(image={self.image_id}, tag={self.tag_id}, confidence={self.confidence}, source={self.source})>"
 
 
 class DuplicateGroup(Base):

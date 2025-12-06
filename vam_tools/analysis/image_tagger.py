@@ -23,6 +23,7 @@ Example:
 import base64
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,9 +41,11 @@ class TagResult:
     """Result of tagging an image."""
 
     tag_name: str
-    confidence: float
+    confidence: float  # Combined/final confidence
     category: str
-    source: str  # "openclip" or "ollama"
+    source: str  # "openclip", "ollama", or "combined"
+    openclip_confidence: Optional[float] = None  # Confidence from OpenCLIP (if used)
+    ollama_confidence: Optional[float] = None  # Confidence from Ollama (if used)
 
 
 class TaggerBackend(ABC):
@@ -154,6 +157,78 @@ class OpenCLIPBackend(TaggerBackend):
             pass
         return "cpu"
 
+    # RAW formats that need special handling
+    RAW_FORMATS = {
+        ".arw",
+        ".cr2",
+        ".cr3",
+        ".nef",
+        ".dng",
+        ".orf",
+        ".rw2",
+        ".pef",
+        ".srw",
+        ".raf",
+        ".raw",
+    }
+
+    def _load_image(self, path: Path) -> Optional[Image.Image]:
+        """Load an image, with RAW format support.
+
+        Args:
+            path: Path to the image file
+
+        Returns:
+            PIL Image in RGB mode, or None if loading failed
+        """
+        suffix = path.suffix.lower()
+
+        # Handle RAW files
+        if suffix in self.RAW_FORMATS:
+            # Try rawpy first
+            try:
+                import rawpy
+
+                with rawpy.imread(str(path)) as raw:
+                    rgb = raw.postprocess(half_size=True, use_camera_wb=True)
+                    return Image.fromarray(rgb)
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.debug(f"rawpy failed for {path}: {e}")
+
+            # Try extracting embedded preview with exiftool
+            try:
+                import subprocess
+
+                result = subprocess.run(
+                    ["exiftool", "-b", "-PreviewImage", str(path)],
+                    capture_output=True,
+                    timeout=30,
+                )
+                if result.returncode == 0 and result.stdout:
+                    from io import BytesIO
+
+                    return Image.open(BytesIO(result.stdout)).convert("RGB")
+
+                # Fallback to JpgFromRaw
+                result = subprocess.run(
+                    ["exiftool", "-b", "-JpgFromRaw", str(path)],
+                    capture_output=True,
+                    timeout=30,
+                )
+                if result.returncode == 0 and result.stdout:
+                    from io import BytesIO
+
+                    return Image.open(BytesIO(result.stdout)).convert("RGB")
+            except Exception as e:
+                logger.debug(f"exiftool preview extraction failed for {path}: {e}")
+
+            return None
+
+        # Standard image formats
+        return Image.open(path).convert("RGB")
+
     def _load_model(self) -> None:
         """Load the CLIP model lazily."""
         if self._model is not None:
@@ -171,6 +246,11 @@ class OpenCLIPBackend(TaggerBackend):
                 model_arch, pretrained=pretrained, device=self._device
             )
             self._tokenizer = open_clip.get_tokenizer(model_arch)
+
+            # Cast to float32 on CPU (bfloat16 not supported on CPU)
+            if self._device == "cpu":
+                self._model = self._model.float()
+
             self._model.eval()
             logger.info("OpenCLIP model loaded successfully")
 
@@ -193,9 +273,14 @@ class OpenCLIPBackend(TaggerBackend):
         # Using "a photo of {tag}" template improves zero-shot accuracy
         prompts = [f"a photo of {tag.replace('_', ' ')}" for tag in tag_names]
 
-        with torch.no_grad(), torch.amp.autocast(self._device):
+        # Use autocast only on CUDA (bfloat16 not supported on CPU)
+        with torch.no_grad():
             text_tokens = self._tokenizer(prompts).to(self._device)
-            self._text_embeddings = self._model.encode_text(text_tokens)
+            if self._device == "cuda":
+                with torch.amp.autocast(self._device):
+                    self._text_embeddings = self._model.encode_text(text_tokens)
+            else:
+                self._text_embeddings = self._model.encode_text(text_tokens)
             self._text_embeddings /= self._text_embeddings.norm(dim=-1, keepdim=True)
 
         self._tag_names = tag_names
@@ -262,12 +347,16 @@ class OpenCLIPBackend(TaggerBackend):
             batch_images = []
             valid_paths = []
 
-            # Load images
+            # Load images (with RAW format support)
             for path in batch_paths:
                 try:
-                    image = Image.open(path).convert("RGB")
-                    batch_images.append(self._preprocess(image))
-                    valid_paths.append(path)
+                    image = self._load_image(path)
+                    if image:
+                        batch_images.append(self._preprocess(image))
+                        valid_paths.append(path)
+                    else:
+                        logger.warning(f"Failed to load {path}: unsupported format")
+                        results[path] = []
                 except Exception as e:
                     logger.warning(f"Failed to load {path}: {e}")
                     results[path] = []
@@ -278,8 +367,13 @@ class OpenCLIPBackend(TaggerBackend):
             # Stack and process batch
             batch_tensor = torch.stack(batch_images).to(self._device)
 
-            with torch.no_grad(), torch.amp.autocast(self._device):
-                image_embeddings = self._model.encode_image(batch_tensor)
+            # Use autocast only on CUDA (bfloat16 not supported on CPU)
+            with torch.no_grad():
+                if self._device == "cuda":
+                    with torch.amp.autocast(self._device):
+                        image_embeddings = self._model.encode_image(batch_tensor)
+                else:
+                    image_embeddings = self._model.encode_image(batch_tensor)
                 image_embeddings /= image_embeddings.norm(dim=-1, keepdim=True)
                 similarities = image_embeddings @ self._text_embeddings.T
                 similarities = similarities.cpu().numpy()
@@ -320,16 +414,16 @@ class OllamaBackend(TaggerBackend):
     def __init__(
         self,
         model: str = "llava",
-        host: str = "http://localhost:11434",
+        host: Optional[str] = None,
     ) -> None:
         """Initialize Ollama backend.
 
         Args:
             model: Vision model to use (llava, qwen3-vl, etc.)
-            host: Ollama server URL
+            host: Ollama server URL (defaults to OLLAMA_HOST env var or localhost)
         """
         self.model = model
-        self.host = host
+        self.host = host or os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         self._client: Any = None
 
     def _get_client(self) -> Any:
@@ -514,7 +608,7 @@ class ImageTagger:
         backend: str = "openclip",
         model: Optional[str] = None,
         device: Optional[str] = None,
-        ollama_host: str = "http://localhost:11434",
+        ollama_host: Optional[str] = None,
     ) -> None:
         """Initialize image tagger.
 
@@ -522,7 +616,7 @@ class ImageTagger:
             backend: Backend to use ("openclip" or "ollama")
             model: Model name (backend-specific)
             device: Device for OpenCLIP (cuda, cpu, mps)
-            ollama_host: Ollama server URL
+            ollama_host: Ollama server URL (defaults to OLLAMA_HOST env var)
         """
         self.taxonomy = TagTaxonomy()
         self._tag_names = [tag.name for tag in self.taxonomy.get_all_tags()]
@@ -697,23 +791,248 @@ class ImageTagger:
         return self._backend.describe_image(Path(image_path))
 
 
+class CombinedTagger:
+    """Combined tagger that runs both OpenCLIP and Ollama backends.
+
+    Runs OpenCLIP first (fast batch processing), then Ollama (more accurate)
+    on all images. Results are merged with weighted confidence:
+    - Tags from both: 40% OpenCLIP + 60% Ollama confidence
+    - Tags from one backend only: that backend's confidence
+
+    This provides the speed of OpenCLIP with the accuracy of Ollama.
+    """
+
+    # Weights for combining confidence scores
+    OPENCLIP_WEIGHT = 0.4
+    OLLAMA_WEIGHT = 0.6
+
+    def __init__(
+        self,
+        openclip_model: str = "ViT-B-32",
+        ollama_model: str = "llava",
+        device: Optional[str] = None,
+        ollama_host: Optional[str] = None,
+    ) -> None:
+        """Initialize combined tagger with both backends.
+
+        Args:
+            openclip_model: OpenCLIP model to use
+            ollama_model: Ollama vision model to use
+            device: Device for OpenCLIP (cuda, cpu, mps)
+            ollama_host: Ollama server URL
+        """
+        self.taxonomy = TagTaxonomy()
+        self._tag_names = [tag.name for tag in self.taxonomy.get_all_tags()]
+
+        # Initialize both backends
+        self._openclip = OpenCLIPBackend(model_name=openclip_model, device=device)
+        self._ollama = OllamaBackend(model=ollama_model, host=ollama_host)
+
+        logger.info(
+            f"CombinedTagger initialized with OpenCLIP ({openclip_model}) "
+            f"and Ollama ({ollama_model})"
+        )
+
+    def is_available(self) -> Tuple[bool, bool]:
+        """Check if backends are available.
+
+        Returns:
+            Tuple of (openclip_available, ollama_available)
+        """
+        return (self._openclip.is_available(), self._ollama.is_available())
+
+    def _merge_results(
+        self,
+        openclip_tags: List[Tuple[str, float]],
+        ollama_tags: List[Tuple[str, float]],
+        threshold: float,
+        max_tags: int,
+    ) -> List[TagResult]:
+        """Merge results from both backends with weighted confidence.
+
+        Args:
+            openclip_tags: Tags from OpenCLIP [(name, confidence), ...]
+            ollama_tags: Tags from Ollama [(name, confidence), ...]
+            threshold: Minimum confidence threshold
+            max_tags: Maximum tags to return
+
+        Returns:
+            List of TagResult with combined confidence scores
+        """
+        # Build lookup dicts
+        openclip_dict = {name: conf for name, conf in openclip_tags}
+        ollama_dict = {name: conf for name, conf in ollama_tags}
+
+        # Get all unique tag names
+        all_tags = set(openclip_dict.keys()) | set(ollama_dict.keys())
+
+        results = []
+        for tag_name in all_tags:
+            openclip_conf = openclip_dict.get(tag_name)
+            ollama_conf = ollama_dict.get(tag_name)
+
+            # Calculate combined confidence
+            if openclip_conf is not None and ollama_conf is not None:
+                # Both backends found this tag - weighted combination
+                combined_conf = (
+                    self.OPENCLIP_WEIGHT * openclip_conf
+                    + self.OLLAMA_WEIGHT * ollama_conf
+                )
+                source = "combined"
+            elif openclip_conf is not None:
+                # Only OpenCLIP found this tag
+                combined_conf = openclip_conf
+                source = "openclip"
+            else:
+                # Only Ollama found this tag
+                combined_conf = ollama_conf
+                source = "ollama"
+
+            if combined_conf >= threshold:
+                # Look up category from taxonomy
+                tag_def = self.taxonomy.get_tag(tag_name)
+                category = tag_def.category if tag_def else "unknown"
+
+                results.append(
+                    TagResult(
+                        tag_name=tag_name,
+                        confidence=combined_conf,
+                        category=category,
+                        source=source,
+                        openclip_confidence=openclip_conf,
+                        ollama_confidence=ollama_conf,
+                    )
+                )
+
+        # Sort by confidence and limit
+        results.sort(key=lambda x: x.confidence, reverse=True)
+        return results[:max_tags]
+
+    def tag_image(
+        self,
+        image_path: Union[str, Path],
+        threshold: float = 0.25,
+        max_tags: int = 10,
+    ) -> List[TagResult]:
+        """Tag a single image using both backends.
+
+        Args:
+            image_path: Path to the image
+            threshold: Minimum confidence threshold
+            max_tags: Maximum tags to return
+
+        Returns:
+            List of TagResult with combined results
+        """
+        image_path = Path(image_path)
+
+        # Get tags from OpenCLIP
+        try:
+            openclip_tags = self._openclip.tag_image(
+                image_path, self._tag_names, threshold=0.1, max_tags=max_tags * 2
+            )
+        except Exception as e:
+            logger.warning(f"OpenCLIP tagging failed: {e}")
+            openclip_tags = []
+
+        # Get tags from Ollama
+        try:
+            ollama_tags = self._ollama.tag_image(
+                image_path, self._tag_names, threshold=0.1, max_tags=max_tags * 2
+            )
+        except Exception as e:
+            logger.warning(f"Ollama tagging failed: {e}")
+            ollama_tags = []
+
+        # Merge results
+        return self._merge_results(openclip_tags, ollama_tags, threshold, max_tags)
+
+    def tag_batch(
+        self,
+        image_paths: List[Union[str, Path]],
+        threshold: float = 0.25,
+        max_tags: int = 10,
+        progress_callback: Optional[callable] = None,
+    ) -> Dict[Path, List[TagResult]]:
+        """Tag multiple images using both backends.
+
+        OpenCLIP processes the batch first (fast), then Ollama processes
+        each image (slower but more accurate).
+
+        Args:
+            image_paths: List of image paths
+            threshold: Minimum confidence threshold
+            max_tags: Maximum tags per image
+            progress_callback: Optional callback(current, total, phase) for progress
+
+        Returns:
+            Dict mapping image paths to their combined tag results
+        """
+        paths = [Path(p) for p in image_paths]
+        total = len(paths)
+
+        if progress_callback:
+            progress_callback(0, total, "openclip")
+
+        # Phase 1: OpenCLIP batch processing (fast)
+        try:
+            openclip_results = self._openclip.tag_batch(
+                paths, self._tag_names, threshold=0.1, max_tags=max_tags * 2
+            )
+        except Exception as e:
+            logger.warning(f"OpenCLIP batch tagging failed: {e}")
+            openclip_results = {p: [] for p in paths}
+
+        if progress_callback:
+            progress_callback(total, total, "openclip")
+            progress_callback(0, total, "ollama")
+
+        # Phase 2: Ollama processing (slower, one at a time)
+        ollama_results: Dict[Path, List[Tuple[str, float]]] = {}
+        for i, path in enumerate(paths):
+            try:
+                ollama_results[path] = self._ollama.tag_image(
+                    path, self._tag_names, threshold=0.1, max_tags=max_tags * 2
+                )
+            except Exception as e:
+                logger.warning(f"Ollama tagging failed for {path}: {e}")
+                ollama_results[path] = []
+
+            if progress_callback:
+                progress_callback(i + 1, total, "ollama")
+
+        # Phase 3: Merge results
+        combined_results: Dict[Path, List[TagResult]] = {}
+        for path in paths:
+            openclip_tags = openclip_results.get(path, [])
+            ollama_tags = ollama_results.get(path, [])
+            combined_results[path] = self._merge_results(
+                openclip_tags, ollama_tags, threshold, max_tags
+            )
+
+        return combined_results
+
+
 def check_backends_available() -> Dict[str, Any]:
     """Check which tagging backends are available.
 
     Returns:
         Dictionary with backend names and availability status
     """
+    import importlib.util
+
     status: Dict[str, Any] = {}
 
-    # Check OpenCLIP
-    try:
-        import open_clip  # noqa: F401
-
+    # Check OpenCLIP - use importlib to check if package exists without importing
+    # This avoids triggering PyTorch CUDA initialization which can fail on
+    # unsupported GPU architectures (e.g., RTX 5060 Ti Blackwell sm_120)
+    open_clip_spec = importlib.util.find_spec("open_clip")
+    if open_clip_spec is not None:
         status["openclip"] = True
-    except Exception:
-        # ImportError, RuntimeError, or AttributeError can occur
-        # due to torch/torchvision library conflicts in test environments
+        status["openclip_note"] = "available (will use CPU if GPU unsupported)"
+    else:
         status["openclip"] = False
+        status["openclip_error"] = "open_clip not installed"
 
     # Check Ollama
     try:

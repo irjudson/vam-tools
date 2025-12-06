@@ -142,6 +142,16 @@ def list_catalog_images(
     date_to: str = None,  # ISO date string
     min_width: int = None,
     min_height: int = None,
+    # Tag filters
+    tags: str = Query(None, description="Comma-separated tag names to filter by"),
+    tag_match: str = Query(
+        "any", pattern="^(any|all)$", description="Match any or all tags"
+    ),
+    has_tags: bool = Query(None, description="Filter: True=has tags, False=no tags"),
+    # Include tags in response
+    include_tags: bool = Query(
+        False, description="Include tags array in each image response"
+    ),
     # Sorting
     sort_by: str = "date",  # date, filename, size, created_at
     sort_order: str = "desc",  # asc or desc
@@ -162,6 +172,9 @@ def list_catalog_images(
         - has_gps: Filter images with GPS coordinates
         - date_from/date_to: Filter by date range
         - min_width/min_height: Filter by minimum resolution
+        - tags: Comma-separated list of tag names to filter by
+        - tag_match: "any" (default) or "all" - match any tag or all tags
+        - has_tags: True to show only tagged images, False for untagged only
 
     Sorting:
         - sort_by: date, filename, size, created_at
@@ -241,6 +254,47 @@ def list_catalog_images(
         conditions.append("(metadata->>'height')::int >= :min_height")
         params["min_height"] = min_height
 
+    # Tag filters
+    if has_tags is True:
+        # Only images with at least one tag
+        conditions.append(
+            "EXISTS (SELECT 1 FROM image_tags it WHERE it.image_id = images.id)"
+        )
+    elif has_tags is False:
+        # Only images without any tags
+        conditions.append(
+            "NOT EXISTS (SELECT 1 FROM image_tags it WHERE it.image_id = images.id)"
+        )
+
+    if tags:
+        # Parse comma-separated tag names
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        if tag_list:
+            # Build tag filter based on match mode
+            if tag_match == "all":
+                # Image must have ALL specified tags
+                conditions.append(
+                    """
+                    (SELECT COUNT(DISTINCT t.name) FROM image_tags it
+                     JOIN tags t ON it.tag_id = t.id
+                     WHERE it.image_id = images.id AND t.name = ANY(:tag_names)) = :tag_count
+                """
+                )
+                params["tag_names"] = tag_list
+                params["tag_count"] = len(tag_list)
+            else:
+                # Image must have ANY of the specified tags (default)
+                conditions.append(
+                    """
+                    EXISTS (
+                        SELECT 1 FROM image_tags it
+                        JOIN tags t ON it.tag_id = t.id
+                        WHERE it.image_id = images.id AND t.name = ANY(:tag_names)
+                    )
+                """
+                )
+                params["tag_names"] = tag_list
+
     # Build ORDER BY clause
     order_direction = "DESC" if sort_order.lower() == "desc" else "ASC"
     order_clauses = {
@@ -276,25 +330,60 @@ def list_catalog_images(
     result = db.execute(query, params)
 
     images = []
+    image_ids = []
     for row in result:
         row_dict = dict(row._mapping)
-        images.append(
-            {
-                "id": row_dict["id"],
-                "source_path": row_dict["source_path"],
-                "file_type": row_dict["file_type"],
-                "checksum": row_dict["checksum"],
-                "size_bytes": row_dict["size_bytes"],
-                "dates": row_dict["dates"],
-                "metadata": row_dict["metadata"],
-                "thumbnail_path": row_dict["thumbnail_path"],
-                "created_at": (
-                    row_dict["created_at"].isoformat()
-                    if row_dict["created_at"]
-                    else None
-                ),
-            }
+        image_data = {
+            "id": row_dict["id"],
+            "source_path": row_dict["source_path"],
+            "file_type": row_dict["file_type"],
+            "checksum": row_dict["checksum"],
+            "size_bytes": row_dict["size_bytes"],
+            "dates": row_dict["dates"],
+            "metadata": row_dict["metadata"],
+            "thumbnail_path": row_dict["thumbnail_path"],
+            "created_at": (
+                row_dict["created_at"].isoformat() if row_dict["created_at"] else None
+            ),
+        }
+        images.append(image_data)
+        image_ids.append(row_dict["id"])
+
+    # Fetch tags for all images in a single query if requested
+    if include_tags and image_ids:
+        tags_query = text(
+            """
+            SELECT
+                it.image_id,
+                t.name,
+                t.category,
+                it.confidence
+            FROM image_tags it
+            JOIN tags t ON it.tag_id = t.id
+            WHERE it.image_id = ANY(:image_ids)
+            ORDER BY it.confidence DESC
+        """
         )
+        tags_result = db.execute(tags_query, {"image_ids": image_ids})
+
+        # Group tags by image_id
+        image_tags_map = {}
+        for tag_row in tags_result:
+            tag_dict = dict(tag_row._mapping)
+            img_id = tag_dict["image_id"]
+            if img_id not in image_tags_map:
+                image_tags_map[img_id] = []
+            image_tags_map[img_id].append(
+                {
+                    "name": tag_dict["name"],
+                    "category": tag_dict["category"],
+                    "confidence": round(tag_dict["confidence"] or 0, 3),
+                }
+            )
+
+        # Add tags to each image
+        for image in images:
+            image["tags"] = image_tags_map.get(image["id"], [])
 
     # Get total count with same filters
     count_query = text(f"SELECT COUNT(*) FROM images WHERE {where_clause}")
@@ -316,6 +405,9 @@ def list_catalog_images(
             "has_gps": has_gps,
             "date_from": date_from,
             "date_to": date_to,
+            "tags": tags,
+            "tag_match": tag_match,
+            "has_tags": has_tags,
         },
         "sort": {"by": sort_by, "order": sort_order},
     }
@@ -566,6 +658,232 @@ def get_catalog_stats(catalog_id: uuid.UUID, db: Session = Depends(get_db)):
             for job in recent_jobs
         ],
     }
+
+
+# =============================================================================
+# Tag Endpoints
+# =============================================================================
+
+
+@router.get("/{catalog_id}/tags")
+def list_catalog_tags(
+    catalog_id: uuid.UUID,
+    min_count: int = Query(0, ge=0, description="Minimum image count for a tag"),
+    category: str = Query(None, description="Filter by tag category"),
+    search: str = Query(None, description="Search tag names"),
+    sort_by: str = Query("count", pattern="^(count|name|confidence)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
+    limit: int = Query(100, le=500),
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """
+    List all tags in a catalog with usage counts and statistics.
+
+    Returns tags with:
+    - name: Tag name
+    - category: Tag category (subject, scene, style, etc.)
+    - count: Number of images with this tag
+    - avg_confidence: Average confidence score across all images
+    - sources: Breakdown of tagging sources (openclip, ollama, manual)
+
+    Filters:
+    - min_count: Only show tags with at least this many images
+    - category: Filter by tag category
+    - search: Search tag names
+
+    Sorting:
+    - sort_by: count, name, or confidence
+    - sort_order: asc or desc
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Build query for tags with counts
+    conditions = ["t.catalog_id = :catalog_id"]
+    params = {"catalog_id": catalog_id_str, "limit": limit, "offset": offset}
+
+    if category:
+        conditions.append("t.category = :category")
+        params["category"] = category
+
+    if search:
+        conditions.append("t.name ILIKE :search")
+        params["search"] = f"%{search}%"
+
+    # Determine sort column
+    sort_map = {
+        "count": "image_count",
+        "name": "t.name",
+        "confidence": "avg_confidence",
+    }
+    sort_col = sort_map.get(sort_by, "image_count")
+    order = "DESC" if sort_order == "desc" else "ASC"
+
+    query = text(
+        f"""
+        SELECT
+            t.id,
+            t.name,
+            t.category,
+            COUNT(it.image_id) as image_count,
+            AVG(it.confidence) as avg_confidence,
+            jsonb_object_agg(
+                COALESCE(it.source, 'unknown'),
+                source_counts.cnt
+            ) FILTER (WHERE source_counts.cnt IS NOT NULL) as sources
+        FROM tags t
+        LEFT JOIN image_tags it ON t.id = it.tag_id
+        LEFT JOIN LATERAL (
+            SELECT it2.source, COUNT(*) as cnt
+            FROM image_tags it2
+            WHERE it2.tag_id = t.id
+            GROUP BY it2.source
+        ) source_counts ON true
+        WHERE {" AND ".join(conditions)}
+        GROUP BY t.id, t.name, t.category
+        HAVING COUNT(it.image_id) >= :min_count
+        ORDER BY {sort_col} {order}, t.name ASC
+        LIMIT :limit OFFSET :offset
+    """
+    )
+
+    params["min_count"] = min_count
+    result = db.execute(query, params)
+
+    tags = []
+    for row in result:
+        row_dict = dict(row._mapping)
+        tags.append(
+            {
+                "id": row_dict["id"],
+                "name": row_dict["name"],
+                "category": row_dict["category"],
+                "count": row_dict["image_count"],
+                "avg_confidence": round(row_dict["avg_confidence"] or 0, 3),
+                "sources": row_dict["sources"] or {},
+            }
+        )
+
+    # Get total count for pagination
+    count_query = text(
+        f"""
+        SELECT COUNT(DISTINCT t.id) as total
+        FROM tags t
+        LEFT JOIN image_tags it ON t.id = it.tag_id
+        WHERE {" AND ".join(conditions)}
+        GROUP BY t.id
+        HAVING COUNT(it.image_id) >= :min_count
+    """
+    )
+    count_result = db.execute(count_query, params).fetchall()
+    total = len(count_result)
+
+    # Get category breakdown
+    category_query = text(
+        """
+        SELECT t.category, COUNT(DISTINCT t.id) as tag_count
+        FROM tags t
+        WHERE t.catalog_id = :catalog_id
+        GROUP BY t.category
+        ORDER BY tag_count DESC
+    """
+    )
+    categories = [
+        {"category": row[0] or "uncategorized", "count": row[1]}
+        for row in db.execute(category_query, {"catalog_id": catalog_id_str})
+    ]
+
+    return {
+        "tags": tags,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "categories": categories,
+    }
+
+
+@router.get("/{catalog_id}/images/{image_id}/tags")
+def get_image_tags(
+    catalog_id: uuid.UUID,
+    image_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Get all tags for a specific image.
+
+    Returns tags with confidence scores and source information.
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    # Verify image exists
+    image_query = text(
+        "SELECT id FROM images WHERE id = :image_id AND catalog_id = :catalog_id"
+    )
+    image_result = db.execute(
+        image_query, {"image_id": image_id, "catalog_id": str(catalog_id)}
+    ).fetchone()
+
+    if not image_result:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Get tags for the image
+    query = text(
+        """
+        SELECT
+            t.id,
+            t.name,
+            t.category,
+            it.confidence,
+            it.source,
+            it.openclip_confidence,
+            it.ollama_confidence,
+            it.created_at
+        FROM image_tags it
+        JOIN tags t ON it.tag_id = t.id
+        WHERE it.image_id = :image_id
+        ORDER BY it.confidence DESC
+    """
+    )
+
+    result = db.execute(query, {"image_id": image_id})
+
+    tags = []
+    for row in result:
+        row_dict = dict(row._mapping)
+        tags.append(
+            {
+                "id": row_dict["id"],
+                "name": row_dict["name"],
+                "category": row_dict["category"],
+                "confidence": round(row_dict["confidence"] or 0, 3),
+                "source": row_dict["source"],
+                "openclip_confidence": (
+                    round(row_dict["openclip_confidence"], 3)
+                    if row_dict["openclip_confidence"]
+                    else None
+                ),
+                "ollama_confidence": (
+                    round(row_dict["ollama_confidence"], 3)
+                    if row_dict["ollama_confidence"]
+                    else None
+                ),
+                "created_at": (
+                    row_dict["created_at"].isoformat()
+                    if row_dict["created_at"]
+                    else None
+                ),
+            }
+        )
+
+    return {"image_id": image_id, "tags": tags, "count": len(tags)}
 
 
 @router.get("/{catalog_id}/images/{image_id}/thumbnail")
@@ -1102,7 +1420,9 @@ def start_duplicate_detection(
 @router.post("/{catalog_id}/auto-tag")
 def start_auto_tagging(
     catalog_id: uuid.UUID,
-    backend: str = Query("openclip", description="AI backend: 'openclip' or 'ollama'"),
+    backend: str = Query(
+        "openclip", description="AI backend: 'openclip', 'ollama', or 'combined'"
+    ),
     model: str = Query(
         None,
         description="Model name (e.g., 'ViT-B-32' for OpenCLIP, 'llava' for Ollama)",
@@ -1111,6 +1431,13 @@ def start_auto_tagging(
         0.25, ge=0.0, le=1.0, description="Minimum confidence threshold"
     ),
     max_tags: int = Query(10, ge=1, le=50, description="Maximum tags per image"),
+    max_images: int = Query(
+        None, ge=1, description="Maximum images to tag (for testing, None = all)"
+    ),
+    tag_mode: str = Query(
+        "untagged_only",
+        description="Tagging mode: 'untagged_only' (skip already tagged) or 'all' (retag everything)",
+    ),
     continue_pipeline: bool = Query(
         False, description="Continue to duplicate detection after tagging"
     ),
@@ -1128,12 +1455,18 @@ def start_auto_tagging(
     Backends:
     - openclip: Fast batch processing using CLIP zero-shot classification (GPU accelerated)
     - ollama: Vision language models (LLaVA) for detailed understanding (slower, more accurate)
+    - combined: Both backends with weighted confidence (40% OpenCLIP + 60% Ollama)
+
+    Tag Modes:
+    - untagged_only: Only process images that have no tags yet (default, faster)
+    - all: Retag all images, replacing existing AI-generated tags
 
     Args:
-        backend: AI backend to use ('openclip' or 'ollama')
+        backend: AI backend to use ('openclip', 'ollama', or 'combined')
         model: Model name (optional, uses defaults if not specified)
         threshold: Minimum confidence threshold for tags (0.0-1.0)
         max_tags: Maximum number of tags per image
+        tag_mode: 'untagged_only' to skip tagged images, 'all' to retag everything
         continue_pipeline: If True, starts duplicate detection after tagging completes
 
     Returns:
@@ -1145,10 +1478,17 @@ def start_auto_tagging(
         raise HTTPException(status_code=404, detail="Catalog not found")
 
     # Validate backend
-    if backend not in ("openclip", "ollama"):
+    if backend not in ("openclip", "ollama", "combined"):
         raise HTTPException(
             status_code=400,
-            detail="Invalid backend. Use 'openclip' or 'ollama'",
+            detail="Invalid backend. Use 'openclip', 'ollama', or 'combined'",
+        )
+
+    # Validate tag_mode
+    if tag_mode not in ("untagged_only", "all"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid tag_mode. Use 'untagged_only' or 'all'",
         )
 
     # Import Celery task
@@ -1177,6 +1517,8 @@ def start_auto_tagging(
             "model": model,
             "threshold": threshold,
             "max_tags": max_tags,
+            "max_images": max_images,
+            "tag_mode": tag_mode,
             "continue_pipeline": continue_pipeline,
         },
         task_id=job_id,
@@ -1184,7 +1526,7 @@ def start_auto_tagging(
 
     logger.info(
         f"Started auto-tagging job {job.id} for catalog {catalog_id} "
-        f"(backend={backend}, model={model}, continue_pipeline={continue_pipeline})"
+        f"(backend={backend}, model={model}, tag_mode={tag_mode}, continue_pipeline={continue_pipeline})"
     )
 
     return {

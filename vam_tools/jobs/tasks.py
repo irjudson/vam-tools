@@ -35,6 +35,87 @@ from .scan_stats import ScanStatistics
 logger = logging.getLogger(__name__)
 
 
+def _store_image_tags(
+    db: CatalogDatabase,
+    catalog_id: str,
+    image_id: str,
+    tags: List,
+    source: str,
+) -> int:
+    """Store tags for an image in the proper relational schema.
+
+    Creates Tag entries if they don't exist, then creates ImageTag entries
+    linking the image to its tags.
+
+    Args:
+        db: CatalogDatabase session
+        catalog_id: The catalog UUID
+        image_id: The image ID
+        tags: List of TagResult objects with tag_name, confidence, category, source,
+              openclip_confidence, and ollama_confidence attributes
+        source: The tagging source ('openclip', 'ollama', or 'combined')
+
+    Returns:
+        Number of tags stored
+    """
+    if not tags:
+        return 0
+
+    stored_count = 0
+
+    for tag in tags:
+        try:
+            # Get or create tag in the tags table
+            result = db.session.execute(
+                text(
+                    """
+                    INSERT INTO tags (catalog_id, name, category, created_at)
+                    VALUES (:catalog_id, :name, :category, NOW())
+                    ON CONFLICT (catalog_id, name) DO UPDATE SET catalog_id = tags.catalog_id
+                    RETURNING id
+                """
+                ),
+                {
+                    "catalog_id": catalog_id,
+                    "name": tag.tag_name,
+                    "category": getattr(tag, "category", None),
+                },
+            )
+            tag_id = result.scalar()
+
+            # Insert or update image_tag relationship
+            db.session.execute(
+                text(
+                    """
+                    INSERT INTO image_tags (image_id, tag_id, confidence, source,
+                                           openclip_confidence, ollama_confidence, created_at)
+                    VALUES (:image_id, :tag_id, :confidence, :source,
+                            :openclip_confidence, :ollama_confidence, NOW())
+                    ON CONFLICT (image_id, tag_id) DO UPDATE SET
+                        confidence = :confidence,
+                        source = :source,
+                        openclip_confidence = COALESCE(:openclip_confidence, image_tags.openclip_confidence),
+                        ollama_confidence = COALESCE(:ollama_confidence, image_tags.ollama_confidence)
+                """
+                ),
+                {
+                    "image_id": image_id,
+                    "tag_id": tag_id,
+                    "confidence": tag.confidence,
+                    "source": getattr(tag, "source", source),
+                    "openclip_confidence": getattr(tag, "openclip_confidence", None),
+                    "ollama_confidence": getattr(tag, "ollama_confidence", None),
+                },
+            )
+            stored_count += 1
+        except Exception as e:
+            logger.warning(
+                f"Failed to store tag {tag.tag_name} for image {image_id}: {e}"
+            )
+
+    return stored_count
+
+
 class ProgressTask(Task):
     """
     Base task class with progress reporting.
@@ -1115,24 +1196,29 @@ def auto_tag_task(
     max_tags: int = 10,
     batch_size: int = 32,
     continue_pipeline: bool = False,
+    max_images: Optional[int] = None,
+    tag_mode: str = "untagged_only",
 ) -> Dict[str, Any]:
     """
     Automatically tag images in a catalog using AI models.
 
     This task:
-    - Uses OpenCLIP (fast, batch processing) or Ollama (detailed, slower) backends
+    - Uses OpenCLIP (fast, batch processing), Ollama (detailed, slower), or
+      combined (both backends with weighted confidence) backends
     - Tags images based on predefined taxonomy
-    - Stores tags in the database
+    - Stores tags in the database with source and per-backend confidence
     - Optionally continues to the next pipeline step (duplicate detection)
 
     Args:
         catalog_id: UUID of the catalog to tag
-        backend: "openclip" or "ollama"
+        backend: "openclip", "ollama", or "combined"
         model: Model name (backend-specific, e.g., "ViT-B-32" or "llava")
         threshold: Minimum confidence threshold (0.0-1.0)
         max_tags: Maximum tags per image
-        batch_size: Batch size for OpenCLIP processing
+        batch_size: Batch size for OpenCLIP/combined processing
         continue_pipeline: Whether to trigger duplicate detection after completion
+        max_images: Maximum number of images to tag (for testing, None = all)
+        tag_mode: "untagged_only" to skip already tagged, "all" to retag everything
 
     Returns:
         Dictionary with tagging statistics
@@ -1140,11 +1226,12 @@ def auto_tag_task(
     from .job_metrics import check_gpu_available, get_gpu_info
 
     logger.info(
-        f"Starting auto-tagging for catalog {catalog_id} with {backend} backend"
+        f"Starting auto-tagging for catalog {catalog_id} with {backend} backend "
+        f"(mode={tag_mode})"
     )
 
-    # Check GPU availability for OpenCLIP
-    use_gpu = check_gpu_available() if backend == "openclip" else False
+    # Check GPU availability for OpenCLIP or combined backend
+    use_gpu = check_gpu_available() if backend in ("openclip", "combined") else False
     gpu_info = get_gpu_info() if use_gpu else None
     if use_gpu:
         logger.info(f"GPU acceleration enabled: {gpu_info['device_name']}")
@@ -1155,7 +1242,11 @@ def auto_tag_task(
         )
 
         # Check backend availability
-        from ..analysis.image_tagger import ImageTagger, check_backends_available
+        from ..analysis.image_tagger import (
+            CombinedTagger,
+            ImageTagger,
+            check_backends_available,
+        )
 
         backends_status = check_backends_available()
 
@@ -1167,19 +1258,50 @@ def auto_tag_task(
             raise RuntimeError(
                 "Ollama backend not available. Ensure Ollama is running with a vision model."
             )
+        if backend == "combined":
+            if not backends_status.get("openclip"):
+                raise RuntimeError(
+                    "Combined backend requires OpenCLIP. Install with: pip install open-clip-torch"
+                )
+            if not backends_status.get("ollama"):
+                raise RuntimeError(
+                    "Combined backend requires Ollama. Ensure Ollama is running with a vision model."
+                )
 
         with CatalogDatabase(catalog_id) as db:
-            # Get images that need tagging
-            result = db.session.execute(
-                text(
+            # Get images based on tag_mode
+            # - untagged_only: only images with no entries in image_tags table
+            # - all: all images in the catalog (will replace existing AI tags)
+            limit_clause = f"LIMIT {max_images}" if max_images else ""
+
+            if tag_mode == "untagged_only":
+                # Only images without any tags
+                result = db.session.execute(
+                    text(
+                        f"""
+                        SELECT i.id, i.source_path FROM images i
+                        WHERE i.catalog_id = :catalog_id
+                        AND NOT EXISTS (
+                            SELECT 1 FROM image_tags it WHERE it.image_id = i.id
+                        )
+                        {limit_clause}
                     """
-                    SELECT id, source_path FROM images
-                    WHERE catalog_id = :catalog_id
-                    AND (tags IS NULL OR tags = '[]' OR tags = '{}')
-                """
-                ),
-                {"catalog_id": catalog_id},
-            )
+                    ),
+                    {"catalog_id": catalog_id},
+                )
+            else:
+                # All images - for retagging
+                result = db.session.execute(
+                    text(
+                        f"""
+                        SELECT i.id, i.source_path FROM images i
+                        WHERE i.catalog_id = :catalog_id
+                        {limit_clause}
+                    """
+                    ),
+                    {"catalog_id": catalog_id},
+                )
+
             images_to_tag = result.fetchall()
             total_images = len(images_to_tag)
 
@@ -1222,88 +1344,89 @@ def auto_tag_task(
 
             # Initialize tagger
             device = "cuda" if use_gpu else "cpu"
-            tagger = ImageTagger(
-                backend=backend,
-                model=model,
-                device=device if backend == "openclip" else None,
-            )
+            if backend == "combined":
+                tagger = CombinedTagger(
+                    openclip_model=model or "ViT-B-32",
+                    ollama_model="llava",
+                    device=device,
+                    ollama_host=os.environ.get("OLLAMA_HOST"),
+                )
+            else:
+                tagger = ImageTagger(
+                    backend=backend,
+                    model=model,
+                    device=device if backend == "openclip" else None,
+                )
 
             # Process images
             tagged_count = 0
             failed_count = 0
             tag_stats: Dict[str, int] = {}
 
-            # Process in batches for OpenCLIP
-            if backend == "openclip":
+            # Process in batches for OpenCLIP or combined backend
+            if backend in ("openclip", "combined"):
                 for batch_start in range(0, total_images, batch_size):
                     batch_end = min(batch_start + batch_size, total_images)
                     batch = images_to_tag[batch_start:batch_end]
                     batch_paths = [Path(row[1]) for row in batch]
                     batch_ids = [row[0] for row in batch]
 
+                    phase_msg = (
+                        "OpenCLIP+Ollama" if backend == "combined" else "OpenCLIP"
+                    )
                     self.update_progress(
                         batch_start,
                         total_images,
-                        f"Tagging batch {batch_start // batch_size + 1}...",
+                        f"Tagging batch {batch_start // batch_size + 1} ({phase_msg})...",
                         {
                             "phase": "tagging",
                             "current_batch": batch_start // batch_size + 1,
+                            "backend": backend,
                         },
                     )
 
                     try:
-                        # Tag batch
-                        results = tagger.tag_batch(
-                            batch_paths,
-                            threshold=threshold,
-                            max_tags=max_tags,
-                        )
+                        # Tag batch - combined backend has progress_callback
+                        if backend == "combined":
 
-                        # Update database
+                            def progress_cb(
+                                current: int, total: int, phase: str
+                            ) -> None:
+                                self.update_progress(
+                                    batch_start + current,
+                                    total_images,
+                                    f"Batch {batch_start // batch_size + 1}: {phase} {current}/{total}...",
+                                    {"phase": "tagging", "sub_phase": phase},
+                                )
+
+                            results = tagger.tag_batch(
+                                batch_paths,
+                                threshold=threshold,
+                                max_tags=max_tags,
+                                progress_callback=progress_cb,
+                            )
+                        else:
+                            results = tagger.tag_batch(
+                                batch_paths,
+                                threshold=threshold,
+                                max_tags=max_tags,
+                            )
+
+                        # Update database using proper relational schema
                         for img_id, img_path in zip(batch_ids, batch_paths):
                             tags = results.get(img_path, [])
                             if tags:
-                                tag_data = [
-                                    {
-                                        "name": t.tag_name,
-                                        "confidence": t.confidence,
-                                        "category": t.category,
-                                    }
-                                    for t in tags
-                                ]
-                                db.session.execute(
-                                    text(
-                                        """
-                                        UPDATE images SET tags = :tags
-                                        WHERE id = :image_id AND catalog_id = :catalog_id
-                                    """
-                                    ),
-                                    {
-                                        "tags": json.dumps(tag_data),
-                                        "image_id": str(img_id),
-                                        "catalog_id": catalog_id,
-                                    },
+                                # Store tags in the relational image_tags table
+                                stored = _store_image_tags(
+                                    db, catalog_id, str(img_id), tags, backend
                                 )
-                                tagged_count += 1
-                                for t in tags:
-                                    tag_stats[t.tag_name] = (
-                                        tag_stats.get(t.tag_name, 0) + 1
-                                    )
-                            else:
-                                # Mark as processed but no tags found
-                                db.session.execute(
-                                    text(
-                                        """
-                                        UPDATE images SET tags = :tags
-                                        WHERE id = :image_id AND catalog_id = :catalog_id
-                                    """
-                                    ),
-                                    {
-                                        "tags": json.dumps([]),
-                                        "image_id": str(img_id),
-                                        "catalog_id": catalog_id,
-                                    },
-                                )
+                                if stored > 0:
+                                    tagged_count += 1
+                                    for t in tags:
+                                        tag_stats[t.tag_name] = (
+                                            tag_stats.get(t.tag_name, 0) + 1
+                                        )
+                            # Note: images without tags don't need any marker
 
                         db.session.commit()
 
@@ -1311,7 +1434,7 @@ def auto_tag_task(
                         logger.warning(f"Batch tagging failed: {batch_e}")
                         failed_count += len(batch)
 
-            else:
+            elif backend == "ollama":
                 # Process one at a time for Ollama
                 for i, (img_id, source_path) in enumerate(images_to_tag):
                     self.update_progress(
@@ -1329,44 +1452,16 @@ def auto_tag_task(
                         )
 
                         if tags:
-                            tag_data = [
-                                {
-                                    "name": t.tag_name,
-                                    "confidence": t.confidence,
-                                    "category": t.category,
-                                }
-                                for t in tags
-                            ]
-                            db.session.execute(
-                                text(
-                                    """
-                                    UPDATE images SET tags = :tags
-                                    WHERE id = :image_id AND catalog_id = :catalog_id
-                                """
-                                ),
-                                {
-                                    "tags": json.dumps(tag_data),
-                                    "image_id": str(img_id),
-                                    "catalog_id": catalog_id,
-                                },
+                            # Store tags in the relational image_tags table
+                            stored = _store_image_tags(
+                                db, catalog_id, str(img_id), tags, "ollama"
                             )
-                            tagged_count += 1
-                            for t in tags:
-                                tag_stats[t.tag_name] = tag_stats.get(t.tag_name, 0) + 1
-                        else:
-                            db.session.execute(
-                                text(
-                                    """
-                                    UPDATE images SET tags = :tags
-                                    WHERE id = :image_id AND catalog_id = :catalog_id
-                                """
-                                ),
-                                {
-                                    "tags": json.dumps([]),
-                                    "image_id": str(img_id),
-                                    "catalog_id": catalog_id,
-                                },
-                            )
+                            if stored > 0:
+                                tagged_count += 1
+                                for t in tags:
+                                    tag_stats[t.tag_name] = (
+                                        tag_stats.get(t.tag_name, 0) + 1
+                                    )
 
                         if i % 10 == 0:
                             db.session.commit()

@@ -38,6 +38,16 @@ def create_app() -> FastAPI:
         init_db()
         logger.info("Database initialized")
 
+    # Graceful shutdown
+    @app.on_event("shutdown")
+    async def shutdown_event() -> None:
+        logger.info("Shutting down VAM Tools API...")
+        # Give WebSocket connections a moment to close gracefully
+        import asyncio
+
+        await asyncio.sleep(0.5)
+        logger.info("Shutdown complete")
+
     # Include routers
     app.include_router(catalogs.router, prefix="/api/catalogs", tags=["catalogs"])
     app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])

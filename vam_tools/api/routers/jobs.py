@@ -308,8 +308,20 @@ def revoke_job(
 
 @router.websocket("/{job_id}/stream")
 async def stream_job_updates(websocket: WebSocket, job_id: str):
-    """Stream real-time job updates via WebSocket."""
+    """Stream real-time job updates via WebSocket.
+
+    This endpoint streams job progress updates in real-time. The connection
+    will automatically close when:
+    - The job completes (SUCCESS or FAILURE)
+    - The client disconnects
+    - The connection times out (30 minutes max)
+    - The server is shutting down
+    """
     await websocket.accept()
+
+    # Maximum connection duration (30 minutes) to prevent orphaned connections
+    max_duration = 30 * 60  # seconds
+    start_time = asyncio.get_event_loop().time()
 
     try:
         task = AsyncResult(job_id, app=celery_app)
@@ -317,6 +329,24 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
         last_progress = None
 
         while True:
+            # Check for timeout to prevent indefinite connections
+            elapsed = asyncio.get_event_loop().time() - start_time
+            if elapsed > max_duration:
+                logger.info(f"WebSocket timeout for job {job_id} after {elapsed:.0f}s")
+                await websocket.send_json(
+                    {
+                        "job_id": job_id,
+                        "status": "TIMEOUT",
+                        "message": "Connection timed out. Reconnect to continue monitoring.",
+                    }
+                )
+                break
+
+            # Check if WebSocket is still connected
+            if websocket.client_state.name != "CONNECTED":
+                logger.info(f"WebSocket no longer connected for job {job_id}")
+                break
+
             # Use safe accessor for task state
             current_state = _safe_get_task_state(task)
 
@@ -348,19 +378,31 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
             # Send update if state changed OR progress data changed
             current_progress = str(update.get("progress", {}))
             if current_state != last_state or current_progress != last_progress:
-                await websocket.send_json(update)
+                try:
+                    await websocket.send_json(update)
+                except Exception as send_error:
+                    logger.warning(f"Failed to send WebSocket update: {send_error}")
+                    break
                 last_state = current_state
                 last_progress = current_progress
 
-            # Poll every 500ms
-            await asyncio.sleep(0.5)
+            # Poll every 500ms using wait_for to allow cancellation
+            try:
+                await asyncio.wait_for(asyncio.sleep(0.5), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass  # Expected, continue loop
+            except asyncio.CancelledError:
+                logger.info(f"WebSocket cancelled for job {job_id}")
+                break
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for job {job_id}")
+    except asyncio.CancelledError:
+        logger.info(f"WebSocket task cancelled for job {job_id}")
     except Exception as e:
         logger.error(f"WebSocket error for job {job_id}: {e}")
     finally:
         try:
             await websocket.close()
-        except Exception:  # noqa: E722
-            pass
+        except Exception:
+            pass  # Connection already closed

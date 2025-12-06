@@ -49,6 +49,12 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 RUN pip install --no-cache-dir \
     torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126
 
+# Install tagging dependencies (OpenCLIP and Ollama client)
+RUN pip install --no-cache-dir \
+    open-clip-torch>=2.24.0 \
+    ftfy>=6.1.0 \
+    ollama>=0.3.0
+
 # Copy application code
 COPY vam_tools/ ./vam_tools/
 

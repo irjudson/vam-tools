@@ -32,6 +32,7 @@ createApp({
             jobProgressTracking: {}, // Track last progress update time and value
             jobsRefreshInterval: null,
             jobWebSockets: {}, // WebSocket connections by job ID
+            archivedJobs: new Set(), // Track collapsed/archived job IDs
             STUCK_JOB_TIMEOUT: 30 * 60 * 1000, // 30 minutes in milliseconds (long-running jobs like duplicate detection can take time)
 
             // Worker health
@@ -53,6 +54,7 @@ createApp({
             scanContinuePipeline: false,
             autoTagContinuePipeline: false,
             autoTagBackend: 'openclip',
+            autoTagMode: 'untagged_only',
 
             analyzeForm: {
                 catalog_id: null,
@@ -103,8 +105,15 @@ createApp({
                 f_stop: '',
                 has_gps: null,
                 date_from: '',
-                date_to: ''
+                date_to: '',
+                // Tag filters
+                tags: '',
+                tag_match: 'any',
+                has_tags: null
             },
+            // Available tags for filtering
+            availableTags: [],
+            tagsLoading: false,
             sortBy: 'date',
             sortOrder: 'desc',
             searchDebounceTimer: null,
@@ -162,13 +171,21 @@ createApp({
             return this.allJobs.map(jobId => {
                 const details = this.jobDetailsCache[jobId] || {};
                 const metadata = this.jobMetadata[jobId];
+                // Calculate duration from created/updated timestamps
+                let durationSeconds = null;
+                if (metadata?.created && metadata?.updated) {
+                    const start = new Date(metadata.created);
+                    const end = new Date(metadata.updated);
+                    durationSeconds = Math.round((end - start) / 1000);
+                }
                 return {
                     id: jobId,
                     name: metadata?.name || 'Job',
-                    started: metadata?.started || null,
+                    started: metadata?.created || metadata?.started || null,
                     status: details.status || 'PENDING',
                     progress: details.progress || {},
                     result: details.result || {},
+                    durationSeconds: durationSeconds,
                 };
             });
         },
@@ -181,6 +198,17 @@ createApp({
 
         hasActiveJobs() {
             return this.activeJobs.length > 0;
+        },
+
+        completedJobs() {
+            return this.jobs.filter(job =>
+                job.status === 'SUCCESS' || job.status === 'FAILURE'
+            );
+        },
+
+        allJobsArchived() {
+            if (this.completedJobs.length === 0) return false;
+            return this.completedJobs.every(job => this.archivedJobs.has(job.id));
         },
 
         hasMoreImages() {
@@ -251,9 +279,10 @@ createApp({
             // Clear any active filters when switching catalogs
             this.clearFilters();
 
-            // Load catalog stats, filter options, and images
+            // Load catalog stats, filter options, tags, and images
             this.loadCatalogStats();
             this.loadFilterOptions();
+            this.loadAvailableTags();
             if (this.currentView === 'browse') {
                 this.loadImages(true);
             }
@@ -289,6 +318,26 @@ createApp({
             } catch (error) {
                 console.error('Error loading filter options:', error);
                 this.filterOptions = null;
+            }
+        },
+
+        async loadAvailableTags() {
+            if (!this.currentCatalog) {
+                this.availableTags = [];
+                return;
+            }
+
+            this.tagsLoading = true;
+            try {
+                const response = await axios.get(`/api/catalogs/${this.currentCatalog.id}/tags`, {
+                    params: { limit: 500, sort_by: 'count', sort_order: 'desc' }
+                });
+                this.availableTags = response.data.tags;
+            } catch (error) {
+                console.error('Error loading available tags:', error);
+                this.availableTags = [];
+            } finally {
+                this.tagsLoading = false;
             }
         },
 
@@ -391,7 +440,8 @@ createApp({
                 jobs.forEach(job => {
                     this.jobMetadata[job.id] = {
                         name: job.job_type,
-                        created: job.created_at
+                        created: job.created_at,
+                        updated: job.updated_at
                     };
 
                     // Cache the full job details
@@ -456,6 +506,12 @@ createApp({
                 if ((jobData.status === 'PENDING' || jobData.status === 'PROGRESS') && !this.jobWebSockets[jobId]) {
                     this.connectJobWebSocket(jobId);
                 }
+
+                // Auto-collapse completed jobs on load
+                if (jobData.status === 'SUCCESS' || jobData.status === 'FAILURE') {
+                    this.archivedJobs.add(jobId);
+                    this.archivedJobs = new Set(this.archivedJobs);
+                }
             } catch (error) {
                 // If job not found (404), remove it from tracked jobs
                 if (error.response && error.response.status === 404) {
@@ -496,6 +552,10 @@ createApp({
                 // Close WebSocket if job is done
                 if (update.status === 'SUCCESS' || update.status === 'FAILURE') {
                     this.disconnectJobWebSocket(jobId);
+
+                    // Auto-collapse completed jobs
+                    this.archivedJobs.add(jobId);
+                    this.archivedJobs = new Set(this.archivedJobs);
 
                     // Show notification
                     if (update.status === 'SUCCESS') {
@@ -690,12 +750,13 @@ createApp({
                 this.showAutoTagConfirmModal = false;
                 const continuePipeline = this.autoTagContinuePipeline;
                 const backend = this.autoTagBackend;
+                const tagMode = this.autoTagMode;
                 this.autoTagContinuePipeline = false; // Reset for next time
 
                 const response = await axios.post(
                     `/api/catalogs/${this.currentCatalog.id}/auto-tag`,
                     null,
-                    { params: { backend: backend, continue_pipeline: continuePipeline } }
+                    { params: { backend: backend, tag_mode: tagMode, continue_pipeline: continuePipeline } }
                 );
 
                 this.addNotification('Auto-tagging job submitted successfully', 'success');
@@ -703,8 +764,9 @@ createApp({
                 if (response.data.job_id) {
                     this.allJobs.unshift(response.data.job_id);
                     // Store job metadata
+                    const modeLabel = tagMode === 'all' ? 'retag all' : 'untagged only';
                     this.jobMetadata[response.data.job_id] = {
-                        name: `Auto-Tag (${backend}): ${this.currentCatalog.name}`,
+                        name: `Auto-Tag (${backend}, ${modeLabel}): ${this.currentCatalog.name}`,
                         started: new Date().toISOString()
                     };
                     this.persistJobs(); // Save to localStorage
@@ -837,6 +899,44 @@ createApp({
             return statusLabels[status] || status;
         },
 
+        getJobIcon(name) {
+            if (!name) return '⚙️';
+            const nameLower = name.toLowerCase();
+            if (nameLower.includes('scan')) return '📂';
+            if (nameLower.includes('analyze')) return '🔍';
+            if (nameLower.includes('tag') || nameLower.includes('auto-tag')) return '🏷️';
+            if (nameLower.includes('duplicate')) return '🔄';
+            return '⚙️';
+        },
+
+        isJobArchived(jobId) {
+            return this.archivedJobs.has(jobId);
+        },
+
+        toggleJobArchived(jobId) {
+            if (this.archivedJobs.has(jobId)) {
+                this.archivedJobs.delete(jobId);
+            } else {
+                this.archivedJobs.add(jobId);
+            }
+            // Force reactivity update
+            this.archivedJobs = new Set(this.archivedJobs);
+        },
+
+        toggleAllArchived() {
+            if (this.allJobsArchived) {
+                // Expand all
+                this.archivedJobs.clear();
+            } else {
+                // Collapse all completed jobs
+                this.completedJobs.forEach(job => {
+                    this.archivedJobs.add(job.id);
+                });
+            }
+            // Force reactivity update
+            this.archivedJobs = new Set(this.archivedJobs);
+        },
+
         // Job control methods
         async cancelJob(jobId) {
             // Cancel job (soft revoke - marks as REVOKED in DB)
@@ -963,6 +1063,18 @@ createApp({
                     params.date_to = this.filters.date_to;
                 }
 
+                // Add tag filters
+                if (this.filters.tags) {
+                    params.tags = this.filters.tags;
+                    params.tag_match = this.filters.tag_match;
+                }
+                if (this.filters.has_tags !== null && this.filters.has_tags !== '') {
+                    params.has_tags = this.filters.has_tags;
+                }
+
+                // Always include tags in response for display
+                params.include_tags = true;
+
                 const response = await axios.get(`/api/catalogs/${this.currentCatalog.id}/images`, {
                     params: params
                 });
@@ -1009,7 +1121,10 @@ createApp({
                 f_stop: '',
                 has_gps: null,
                 date_from: '',
-                date_to: ''
+                date_to: '',
+                tags: '',
+                tag_match: 'any',
+                has_tags: null
             };
             this.sortBy = 'date';
             this.sortOrder = 'desc';
@@ -1026,7 +1141,30 @@ createApp({
                    this.filters.f_stop ||
                    this.filters.has_gps !== null ||
                    this.filters.date_from ||
-                   this.filters.date_to;
+                   this.filters.date_to ||
+                   this.filters.tags ||
+                   this.filters.has_tags !== null;
+        },
+
+        // Tag filter helpers
+        toggleTagFilter(tagName) {
+            const tags = this.filters.tags ? this.filters.tags.split(',').map(t => t.trim()).filter(t => t) : [];
+            const index = tags.indexOf(tagName);
+
+            if (index >= 0) {
+                tags.splice(index, 1);
+            } else {
+                tags.push(tagName);
+            }
+
+            this.filters.tags = tags.join(',');
+            this.applyFilters();
+        },
+
+        isTagSelected(tagName) {
+            if (!this.filters.tags) return false;
+            const tags = this.filters.tags.split(',').map(t => t.trim());
+            return tags.includes(tagName);
         },
 
         onSortChange() {
