@@ -71,9 +71,26 @@ else
     exit 1
 fi
 
-# 4. Run tests
+# 4. Type check with mypy
 echo ""
-echo -e "${YELLOW}4. Running tests...${NC}"
+echo -e "${YELLOW}4. Type checking with mypy...${NC}"
+MYPY_BIN="${VIRTUAL_ENV:-venv}/bin/mypy"
+if [ ! -f "$MYPY_BIN" ]; then
+    MYPY_BIN="venv/bin/mypy"
+fi
+if "$MYPY_BIN" vam_tools/ 2>/dev/null; then
+    echo -e "${GREEN}  ✓ Type checking passed${NC}"
+else
+    echo -e "${RED}  ✗ Type checking issues found${NC}"
+    echo ""
+    echo "  Run: mypy vam_tools/"
+    echo "  Fix the issues before pushing"
+    exit 1
+fi
+
+# 5. Run tests
+echo ""
+echo -e "${YELLOW}5. Running tests...${NC}"
 # Use venv pytest explicitly to ensure correct environment
 # Integration tests are automatically skipped (marked with @pytest.mark.integration)
 # Run them separately with: pytest -m integration (requires docker-compose services)
@@ -90,9 +107,9 @@ else
     exit 1
 fi
 
-# 5. Optional: Check for common issues
+# 6. Optional: Check for common issues
 echo ""
-echo -e "${YELLOW}5. Checking for common issues...${NC}"
+echo -e "${YELLOW}6. Checking for common issues...${NC}"
 
 # Check for debugger statements
 if git diff --cached --name-only | xargs grep -n "import pdb\|breakpoint()" 2>/dev/null; then
@@ -110,9 +127,9 @@ fi
 
 echo -e "${GREEN}  ✓ No common issues found${NC}"
 
-# 6. Build Docker images (only if Docker-related files changed)
+# 7. Build Docker images (only if Docker-related files changed)
 echo ""
-echo -e "${YELLOW}6. Checking Docker build...${NC}"
+echo -e "${YELLOW}7. Checking Docker build...${NC}"
 
 # Check if any Docker-related files changed in this push
 DOCKER_FILES_CHANGED=$(git diff --name-only HEAD~1..HEAD 2>/dev/null | grep -E "(Dockerfile|docker-compose|pyproject.toml|requirements)" || true)
