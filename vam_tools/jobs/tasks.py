@@ -1491,21 +1491,27 @@ def auto_tag_task(
                         # Tag batch - combined backend has progress_callback
                         if backend == "combined":
 
-                            def progress_cb(
-                                current: int, total: int, phase: str
-                            ) -> None:
-                                self.update_progress(
-                                    batch_start + current,
-                                    total_images,
-                                    f"Batch {batch_start // batch_size + 1}: {phase} {current}/{total}...",
-                                    {"phase": "tagging", "sub_phase": phase},
-                                )
+                            def make_progress_cb(
+                                batch_start: int = batch_start,
+                                batch_size: int = batch_size,
+                            ) -> callable:
+                                def progress_cb(
+                                    current: int, total: int, phase: str
+                                ) -> None:
+                                    self.update_progress(
+                                        batch_start + current,
+                                        total_images,
+                                        f"Batch {batch_start // batch_size + 1}: {phase} {current}/{total}...",
+                                        {"phase": "tagging", "sub_phase": phase},
+                                    )
+
+                                return progress_cb
 
                             results = tagger.tag_batch(
                                 batch_paths,
                                 threshold=threshold,
                                 max_tags=max_tags,
-                                progress_callback=progress_cb,
+                                progress_callback=make_progress_cb(),
                             )
                         else:
                             results = tagger.tag_batch(
