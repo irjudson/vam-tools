@@ -2107,3 +2107,351 @@ def export_images(
                 "Content-Disposition": f"attachment; filename=images_{catalog_id_str[:8]}.csv"
             },
         )
+
+
+# =============================================================================
+# Burst Detection Endpoints
+# =============================================================================
+
+
+@router.post("/{catalog_id}/detect-bursts")
+def start_burst_detection(
+    catalog_id: uuid.UUID,
+    gap_threshold: float = Query(
+        2.0, ge=0.1, le=30.0, description="Max seconds between burst images"
+    ),
+    min_burst_size: int = Query(
+        3, ge=2, le=20, description="Minimum images to form a burst"
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Start a burst detection job for a catalog.
+
+    This creates a background Celery task that:
+    1. Analyzes image timestamps to detect rapid sequences (bursts)
+    2. Groups images taken within the gap threshold
+    3. Identifies the best image in each burst based on quality metrics
+    4. Saves burst groups to database
+
+    A "burst" is a sequence of images taken rapidly (e.g., holding shutter button).
+    Common in sports, wildlife, and event photography.
+
+    Args:
+        gap_threshold: Maximum seconds between consecutive images in a burst (0.1-30).
+                       Default 2.0 seconds works well for most burst photography.
+        min_burst_size: Minimum number of images to form a burst (2-20).
+                        Default 3 ensures only meaningful sequences are detected.
+
+    Returns:
+        Job information with task ID to track progress.
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    # Import Celery task
+    from ...db.models import Job
+    from ...jobs.tasks import detect_bursts_task
+
+    # Generate job ID upfront (used as both DB id and Celery task id)
+    job_id = str(uuid.uuid4())
+
+    # Create job record
+    job = Job(
+        id=job_id,
+        catalog_id=catalog_id,
+        job_type="detect_bursts",
+        status="pending",
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # Start Celery task with same ID
+    task = detect_bursts_task.apply_async(
+        kwargs={
+            "catalog_id": str(catalog_id),
+            "gap_threshold": gap_threshold,
+            "min_burst_size": min_burst_size,
+        },
+        task_id=job_id,
+    )
+
+    logger.info(
+        f"Started burst detection job {job.id} for catalog {catalog_id} "
+        f"(gap_threshold={gap_threshold}, min_burst_size={min_burst_size})"
+    )
+
+    return {
+        "job_id": str(job.id),
+        "task_id": task.id,
+        "status": "pending",
+        "message": f"Burst detection started for catalog {catalog.name}",
+    }
+
+
+@router.get("/{catalog_id}/bursts")
+def list_bursts(
+    catalog_id: uuid.UUID,
+    limit: int = Query(50, le=200),
+    offset: int = 0,
+    camera_make: str = None,
+    camera_model: str = None,
+    min_images: int = Query(None, ge=2, description="Minimum images in burst"),
+    db: Session = Depends(get_db),
+):
+    """
+    List burst groups in a catalog.
+
+    Returns burst sequences with their member images, timing info, and best selection.
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Build query conditions
+    conditions = ["b.catalog_id = :catalog_id"]
+    params = {"catalog_id": catalog_id_str, "limit": limit, "offset": offset}
+
+    if camera_make:
+        conditions.append("b.camera_make = :camera_make")
+        params["camera_make"] = camera_make
+
+    if camera_model:
+        conditions.append("b.camera_model = :camera_model")
+        params["camera_model"] = camera_model
+
+    if min_images:
+        conditions.append("b.image_count >= :min_images")
+        params["min_images"] = min_images
+
+    where_clause = " AND ".join(conditions)
+
+    # Get bursts with member count
+    query = text(
+        f"""
+        SELECT
+            b.id,
+            b.image_count,
+            b.start_time,
+            b.end_time,
+            b.duration_seconds,
+            b.camera_make,
+            b.camera_model,
+            b.best_image_id,
+            b.selection_method,
+            b.created_at
+        FROM bursts b
+        WHERE {where_clause}
+        ORDER BY b.start_time DESC
+        LIMIT :limit OFFSET :offset
+    """
+    )
+
+    result = db.execute(query, params)
+
+    bursts = []
+    for row in result:
+        row_dict = dict(row._mapping)
+        burst_id = row_dict["id"]
+
+        # Get member images for this burst
+        members_query = text(
+            """
+            SELECT
+                i.id,
+                i.source_path,
+                i.burst_sequence,
+                i.quality_score,
+                i.dates->>'selected_date' as photo_date,
+                i.metadata
+            FROM images i
+            WHERE i.burst_id = :burst_id
+            ORDER BY i.burst_sequence
+        """
+        )
+        members_result = db.execute(members_query, {"burst_id": burst_id})
+
+        members = []
+        for member_row in members_result:
+            member_dict = dict(member_row._mapping)
+            members.append(
+                {
+                    "image_id": member_dict["id"],
+                    "source_path": member_dict["source_path"],
+                    "sequence": member_dict["burst_sequence"],
+                    "quality_score": member_dict["quality_score"],
+                    "photo_date": member_dict["photo_date"],
+                    "is_best": member_dict["id"] == row_dict["best_image_id"],
+                }
+            )
+
+        bursts.append(
+            {
+                "id": burst_id,
+                "image_count": row_dict["image_count"],
+                "start_time": (
+                    row_dict["start_time"].isoformat()
+                    if row_dict["start_time"]
+                    else None
+                ),
+                "end_time": (
+                    row_dict["end_time"].isoformat() if row_dict["end_time"] else None
+                ),
+                "duration_seconds": row_dict["duration_seconds"],
+                "camera_make": row_dict["camera_make"],
+                "camera_model": row_dict["camera_model"],
+                "best_image_id": row_dict["best_image_id"],
+                "selection_method": row_dict["selection_method"],
+                "created_at": (
+                    row_dict["created_at"].isoformat()
+                    if row_dict["created_at"]
+                    else None
+                ),
+                "images": members,
+            }
+        )
+
+    # Get total count
+    count_query = text(f"SELECT COUNT(*) FROM bursts b WHERE {where_clause}")
+    count_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+    total = db.execute(count_query, count_params).scalar()
+
+    # Get summary stats
+    stats_query = text(
+        """
+        SELECT
+            COUNT(*) as total_bursts,
+            COALESCE(SUM(image_count), 0) as total_burst_images,
+            COALESCE(AVG(image_count), 0) as avg_burst_size,
+            COALESCE(AVG(duration_seconds), 0) as avg_duration
+        FROM bursts
+        WHERE catalog_id = :catalog_id
+    """
+    )
+    stats_result = db.execute(stats_query, {"catalog_id": catalog_id_str}).fetchone()
+
+    return {
+        "bursts": bursts,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "statistics": {
+            "total_bursts": stats_result.total_bursts if stats_result else 0,
+            "total_burst_images": (
+                stats_result.total_burst_images if stats_result else 0
+            ),
+            "avg_burst_size": (
+                round(stats_result.avg_burst_size, 1) if stats_result else 0
+            ),
+            "avg_duration_seconds": (
+                round(stats_result.avg_duration, 2) if stats_result else 0
+            ),
+        },
+    }
+
+
+@router.get("/{catalog_id}/bursts/{burst_id}")
+def get_burst(
+    catalog_id: uuid.UUID,
+    burst_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Get details for a specific burst.
+
+    Returns full burst information with all member images.
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Get burst
+    query = text(
+        """
+        SELECT
+            b.id,
+            b.image_count,
+            b.start_time,
+            b.end_time,
+            b.duration_seconds,
+            b.camera_make,
+            b.camera_model,
+            b.best_image_id,
+            b.selection_method,
+            b.created_at
+        FROM bursts b
+        WHERE b.id = :burst_id AND b.catalog_id = :catalog_id
+    """
+    )
+    result = db.execute(
+        query, {"burst_id": burst_id, "catalog_id": catalog_id_str}
+    ).fetchone()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Burst not found")
+
+    row_dict = dict(result._mapping)
+
+    # Get member images
+    members_query = text(
+        """
+        SELECT
+            i.id,
+            i.source_path,
+            i.burst_sequence,
+            i.quality_score,
+            i.size_bytes,
+            i.dates,
+            i.metadata
+        FROM images i
+        WHERE i.burst_id = :burst_id
+        ORDER BY i.burst_sequence
+    """
+    )
+    members_result = db.execute(members_query, {"burst_id": burst_id})
+
+    members = []
+    for member_row in members_result:
+        member_dict = dict(member_row._mapping)
+        members.append(
+            {
+                "image_id": member_dict["id"],
+                "source_path": member_dict["source_path"],
+                "sequence": member_dict["burst_sequence"],
+                "quality_score": member_dict["quality_score"],
+                "size_bytes": member_dict["size_bytes"],
+                "dates": member_dict["dates"],
+                "metadata": member_dict["metadata"],
+                "is_best": member_dict["id"] == row_dict["best_image_id"],
+            }
+        )
+
+    return {
+        "id": row_dict["id"],
+        "catalog_id": catalog_id_str,
+        "image_count": row_dict["image_count"],
+        "start_time": (
+            row_dict["start_time"].isoformat() if row_dict["start_time"] else None
+        ),
+        "end_time": (
+            row_dict["end_time"].isoformat() if row_dict["end_time"] else None
+        ),
+        "duration_seconds": row_dict["duration_seconds"],
+        "camera_make": row_dict["camera_make"],
+        "camera_model": row_dict["camera_model"],
+        "best_image_id": row_dict["best_image_id"],
+        "selection_method": row_dict["selection_method"],
+        "created_at": (
+            row_dict["created_at"].isoformat() if row_dict["created_at"] else None
+        ),
+        "images": members,
+    }
