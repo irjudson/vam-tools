@@ -2,6 +2,11 @@
 -- Single schema with catalog_id for multi-catalog support
 
 -- ============================================================================
+-- EXTENSIONS
+-- ============================================================================
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ============================================================================
 -- CATALOGS TABLE (must be first due to foreign key constraints)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS catalogs (
@@ -15,6 +20,27 @@ CREATE TABLE IF NOT EXISTS catalogs (
 
 CREATE INDEX IF NOT EXISTS idx_catalogs_name ON catalogs(name);
 CREATE INDEX IF NOT EXISTS idx_catalogs_schema_name ON catalogs(schema_name);
+
+-- ============================================================================
+-- BURSTS TABLE
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS bursts (
+    id UUID PRIMARY KEY,
+    catalog_id UUID NOT NULL,               -- References catalogs.id
+    image_count INTEGER NOT NULL,           -- Number of images in burst
+    start_time TIMESTAMP,                   -- First image timestamp
+    end_time TIMESTAMP,                     -- Last image timestamp
+    duration_seconds REAL,                  -- Duration of burst
+    camera_make VARCHAR(255),               -- Camera make
+    camera_model VARCHAR(255),              -- Camera model
+    best_image_id TEXT,                     -- Best image in burst
+    selection_method VARCHAR(50) DEFAULT 'quality',  -- How best image was selected
+    created_at TIMESTAMP DEFAULT NOW(),
+
+    FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bursts_catalog_id ON bursts(catalog_id);
 
 -- ============================================================================
 -- IMAGES TABLE
@@ -49,12 +75,20 @@ CREATE TABLE IF NOT EXISTS images (
     quality_score INTEGER,                  -- 0-100
     status TEXT DEFAULT 'pending',          -- pending, complete, error
 
+    -- Burst detection
+    burst_id UUID,                          -- References bursts.id
+    burst_sequence INTEGER,                 -- Position in burst sequence
+
+    -- Semantic search
+    clip_embedding VECTOR(768),             -- CLIP embedding for semantic search
+
     -- Timestamps
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
 
     -- Constraints
     FOREIGN KEY (catalog_id) REFERENCES catalogs(id) ON DELETE CASCADE,
+    FOREIGN KEY (burst_id) REFERENCES bursts(id) ON DELETE SET NULL,
     CONSTRAINT unique_catalog_checksum UNIQUE (catalog_id, checksum)
 );
 
@@ -63,6 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_images_checksum ON images(checksum);
 CREATE INDEX IF NOT EXISTS idx_images_dhash ON images(dhash);
 CREATE INDEX IF NOT EXISTS idx_images_ahash ON images(ahash);
 CREATE INDEX IF NOT EXISTS idx_images_status ON images(status);
+CREATE INDEX IF NOT EXISTS idx_images_burst_id ON images(burst_id);
 CREATE INDEX IF NOT EXISTS idx_images_dates ON images USING GIN (dates);
 CREATE INDEX IF NOT EXISTS idx_images_metadata ON images USING GIN (metadata);
 
@@ -70,6 +105,9 @@ CREATE INDEX IF NOT EXISTS idx_images_metadata ON images USING GIN (metadata);
 CREATE INDEX IF NOT EXISTS idx_images_geohash_4 ON images(catalog_id, geohash_4) WHERE geohash_4 IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_images_geohash_6 ON images(catalog_id, geohash_6) WHERE geohash_6 IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_images_geohash_8 ON images(catalog_id, geohash_8) WHERE geohash_8 IS NOT NULL;
+
+-- Vector similarity index for semantic search using IVFFlat
+CREATE INDEX IF NOT EXISTS idx_images_clip_embedding ON images USING ivfflat (clip_embedding vector_cosine_ops) WITH (lists = 100) WHERE clip_embedding IS NOT NULL;
 
 -- ============================================================================
 -- TAGS TABLE

@@ -20,6 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base, relationship
+from pgvector.sqlalchemy import Vector
 
 Base = declarative_base()
 
@@ -103,6 +104,13 @@ class Image(Base):
     quality_score = Column(Integer)
     status = Column(String, default="pending")
 
+    # Burst detection
+    burst_id = Column(UUID(as_uuid=True), ForeignKey("bursts.id", ondelete="SET NULL"))
+    burst_sequence = Column(Integer)
+
+    # Semantic search
+    clip_embedding = Column(Vector(768))  # CLIP embedding for semantic search
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -115,6 +123,7 @@ class Image(Base):
     duplicate_memberships = relationship(
         "DuplicateMember", back_populates="image", cascade="all, delete-orphan"
     )
+    burst = relationship("Burst", back_populates="images")
 
     __table_args__ = (
         UniqueConstraint("catalog_id", "checksum", name="unique_catalog_checksum"),
@@ -122,6 +131,35 @@ class Image(Base):
 
     def __repr__(self) -> str:
         return f"<Image(id={self.id}, path={self.source_path})>"
+
+
+class Burst(Base):
+    """Burst groups of images taken in rapid succession."""
+
+    __tablename__ = "bursts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    catalog_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("catalogs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    image_count = Column(Integer, nullable=False)
+    start_time = Column(DateTime)
+    end_time = Column(DateTime)
+    duration_seconds = Column(Float)
+    camera_make = Column(String(255))
+    camera_model = Column(String(255))
+    best_image_id = Column(String)
+    selection_method = Column(String(50), default="quality")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    catalog = relationship("Catalog", backref="bursts")
+    images = relationship("Image", back_populates="burst")
+
+    def __repr__(self) -> str:
+        return f"<Burst(id={self.id}, image_count={self.image_count}, camera={self.camera_make} {self.camera_model})>"
 
 
 class Tag(Base):
