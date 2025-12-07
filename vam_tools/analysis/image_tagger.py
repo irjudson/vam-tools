@@ -391,6 +391,45 @@ class OpenCLIPBackend(TaggerBackend):
 
         return results
 
+    def get_embedding(self, image_path: Union[str, Path]) -> List[float]:
+        """Get raw CLIP embedding for an image.
+
+        This is the same embedding used internally for classification,
+        just exposed for semantic search storage.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            768-dimensional embedding as list of floats
+        """
+        import torch
+
+        self._load_model()
+
+        image_path = Path(image_path)
+
+        # Load and preprocess image
+        try:
+            image = self._load_image(image_path)
+            if image is None:
+                raise ValueError(f"Failed to load image: {image_path}")
+            image_tensor = self._preprocess(image).unsqueeze(0).to(self._device)
+        except Exception as e:
+            logger.warning(f"Failed to load image {image_path}: {e}")
+            raise
+
+        # Compute image embedding
+        with torch.no_grad():
+            if self._device == "cuda":
+                with torch.amp.autocast(self._device):
+                    image_embedding = self._model.encode_image(image_tensor)
+            else:
+                image_embedding = self._model.encode_image(image_tensor)
+            image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
+
+        return image_embedding.cpu().numpy().flatten().tolist()
+
     def is_available(self) -> bool:
         """Check if OpenCLIP is available."""
         try:
@@ -777,6 +816,29 @@ class ImageTagger:
         """Get list of all available tag names."""
         return self._tag_names.copy()
 
+    def get_embedding(self, image_path: Union[str, Path]) -> List[float]:
+        """Get CLIP embedding for an image.
+
+        This is the same embedding used internally for classification,
+        just exposed for semantic search storage.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            768-dimensional embedding as list of floats
+
+        Raises:
+            AttributeError: If backend doesn't support embeddings (e.g., Ollama)
+        """
+        if not hasattr(self._backend, 'get_embedding'):
+            raise AttributeError(
+                f"{self._backend.__class__.__name__} backend does not support get_embedding. "
+                "Only OpenCLIP backend supports CLIP embeddings."
+            )
+
+        return self._backend.get_embedding(Path(image_path))
+
     def describe_image(self, image_path: Union[str, Path]) -> str:
         """Get natural language description (Ollama backend only).
 
@@ -1011,6 +1073,19 @@ class CombinedTagger:
             )
 
         return combined_results
+
+    def get_embedding(self, image_path: Union[str, Path]) -> List[float]:
+        """Get CLIP embedding for an image.
+
+        Uses the OpenCLIP backend to compute the embedding.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            768-dimensional embedding as list of floats
+        """
+        return self._openclip.get_embedding(Path(image_path))
 
 
 def check_backends_available() -> Dict[str, Any]:

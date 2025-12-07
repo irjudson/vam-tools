@@ -481,3 +481,75 @@ class TestMockBackend:
             [Path("/fake1.jpg"), Path("/fake2.jpg")], ["tag1"]
         )
         assert len(batch_result) == 2
+
+
+class TestImageTaggerEmbeddings:
+    """Tests for CLIP embedding extraction."""
+
+    def test_openclip_backend_get_embedding_returns_768_dim_vector(self) -> None:
+        """Test that OpenCLIPBackend.get_embedding returns 768-dimensional vector."""
+        with patch.object(OpenCLIPBackend, "_load_model"):
+            backend = OpenCLIPBackend(model_name="ViT-B-32")
+
+            # Mock the model and preprocessing
+            import numpy as np
+            import torch
+
+            mock_model = MagicMock()
+            mock_preprocess = MagicMock()
+
+            # Create a mock tensor for the image
+            mock_image_tensor = torch.randn(1, 3, 224, 224)
+            mock_preprocess.return_value = mock_image_tensor.squeeze(0)
+
+            # Create a mock 768-dim embedding
+            mock_embedding = torch.randn(1, 768)
+            mock_model.encode_image.return_value = mock_embedding
+
+            backend._model = mock_model
+            backend._preprocess = mock_preprocess
+            backend._device = "cpu"
+
+            # Create a temporary test image
+            from pathlib import Path
+            test_path = Path("/tmp/test_image.jpg")
+
+            with patch("PIL.Image.open") as mock_open:
+                mock_img = MagicMock()
+                mock_img.convert.return_value = mock_img
+                mock_open.return_value = mock_img
+
+                embedding = backend.get_embedding(test_path)
+
+                assert isinstance(embedding, list)
+                assert len(embedding) == 768
+                assert all(isinstance(x, float) for x in embedding)
+
+    def test_image_tagger_get_embedding_returns_768_dim_vector(self) -> None:
+        """Test that ImageTagger.get_embedding returns 768-dimensional vector."""
+        with patch.object(OpenCLIPBackend, "__init__", return_value=None):
+            tagger = ImageTagger(backend="openclip")
+
+            # Mock the backend
+            mock_backend = MagicMock()
+            import numpy as np
+            mock_embedding = np.random.randn(768).tolist()
+            mock_backend.get_embedding.return_value = mock_embedding
+
+            tagger._backend = mock_backend
+
+            embedding = tagger.get_embedding(Path("/fake/image.jpg"))
+
+            assert isinstance(embedding, list)
+            assert len(embedding) == 768
+            mock_backend.get_embedding.assert_called_once_with(Path("/fake/image.jpg"))
+
+    def test_image_tagger_get_embedding_with_ollama_backend(self) -> None:
+        """Test that get_embedding raises error for non-OpenCLIP backends."""
+        with patch.object(OllamaBackend, "__init__", return_value=None):
+            tagger = ImageTagger(backend="ollama")
+            tagger._backend = MagicMock(spec=OllamaBackend)
+
+            # Ollama backend doesn't have get_embedding, so should raise AttributeError
+            with pytest.raises(AttributeError):
+                tagger.get_embedding(Path("/fake/image.jpg"))
