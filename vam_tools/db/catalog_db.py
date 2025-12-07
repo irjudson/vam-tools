@@ -63,6 +63,12 @@ class CatalogDB:
             # Ensure tables exist (critical for test isolation with pytest-xdist)
             Base.metadata.create_all(bind=self.session.get_bind())
 
+        # Ensure session is in a clean state (rollback any aborted transaction)
+        try:
+            self.session.rollback()
+        except Exception:
+            pass  # Ignore rollback errors on fresh sessions
+
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -81,6 +87,12 @@ class CatalogDB:
 
             # Ensure tables exist (critical for test isolation with pytest-xdist)
             Base.metadata.create_all(bind=self.session.get_bind())
+
+        # Ensure session is in a clean state (rollback any aborted transaction)
+        try:
+            self.session.rollback()
+        except Exception:
+            pass  # Ignore rollback errors on fresh sessions
 
     def close(self) -> None:
         """Close database connection (for compatibility)."""
@@ -465,8 +477,12 @@ class CatalogDB:
             logger.error(f"SQL execution failed: {e}")
             logger.error(f"SQL: {pg_sql[:200]}")
             logger.error(f"Parameters: {param_dict}")
-            # Don't rollback here - let the caller handle transaction management
-            # self.session.rollback()
+            # Rollback to clear the failed transaction state
+            # This is critical for PostgreSQL which aborts the entire transaction on error
+            try:
+                self.session.rollback()
+            except Exception:
+                pass  # Ignore rollback errors
             raise
 
     def get_statistics(self) -> Optional[Statistics]:

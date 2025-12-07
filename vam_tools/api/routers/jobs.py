@@ -5,6 +5,7 @@ import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from celery.result import AsyncResult
@@ -23,11 +24,30 @@ from ...celery_app import app as celery_app
 from ...db import get_db
 from ...db.models import Job
 from ...db.schemas import JobListResponse
-from ...jobs.tasks import analyze_catalog_task, scan_catalog_task
+from ...jobs.tasks import (
+    analyze_catalog_task,
+    auto_tag_task,
+    detect_bursts_task,
+    detect_duplicates_task,
+    generate_thumbnails_task,
+    organize_catalog_task,
+    scan_catalog_task,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Map job types to their Celery tasks for restart functionality
+JOB_TYPE_TO_TASK = {
+    "scan": scan_catalog_task,
+    "analyze": analyze_catalog_task,
+    "detect_duplicates": detect_duplicates_task,
+    "auto_tag": auto_tag_task,
+    "detect_bursts": detect_bursts_task,
+    "generate_thumbnails": generate_thumbnails_task,
+    "organize": organize_catalog_task,
+}
 
 # Thread pool for blocking Celery operations (small pool to limit concurrent blocking calls)
 _celery_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="celery_ops")
@@ -529,3 +549,267 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
             await websocket.close()
         except Exception:
             pass  # Connection already closed
+
+
+@router.post("/{job_id}/restart", response_model=JobResponse, status_code=202)
+def restart_job(job_id: str, db: Session = Depends(get_db)):
+    """
+    Restart a failed, timed out, or cancelled job.
+
+    This creates a new job with the same parameters as the original.
+    The original job is kept in history with its original status.
+
+    Args:
+        job_id: The ID of the job to restart
+
+    Returns:
+        The new job's response
+    """
+    logger.info(f"Attempting to restart job {job_id}")
+
+    # Find the original job
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Check if job is in a restartable state
+    restartable_states = ("FAILURE", "TIMEOUT", "TERMINATED", "REVOKED", "STALE")
+    if job.status not in restartable_states:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job cannot be restarted. Status is '{job.status}', "
+            f"must be one of: {', '.join(restartable_states)}",
+        )
+
+    # Find the appropriate task for this job type
+    task_func = JOB_TYPE_TO_TASK.get(job.job_type)
+    if not task_func:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown job type: {job.job_type}. Cannot restart.",
+        )
+
+    # Get parameters from original job
+    params = job.parameters or {}
+
+    # Submit new Celery task with the original parameters
+    try:
+        if job.job_type == "scan":
+            new_task = task_func.delay(
+                catalog_id=str(job.catalog_id),
+                source_directories=params.get("directories", []),
+                force_rescan=params.get("force_rescan", False),
+                generate_previews=params.get("generate_previews", True),
+            )
+        elif job.job_type == "analyze":
+            new_task = task_func.delay(
+                catalog_id=str(job.catalog_id),
+                source_directories=params.get("source_directories", []),
+                detect_duplicates=params.get("detect_duplicates", False),
+                force_reanalyze=params.get("force_reanalyze", False),
+            )
+        elif job.job_type == "detect_duplicates":
+            new_task = task_func.delay(
+                catalog_id=str(job.catalog_id),
+                similarity_threshold=params.get("similarity_threshold", 5),
+                recompute_hashes=params.get("recompute_hashes", False),
+            )
+        elif job.job_type == "auto_tag":
+            new_task = task_func.delay(
+                catalog_id=str(job.catalog_id),
+                backend=params.get("backend", "openclip"),
+                model=params.get("model"),
+                threshold=params.get("threshold", 0.25),
+                max_tags=params.get("max_tags", 10),
+                batch_size=params.get("batch_size", 32),
+                continue_pipeline=params.get("continue_pipeline", False),
+                max_images=params.get("max_images"),
+                tag_mode=params.get("tag_mode", "untagged_only"),
+                resume_from_job=job_id,  # Resume from the failed job's checkpoint
+            )
+        elif job.job_type == "detect_bursts":
+            new_task = task_func.delay(
+                catalog_id=str(job.catalog_id),
+                gap_threshold=params.get("gap_threshold", 2.0),
+                min_burst_size=params.get("min_burst_size", 3),
+            )
+        elif job.job_type == "generate_thumbnails":
+            new_task = task_func.delay(
+                catalog_id=str(job.catalog_id),
+                sizes=params.get("sizes"),
+                quality=params.get("quality", 85),
+                force=params.get("force", False),
+            )
+        elif job.job_type == "organize":
+            new_task = task_func.delay(
+                catalog_id=str(job.catalog_id),
+                destination_path=params.get("destination_path", ""),
+                strategy=params.get("strategy", "date_based"),
+                simulate=params.get("simulate", True),
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job type '{job.job_type}' restart not implemented",
+            )
+    except Exception as e:
+        logger.error(f"Failed to submit restart task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to restart job: {e}")
+
+    # Create new job record
+    new_job = Job(
+        id=new_task.id,
+        catalog_id=job.catalog_id,
+        job_type=job.job_type,
+        status="PENDING",
+        parameters=params,
+    )
+    db.add(new_job)
+
+    # Update original job to note that it was restarted
+    job.error = (job.error or "") + f"\n[Restarted as job {new_task.id}]"
+    db.commit()
+
+    logger.info(f"Job {job_id} restarted as {new_task.id}")
+
+    return JobResponse(
+        job_id=new_task.id,
+        status="pending",
+        progress={"restarted_from": job_id},
+        result={},
+    )
+
+
+# Stale job timeout (jobs that haven't updated in this time are considered stale)
+STALE_JOB_TIMEOUT_MINUTES = 30
+
+
+@router.get("/stale", response_model=List[JobListResponse])
+def get_stale_jobs(
+    timeout_minutes: int = STALE_JOB_TIMEOUT_MINUTES, db: Session = Depends(get_db)
+):
+    """
+    Get jobs that appear to be stale (stuck in PENDING/PROGRESS/STARTED state).
+
+    A job is considered stale if:
+    - Its status is PENDING, PROGRESS, or STARTED
+    - It hasn't been updated in the specified timeout period
+
+    Args:
+        timeout_minutes: Minutes without update to consider a job stale (default: 30)
+
+    Returns:
+        List of stale jobs
+    """
+    cutoff_time = datetime.utcnow() - timedelta(minutes=timeout_minutes)
+
+    stale_jobs = (
+        db.query(Job)
+        .filter(Job.status.in_(["PENDING", "PROGRESS", "STARTED"]))
+        .filter(Job.updated_at < cutoff_time)
+        .order_by(Job.updated_at.desc())
+        .all()
+    )
+
+    return stale_jobs
+
+
+@router.post("/recover-stale")
+def recover_stale_jobs(
+    timeout_minutes: int = STALE_JOB_TIMEOUT_MINUTES,
+    auto_restart: bool = False,
+    db: Session = Depends(get_db),
+):
+    """
+    Detect and optionally recover stale jobs.
+
+    This endpoint:
+    1. Finds jobs stuck in PENDING/PROGRESS/STARTED state
+    2. Checks if Celery has any record of the task
+    3. Marks orphaned jobs as STALE
+    4. Optionally restarts them
+
+    Args:
+        timeout_minutes: Minutes without update to consider a job stale
+        auto_restart: If True, automatically restart stale jobs
+
+    Returns:
+        Summary of stale jobs found and actions taken
+    """
+    cutoff_time = datetime.utcnow() - timedelta(minutes=timeout_minutes)
+
+    stale_jobs = (
+        db.query(Job)
+        .filter(Job.status.in_(["PENDING", "PROGRESS", "STARTED"]))
+        .filter(Job.updated_at < cutoff_time)
+        .all()
+    )
+
+    recovered = []
+    marked_stale = []
+    still_running = []
+
+    for job in stale_jobs:
+        # Check Celery for the task state
+        celery_state = _get_celery_task_state(job.id)
+
+        if celery_state in ("PENDING", "STARTED", "PROGRESS"):
+            # Task is actually still running in Celery
+            still_running.append(job.id)
+        elif celery_state in ("SUCCESS", "FAILURE"):
+            # Task finished but database wasn't updated - sync it
+            if celery_state == "SUCCESS":
+                result = _get_celery_task_result(job.id)
+                job.status = "SUCCESS"
+                job.result = result if isinstance(result, dict) else None
+            else:
+                info = _get_celery_task_info(job.id)
+                job.status = "FAILURE"
+                job.error = str(info)
+            db.commit()
+            recovered.append(job.id)
+        else:
+            # Task is gone from Celery - mark as stale
+            job.status = "STALE"
+            job.error = (
+                f"Task disappeared from queue after {timeout_minutes} minutes. "
+                f"Last Celery state: {celery_state or 'UNKNOWN'}"
+            )
+            db.commit()
+            marked_stale.append(job.id)
+
+            # Auto-restart if requested
+            if auto_restart:
+                try:
+                    # Use internal restart logic
+                    task_func = JOB_TYPE_TO_TASK.get(job.job_type)
+                    if task_func:
+                        params = job.parameters or {}
+                        # Dispatch based on job type (simplified version)
+                        new_task = task_func.delay(
+                            catalog_id=str(job.catalog_id), **params
+                        )
+                        new_job = Job(
+                            id=new_task.id,
+                            catalog_id=job.catalog_id,
+                            job_type=job.job_type,
+                            status="PENDING",
+                            parameters=params,
+                        )
+                        db.add(new_job)
+                        job.error += f"\n[Auto-restarted as job {new_task.id}]"
+                        db.commit()
+                        recovered.append(f"{job.id} -> {new_task.id}")
+                except Exception as e:
+                    logger.warning(f"Failed to auto-restart job {job.id}: {e}")
+
+    return {
+        "stale_jobs_found": len(stale_jobs),
+        "still_running": still_running,
+        "synced_with_celery": [j for j in recovered if "->" not in str(j)],
+        "marked_stale": marked_stale,
+        "auto_restarted": (
+            [j for j in recovered if "->" in str(j)] if auto_restart else []
+        ),
+        "message": f"Found {len(stale_jobs)} potentially stale jobs",
+    }

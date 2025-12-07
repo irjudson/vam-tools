@@ -3,6 +3,7 @@
 All tests require database connection.
 """
 
+import uuid
 from unittest.mock import Mock, patch
 
 import pytest
@@ -14,6 +15,11 @@ from vam_tools.db import get_db
 from vam_tools.db.models import Job
 
 pytestmark = pytest.mark.integration
+
+
+def unique_job_id(prefix: str = "test-job") -> str:
+    """Generate a unique job ID for test isolation."""
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
 class TestSafeTaskAccessors:
@@ -107,34 +113,36 @@ class TestJobStatusEndpoint:
     @patch("vam_tools.api.routers.jobs.AsyncResult")
     def test_get_job_status_success(self, mock_async_result, client, db_session):
         """Test get_job_status with a successful task."""
-        # Create job in database first
-        self._create_test_job(db_session, "test-job-123", "PENDING")
+        # Create job in database first with unique ID for parallel test isolation
+        job_id = unique_job_id("success")
+        self._create_test_job(db_session, job_id, "PENDING")
 
         mock_task = Mock()
         mock_task.state = "SUCCESS"
         mock_task.result = {"files_processed": 100}
         mock_async_result.return_value = mock_task
 
-        response = client.get("/api/jobs/test-job-123")
+        response = client.get(f"/api/jobs/{job_id}")
 
         assert response.status_code == 200
         data = response.json()
-        assert data["job_id"] == "test-job-123"
+        assert data["job_id"] == job_id
         assert data["status"] == "SUCCESS"
         assert data["result"]["files_processed"] == 100
 
     @patch("vam_tools.api.routers.jobs.AsyncResult")
     def test_get_job_status_progress(self, mock_async_result, client, db_session):
         """Test get_job_status with an in-progress task."""
-        # Create job in database first
-        self._create_test_job(db_session, "test-job-456", "PENDING")
+        # Create job in database first with unique ID for parallel test isolation
+        job_id = unique_job_id("progress")
+        self._create_test_job(db_session, job_id, "PENDING")
 
         mock_task = Mock()
         mock_task.state = "PROGRESS"
         mock_task.info = {"current": 50, "total": 100}
         mock_async_result.return_value = mock_task
 
-        response = client.get("/api/jobs/test-job-456")
+        response = client.get(f"/api/jobs/{job_id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -144,15 +152,16 @@ class TestJobStatusEndpoint:
     @patch("vam_tools.api.routers.jobs.AsyncResult")
     def test_get_job_status_failure(self, mock_async_result, client, db_session):
         """Test get_job_status with a failed task."""
-        # Create job in database first
-        self._create_test_job(db_session, "test-job-789", "PENDING")
+        # Create job in database first with unique ID for parallel test isolation
+        job_id = unique_job_id("failure")
+        self._create_test_job(db_session, job_id, "PENDING")
 
         mock_task = Mock()
         mock_task.state = "FAILURE"
         mock_task.info = Exception("Task failed due to error")
         mock_async_result.return_value = mock_task
 
-        response = client.get("/api/jobs/test-job-789")
+        response = client.get(f"/api/jobs/{job_id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -169,11 +178,12 @@ class TestJobStatusEndpoint:
         result backend stores exception info without the required 'exc_type' key.
         The endpoint should return a FAILURE status instead of a 500 error.
         """
-        # Create job in database first
-        self._create_test_job(db_session, "test-job-malformed", "PENDING")
+        # Create job in database first with unique ID for parallel test isolation
+        job_id = unique_job_id("malformed")
+        self._create_test_job(db_session, job_id, "PENDING")
 
         mock_task = Mock()
-        mock_task.id = "test-job-malformed"
+        mock_task.id = job_id
 
         # Simulate the error: accessing .state raises ValueError
         # because the exception info in the result backend is malformed
@@ -190,11 +200,11 @@ class TestJobStatusEndpoint:
         )
         mock_async_result.return_value = mock_task
 
-        response = client.get("/api/jobs/test-job-malformed")
+        response = client.get(f"/api/jobs/{job_id}")
 
         # Should NOT be a 500 error - should be handled gracefully
         assert response.status_code == 200
         data = response.json()
-        assert data["job_id"] == "test-job-malformed"
+        assert data["job_id"] == job_id
         assert data["status"] == "FAILURE"
         assert "error" in data["result"]
