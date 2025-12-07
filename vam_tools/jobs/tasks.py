@@ -1777,11 +1777,11 @@ def detect_bursts_task(
                         INSERT INTO bursts (
                             id, catalog_id, image_count, start_time, end_time,
                             duration_seconds, camera_make, camera_model,
-                            best_image_id, selection_method
+                            best_image_id, selection_method, created_at
                         ) VALUES (
                             :id, :catalog_id, :image_count, :start_time, :end_time,
                             :duration, :camera_make, :camera_model,
-                            :best_image_id, :selection_method
+                            :best_image_id, :selection_method, NOW()
                         )
                     """
                     ),
