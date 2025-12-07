@@ -101,6 +101,11 @@ def tables_created(engine):
     Note: standalone_catalog_db creates its own connections and needs
     to ensure tables exist independently.
     """
+    # Create pgvector extension before creating tables
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
+
     Base.metadata.create_all(bind=engine)
     yield
     # Tables persist for the entire test session
@@ -181,7 +186,10 @@ def standalone_catalog_db(engine):
 
     Note: Ensures tables exist in the test database before creating CatalogDB.
     """
-    # Ensure tables exist in this worker's database
+    # Create pgvector extension and ensure tables exist in this worker's database
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
     Base.metadata.create_all(bind=engine)
 
     def _create_catalog_db(catalog_path: Path):
