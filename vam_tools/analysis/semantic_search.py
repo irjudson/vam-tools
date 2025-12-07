@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
-import numpy as np
 from PIL import Image
 from sqlalchemy import text
 
