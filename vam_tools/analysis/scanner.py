@@ -299,6 +299,28 @@ class ImageScannerORM:
                 f"{self.catalog_id}:{image_record.checksum}".encode()
             ).hexdigest()
 
+            # Build processing flags based on what was successfully extracted
+            processing_flags = {
+                "metadata_extracted": bool(
+                    image_record.metadata and image_record.metadata.exif
+                ),
+                "dates_extracted": bool(
+                    image_record.dates
+                    and image_record.dates.selected_date
+                    and image_record.dates.confidence >= 70
+                ),
+                "thumbnail_generated": bool(thumbnail_path),
+                "hashes_computed": False,  # Set by duplicate detection task
+                "quality_scored": False,  # Set by quality scoring task
+                "embedding_generated": False,  # Set by CLIP embedding task
+                "tags_applied": False,  # Set by auto-tagging task
+            }
+            # Mark as ready for analysis if metadata and dates are extracted
+            processing_flags["ready_for_analysis"] = (
+                processing_flags["metadata_extracted"]
+                and processing_flags["dates_extracted"]
+            )
+
             # Create ORM object
             image = Image(
                 id=unique_id,
@@ -321,6 +343,7 @@ class ImageScannerORM:
                 ),
                 thumbnail_path=thumbnail_path,
                 status=image_record.status.value,
+                processing_flags=processing_flags,
             )
 
             self.session.add(image)

@@ -104,6 +104,19 @@ class Image(Base):
     quality_score = Column(Integer)
     status = Column(String, default="pending")
 
+    # Processing flags - tracks which processing steps are complete
+    # Structure: {
+    #   "metadata_extracted": bool,  # EXIF/metadata extracted
+    #   "dates_extracted": bool,     # Dates parsed with confidence
+    #   "thumbnail_generated": bool, # Thumbnail created
+    #   "hashes_computed": bool,     # Perceptual hashes computed
+    #   "quality_scored": bool,      # Quality analysis complete
+    #   "embedding_generated": bool, # CLIP embedding generated
+    #   "tags_applied": bool,        # Auto-tagging complete
+    #   "ready_for_analysis": bool,  # All required fields for analysis tasks
+    # }
+    processing_flags = Column(JSONB, nullable=False, default={})
+
     # Burst detection
     burst_id = Column(UUID(as_uuid=True), ForeignKey("bursts.id", ondelete="SET NULL"))
     burst_sequence = Column(Integer)

@@ -1712,7 +1712,8 @@ def detect_bursts_task(
             )
             db.session.commit()
 
-            # Load images with timestamps
+            # Load images with timestamps - only those with proper date extraction
+            # (confidence >= 70 means EXIF or filename date, not just directory fallback)
             result = db.session.execute(
                 text(
                     """
@@ -1724,6 +1725,7 @@ def detect_bursts_task(
                     FROM images
                     WHERE catalog_id = :catalog_id
                     AND dates->>'selected_date' IS NOT NULL
+                    AND (dates->>'confidence')::int >= 70
                     ORDER BY (dates->>'selected_date')::timestamp
                 """
                 ),

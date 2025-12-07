@@ -206,7 +206,7 @@ class MetadataExtractor:
         """Extract date fields from EXIF data."""
         dates: Dict[str, Optional[datetime]] = {}
 
-        # Common EXIF date fields
+        # Common EXIF date fields (without prefixes)
         date_fields = [
             "DateTimeOriginal",
             "CreateDate",
@@ -218,16 +218,25 @@ class MetadataExtractor:
             "TrackCreateDate",
         ]
 
+        # ExifTool returns keys with prefixes like "EXIF:DateTimeOriginal"
+        # Build a lookup of all possible prefixes
+        prefixes = ["", "EXIF:", "File:", "Composite:", "QuickTime:", "XMP:"]
+
         for field in date_fields:
-            if field in exif:
-                try:
-                    date_str = str(exif[field])
-                    # Try to parse the date
-                    parsed_date = self._parse_exif_date(date_str)
-                    if parsed_date:
-                        dates[field] = parsed_date
-                except Exception as e:
-                    logger.debug(f"Error parsing date {field}: {e}")
+            # Try each prefix
+            for prefix in prefixes:
+                key = f"{prefix}{field}"
+                if key in exif:
+                    try:
+                        date_str = str(exif[key])
+                        # Try to parse the date
+                        parsed_date = self._parse_exif_date(date_str)
+                        if parsed_date:
+                            # Store with original field name (without prefix)
+                            dates[field] = parsed_date
+                            break  # Found this field, move to next
+                    except Exception as e:
+                        logger.debug(f"Error parsing date {key}: {e}")
 
         return dates
 
