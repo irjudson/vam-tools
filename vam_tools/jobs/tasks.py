@@ -1554,7 +1554,10 @@ def auto_tag_task(
                                             WHERE id = :image_id
                                         """
                                         ),
-                                        {"image_id": str(img_id), "embedding": embedding},
+                                        {
+                                            "image_id": str(img_id),
+                                            "embedding": embedding,
+                                        },
                                     )
                                 except Exception as e:
                                     logger.warning(
@@ -1695,13 +1698,11 @@ def detect_bursts_task(
     Returns:
         Dict with detection results
     """
-    job_id = self.request.id if hasattr(self.request, 'id') else "unknown"
+    job_id = self.request.id if hasattr(self.request, "id") else "unknown"
     logger.info(f"[{job_id}] Starting burst detection for catalog {catalog_id}")
 
     try:
-        self.update_progress(
-            0, 1, "Initializing burst detection...", {"phase": "init"}
-        )
+        self.update_progress(0, 1, "Initializing burst detection...", {"phase": "init"})
 
         with CatalogDatabase(catalog_id) as db:
             # Clear existing bursts for this catalog
@@ -1713,13 +1714,15 @@ def detect_bursts_task(
 
             # Load images with timestamps
             result = db.session.execute(
-                text("""
+                text(
+                    """
                     SELECT id, date_taken, camera_make, camera_model, quality_score
                     FROM images
                     WHERE catalog_id = :catalog_id
                     AND date_taken IS NOT NULL
                     ORDER BY date_taken
-                """),
+                """
+                ),
                 {"catalog_id": catalog_id},
             )
 
@@ -1765,7 +1768,8 @@ def detect_bursts_task(
 
                 # Insert burst record
                 db.session.execute(
-                    text("""
+                    text(
+                        """
                         INSERT INTO bursts (
                             id, catalog_id, image_count, start_time, end_time,
                             duration_seconds, camera_make, camera_model,
@@ -1775,7 +1779,8 @@ def detect_bursts_task(
                             :duration, :camera_make, :camera_model,
                             :best_image_id, :selection_method
                         )
-                    """),
+                    """
+                    ),
                     {
                         "id": burst_id,
                         "catalog_id": catalog_id,
@@ -1793,11 +1798,13 @@ def detect_bursts_task(
                 # Update images with burst_id and sequence
                 for seq, img in enumerate(burst.images):
                     db.session.execute(
-                        text("""
+                        text(
+                            """
                             UPDATE images
                             SET burst_id = :burst_id, burst_sequence = :seq
                             WHERE id = :image_id
-                        """),
+                        """
+                        ),
                         {
                             "burst_id": burst_id,
                             "image_id": img.image_id,

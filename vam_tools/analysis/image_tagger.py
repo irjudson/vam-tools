@@ -426,7 +426,9 @@ class OpenCLIPBackend(TaggerBackend):
                     image_embedding = self._model.encode_image(image_tensor)
             else:
                 image_embedding = self._model.encode_image(image_tensor)
-            image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
+            image_embedding = image_embedding / image_embedding.norm(
+                dim=-1, keepdim=True
+            )
 
         return image_embedding.cpu().numpy().flatten().tolist()
 
@@ -831,7 +833,7 @@ class ImageTagger:
         Raises:
             AttributeError: If backend doesn't support embeddings (e.g., Ollama)
         """
-        if not hasattr(self._backend, 'get_embedding'):
+        if not hasattr(self._backend, "get_embedding"):
             raise AttributeError(
                 f"{self._backend.__class__.__name__} backend does not support get_embedding. "
                 "Only OpenCLIP backend supports CLIP embeddings."

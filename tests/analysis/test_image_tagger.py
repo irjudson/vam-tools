@@ -512,6 +512,7 @@ class TestImageTaggerEmbeddings:
 
             # Create a temporary test image
             from pathlib import Path
+
             test_path = Path("/tmp/test_image.jpg")
 
             with patch("PIL.Image.open") as mock_open:
@@ -533,6 +534,7 @@ class TestImageTaggerEmbeddings:
             # Mock the backend
             mock_backend = MagicMock()
             import numpy as np
+
             mock_embedding = np.random.randn(768).tolist()
             mock_backend.get_embedding.return_value = mock_embedding
 

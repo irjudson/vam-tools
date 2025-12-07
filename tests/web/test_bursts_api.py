@@ -34,11 +34,13 @@ def mock_catalog_db(db_session, test_catalog_id):
     # First, create the catalog record in the catalogs table
     schema_name = f"catalog_{test_catalog_id.replace('-', '_')}"
     db_session.execute(
-        text("""
+        text(
+            """
             INSERT INTO catalogs (id, name, schema_name, source_directories, created_at, updated_at)
             VALUES (:id, :name, :schema_name, :source_dirs, NOW(), NOW())
             ON CONFLICT (id) DO NOTHING
-        """),
+        """
+        ),
         {
             "id": test_catalog_id,
             "name": "Test Catalog",
@@ -82,7 +84,8 @@ class TestListBurstsEndpoint:
         # Insert test burst
         burst_id = str(uuid.uuid4())
         db_session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO bursts (
                     id, catalog_id, image_count, start_time, end_time,
                     duration_seconds, camera_make, camera_model,
@@ -92,7 +95,8 @@ class TestListBurstsEndpoint:
                     :duration, :camera_make, :camera_model,
                     :best_image_id, :selection_method, NOW()
                 )
-            """),
+            """
+            ),
             {
                 "id": burst_id,
                 "catalog_id": test_catalog_id,
@@ -133,7 +137,8 @@ class TestListBurstsEndpoint:
         # Insert multiple bursts
         for i in range(5):
             db_session.execute(
-                text("""
+                text(
+                    """
                     INSERT INTO bursts (
                         id, catalog_id, image_count, start_time, end_time,
                         duration_seconds, camera_make, camera_model,
@@ -143,7 +148,8 @@ class TestListBurstsEndpoint:
                         :duration, :camera_make, :camera_model,
                         :best_image_id, :selection_method, NOW()
                     )
-                """),
+                """
+                ),
                 {
                     "id": str(uuid.uuid4()),
                     "catalog_id": test_catalog_id,
@@ -200,7 +206,8 @@ class TestGetBurstEndpoint:
         best_image_id = str(uuid.uuid4())
 
         db_session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO bursts (
                     id, catalog_id, image_count, start_time, end_time,
                     duration_seconds, camera_make, camera_model,
@@ -210,7 +217,8 @@ class TestGetBurstEndpoint:
                     :duration, :camera_make, :camera_model,
                     :best_image_id, :selection_method, NOW()
                 )
-            """),
+            """
+            ),
             {
                 "id": burst_id,
                 "catalog_id": test_catalog_id,
@@ -229,7 +237,8 @@ class TestGetBurstEndpoint:
         for i in range(3):
             image_id = str(uuid.uuid4())
             db_session.execute(
-                text("""
+                text(
+                    """
                     INSERT INTO images (
                         id, catalog_id, source_path, file_type, checksum,
                         burst_id, burst_sequence, quality_score, dates, metadata,
@@ -239,7 +248,8 @@ class TestGetBurstEndpoint:
                         :burst_id, :sequence, :quality_score, :dates, :metadata,
                         NOW()
                     )
-                """),
+                """
+                ),
                 {
                     "id": image_id if i != 1 else best_image_id,
                     "catalog_id": test_catalog_id,
@@ -291,7 +301,8 @@ class TestUpdateBurstEndpoint:
         new_best_id = str(uuid.uuid4())
 
         db_session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO bursts (
                     id, catalog_id, image_count, start_time, end_time,
                     duration_seconds, camera_make, camera_model,
@@ -301,7 +312,8 @@ class TestUpdateBurstEndpoint:
                     :duration, :camera_make, :camera_model,
                     :best_image_id, :selection_method, NOW()
                 )
-            """),
+            """
+            ),
             {
                 "id": burst_id,
                 "catalog_id": test_catalog_id,
@@ -340,9 +352,7 @@ class TestUpdateBurstEndpoint:
 class TestDetectBurstsEndpoint:
     """Tests for POST /api/catalogs/{catalog_id}/detect-bursts endpoint."""
 
-    def test_start_burst_detection_job(
-        self, client, test_catalog_id, mock_catalog_db
-    ):
+    def test_start_burst_detection_job(self, client, test_catalog_id, mock_catalog_db):
         """Test starting a burst detection job."""
         with patch("vam_tools.web.api.detect_bursts_task") as mock_task:
             mock_task.delay.return_value.id = "job-123"

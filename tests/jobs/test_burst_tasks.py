@@ -1,8 +1,8 @@
 """Tests for burst detection Celery tasks."""
 
+import uuid
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
-import uuid
 
 import pytest
 

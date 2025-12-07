@@ -152,7 +152,8 @@ class SemanticSearchService:
 
         # Use pgvector cosine similarity
         result = session.execute(
-            text("""
+            text(
+                """
                 SELECT
                     i.id,
                     i.source_path,
@@ -163,7 +164,8 @@ class SemanticSearchService:
                 AND 1 - (i.clip_embedding <=> :embedding::vector) >= :threshold
                 ORDER BY i.clip_embedding <=> :embedding::vector
                 LIMIT :limit
-            """),
+            """
+            ),
             {
                 "catalog_id": catalog_id,
                 "embedding": str(query_embedding),
@@ -203,11 +205,13 @@ class SemanticSearchService:
         """
         # Get the source image's embedding
         result = session.execute(
-            text("""
+            text(
+                """
                 SELECT clip_embedding
                 FROM images
                 WHERE id = :image_id AND catalog_id = :catalog_id
-            """),
+            """
+            ),
             {"image_id": image_id, "catalog_id": catalog_id},
         )
         row = result.fetchone()
@@ -220,7 +224,8 @@ class SemanticSearchService:
 
         # Find similar images
         result = session.execute(
-            text("""
+            text(
+                """
                 SELECT
                     i.id,
                     i.source_path,
@@ -232,7 +237,8 @@ class SemanticSearchService:
                 AND 1 - (i.clip_embedding <=> :embedding::vector) >= :threshold
                 ORDER BY i.clip_embedding <=> :embedding::vector
                 LIMIT :limit
-            """),
+            """
+            ),
             {
                 "catalog_id": catalog_id,
                 "source_id": image_id,

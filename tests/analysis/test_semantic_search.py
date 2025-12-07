@@ -6,10 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.analysis.semantic_search import (
-    SemanticSearchService,
-    SearchResult,
-)
+from vam_tools.analysis.semantic_search import SearchResult, SemanticSearchService
 
 
 class TestSearchResult:
@@ -67,13 +64,17 @@ class TestSemanticSearchService:
         with patch.object(service, "_ensure_model_loaded"):
             with patch.object(service, "_model") as mock_model:
                 with patch.object(service, "_preprocess") as mock_preprocess:
-                    with patch("vam_tools.analysis.semantic_search.Image") as mock_image_class:
+                    with patch(
+                        "vam_tools.analysis.semantic_search.Image"
+                    ) as mock_image_class:
                         import numpy as np
                         import torch
 
                         # Mock PIL Image
                         mock_img = MagicMock()
-                        mock_image_class.open.return_value.convert.return_value = mock_img
+                        mock_image_class.open.return_value.convert.return_value = (
+                            mock_img
+                        )
 
                         # Mock preprocessing
                         mock_tensor = MagicMock()

@@ -10,11 +10,13 @@ class TestClipEmbeddingColumn:
     def test_images_table_has_clip_embedding_column(self, db_session):
         """Test that images table has clip_embedding column."""
         result = db_session.execute(
-            text("""
+            text(
+                """
                 SELECT column_name, data_type
                 FROM information_schema.columns
                 WHERE table_name = 'images' AND column_name = 'clip_embedding'
-            """)
+            """
+            )
         )
         row = result.fetchone()
         assert row is not None, "clip_embedding column should exist"
@@ -23,7 +25,8 @@ class TestClipEmbeddingColumn:
         """Test that clip_embedding accepts 768-dimensional vectors."""
         # First create a catalog for the foreign key
         db_session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO catalogs (id, name, schema_name, source_directories, created_at, updated_at)
                 VALUES (
                     '00000000-0000-0000-0000-000000000001'::uuid,
@@ -34,13 +37,15 @@ class TestClipEmbeddingColumn:
                     NOW()
                 )
                 ON CONFLICT (id) DO NOTHING
-            """)
+            """
+            )
         )
         db_session.commit()
 
         # Create a test image
         db_session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO images (id, catalog_id, source_path, file_type, checksum, dates, metadata, created_at)
                 VALUES (
                     'test-image-001',
@@ -52,28 +57,33 @@ class TestClipEmbeddingColumn:
                     '{}'::jsonb,
                     NOW()
                 )
-            """)
+            """
+            )
         )
         db_session.commit()
 
         # Insert a 768-dim vector
         embedding = [0.1] * 768
         db_session.execute(
-            text("""
+            text(
+                """
                 UPDATE images
                 SET clip_embedding = :embedding
                 WHERE id = 'test-image-001'
-            """),
-            {"embedding": embedding}
+            """
+            ),
+            {"embedding": embedding},
         )
         db_session.commit()
 
         # Verify it was stored
         result = db_session.execute(
-            text("""
+            text(
+                """
                 SELECT clip_embedding IS NOT NULL as has_embedding
                 FROM images WHERE id = 'test-image-001'
-            """)
+            """
+            )
         )
         row = result.fetchone()
         assert row[0] is True
@@ -82,7 +92,8 @@ class TestClipEmbeddingColumn:
         """Test that we can perform cosine similarity searches on clip_embedding."""
         # Create a catalog
         db_session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO catalogs (id, name, schema_name, source_directories, created_at, updated_at)
                 VALUES (
                     '00000000-0000-0000-0000-000000000002'::uuid,
@@ -93,14 +104,16 @@ class TestClipEmbeddingColumn:
                     NOW()
                 )
                 ON CONFLICT (id) DO NOTHING
-            """)
+            """
+            )
         )
         db_session.commit()
 
         # Create test images with embeddings
         for i in range(3):
             db_session.execute(
-                text(f"""
+                text(
+                    f"""
                     INSERT INTO images (id, catalog_id, source_path, file_type, checksum, dates, metadata, clip_embedding, created_at)
                     VALUES (
                         'test-image-{i:03d}',
@@ -113,8 +126,9 @@ class TestClipEmbeddingColumn:
                         :embedding,
                         NOW()
                     )
-                """),
-                {"embedding": [float(i) / 10.0] * 768}
+                """
+                ),
+                {"embedding": [float(i) / 10.0] * 768},
             )
         db_session.commit()
 
@@ -133,4 +147,4 @@ class TestClipEmbeddingColumn:
         rows = result.fetchall()
         assert len(rows) == 3, "Should find 3 images with embeddings"
         # The first result should be test-image-000 (closest to all zeros)
-        assert rows[0][0] == 'test-image-000'
+        assert rows[0][0] == "test-image-000"

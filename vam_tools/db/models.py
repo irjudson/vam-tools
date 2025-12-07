@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     ARRAY,
     JSON,
@@ -20,7 +21,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base, relationship
-from pgvector.sqlalchemy import Vector
 
 Base = declarative_base()
 

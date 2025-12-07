@@ -1,12 +1,12 @@
 """Tests for semantic search API endpoints."""
 
-import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
 
-from vam_tools.web.api import app
-from vam_tools.analysis.semantic_search import SearchResult
+import pytest
+from fastapi.testclient import TestClient
 
+from vam_tools.analysis.semantic_search import SearchResult
+from vam_tools.web.api import app
 
 pytestmark = pytest.mark.integration
 
@@ -37,8 +37,7 @@ class TestSearchAPI:
                 mock_get_db.return_value = mock_db
 
                 response = client.get(
-                    "/api/catalogs/test-catalog/search",
-                    params={"q": "sunset"}
+                    "/api/catalogs/test-catalog/search", params={"q": "sunset"}
                 )
 
                 assert response.status_code == 200
@@ -76,7 +75,7 @@ class TestSearchAPI:
 
                 response = client.get(
                     "/api/catalogs/test-catalog/search",
-                    params={"q": "sunset", "limit": 100, "threshold": 0.3}
+                    params={"q": "sunset", "limit": 100, "threshold": 0.3},
                 )
 
                 assert response.status_code == 200
@@ -107,9 +106,7 @@ class TestSearchAPI:
                 mock_db.session = MagicMock()
                 mock_get_db.return_value = mock_db
 
-                response = client.get(
-                    "/api/catalogs/test-catalog/similar/img-001"
-                )
+                response = client.get("/api/catalogs/test-catalog/similar/img-001")
 
                 assert response.status_code == 200
                 data = response.json()
@@ -138,7 +135,7 @@ class TestSearchAPI:
 
                 response = client.get(
                     "/api/catalogs/test-catalog/similar/img-001",
-                    params={"limit": 30, "threshold": 0.6}
+                    params={"limit": 30, "threshold": 0.6},
                 )
 
                 assert response.status_code == 200
@@ -164,8 +161,7 @@ class TestSearchAPI:
                 mock_get_db.return_value = mock_db
 
                 response = client.get(
-                    "/api/catalogs/test-catalog/search",
-                    params={"q": "nonexistent"}
+                    "/api/catalogs/test-catalog/search", params={"q": "nonexistent"}
                 )
 
                 assert response.status_code == 200
@@ -187,9 +183,7 @@ class TestSearchAPI:
                 mock_db.session = MagicMock()
                 mock_get_db.return_value = mock_db
 
-                response = client.get(
-                    "/api/catalogs/test-catalog/similar/img-001"
-                )
+                response = client.get("/api/catalogs/test-catalog/similar/img-001")
 
                 assert response.status_code == 200
                 data = response.json()

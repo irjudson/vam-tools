@@ -1865,7 +1865,8 @@ async def list_bursts(
 
     try:
         result = db.session.execute(
-            text("""
+            text(
+                """
                 SELECT
                     b.id, b.image_count, b.start_time, b.end_time,
                     b.duration_seconds, b.camera_make, b.camera_model,
@@ -1874,7 +1875,8 @@ async def list_bursts(
                 WHERE b.catalog_id = :catalog_id
                 ORDER BY b.start_time DESC
                 LIMIT :limit OFFSET :offset
-            """),
+            """
+            ),
             {"catalog_id": catalog_id, "limit": limit, "offset": offset},
         )
 
@@ -1930,14 +1932,16 @@ async def get_burst(catalog_id: str, burst_id: str):
     try:
         # Get burst info
         result = db.session.execute(
-            text("""
+            text(
+                """
                 SELECT
                     id, image_count, start_time, end_time,
                     duration_seconds, camera_make, camera_model,
                     best_image_id, selection_method
                 FROM bursts
                 WHERE id = :burst_id AND catalog_id = :catalog_id
-            """),
+            """
+            ),
             {"burst_id": burst_id, "catalog_id": catalog_id},
         )
         row = result.fetchone()
@@ -1947,12 +1951,14 @@ async def get_burst(catalog_id: str, burst_id: str):
 
         # Get images in burst
         images_result = db.session.execute(
-            text("""
+            text(
+                """
                 SELECT id, source_path, burst_sequence, quality_score
                 FROM images
                 WHERE burst_id = :burst_id
                 ORDER BY burst_sequence
-            """),
+            """
+            ),
             {"burst_id": burst_id},
         )
 
@@ -2000,11 +2006,13 @@ async def update_burst(catalog_id: str, burst_id: str, data: dict):
     try:
         if "best_image_id" in data:
             db.session.execute(
-                text("""
+                text(
+                    """
                     UPDATE bursts
                     SET best_image_id = :best_id, selection_method = 'manual'
                     WHERE id = :burst_id AND catalog_id = :catalog_id
-                """),
+                """
+                ),
                 {
                     "best_id": data["best_image_id"],
                     "burst_id": burst_id,

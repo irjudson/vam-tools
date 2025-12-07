@@ -6,11 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from vam_tools.analysis.burst_detector import (
-    BurstDetector,
-    BurstGroup,
-    ImageInfo,
-)
+from vam_tools.analysis.burst_detector import BurstDetector, BurstGroup, ImageInfo
 
 
 class TestImageInfo:
@@ -63,16 +59,30 @@ class TestBurstDetector:
         images = [
             # Burst 1: 3 images, 0.5s apart
             ImageInfo("img-001", base_time, "Canon", "R5", 0.8),
-            ImageInfo("img-002", base_time + timedelta(seconds=0.5), "Canon", "R5", 0.9),
-            ImageInfo("img-003", base_time + timedelta(seconds=1.0), "Canon", "R5", 0.7),
+            ImageInfo(
+                "img-002", base_time + timedelta(seconds=0.5), "Canon", "R5", 0.9
+            ),
+            ImageInfo(
+                "img-003", base_time + timedelta(seconds=1.0), "Canon", "R5", 0.7
+            ),
             # Gap of 10 seconds
             # Burst 2: 4 images, 1s apart
-            ImageInfo("img-004", base_time + timedelta(seconds=11), "Canon", "R5", 0.85),
-            ImageInfo("img-005", base_time + timedelta(seconds=12), "Canon", "R5", 0.95),
-            ImageInfo("img-006", base_time + timedelta(seconds=13), "Canon", "R5", 0.75),
-            ImageInfo("img-007", base_time + timedelta(seconds=14), "Canon", "R5", 0.80),
+            ImageInfo(
+                "img-004", base_time + timedelta(seconds=11), "Canon", "R5", 0.85
+            ),
+            ImageInfo(
+                "img-005", base_time + timedelta(seconds=12), "Canon", "R5", 0.95
+            ),
+            ImageInfo(
+                "img-006", base_time + timedelta(seconds=13), "Canon", "R5", 0.75
+            ),
+            ImageInfo(
+                "img-007", base_time + timedelta(seconds=14), "Canon", "R5", 0.80
+            ),
             # Single image (not a burst)
-            ImageInfo("img-008", base_time + timedelta(seconds=30), "Canon", "R5", 0.90),
+            ImageInfo(
+                "img-008", base_time + timedelta(seconds=30), "Canon", "R5", 0.90
+            ),
         ]
 
         bursts = detector.detect_bursts(images)
@@ -89,12 +99,22 @@ class TestBurstDetector:
         images = [
             # Canon images
             ImageInfo("img-001", base_time, "Canon", "R5", 0.8),
-            ImageInfo("img-002", base_time + timedelta(seconds=0.5), "Canon", "R5", 0.9),
-            ImageInfo("img-003", base_time + timedelta(seconds=1.0), "Canon", "R5", 0.7),
+            ImageInfo(
+                "img-002", base_time + timedelta(seconds=0.5), "Canon", "R5", 0.9
+            ),
+            ImageInfo(
+                "img-003", base_time + timedelta(seconds=1.0), "Canon", "R5", 0.7
+            ),
             # Sony images at same time (different camera)
-            ImageInfo("img-004", base_time + timedelta(seconds=1.5), "Sony", "A7", 0.85),
-            ImageInfo("img-005", base_time + timedelta(seconds=2.0), "Sony", "A7", 0.95),
-            ImageInfo("img-006", base_time + timedelta(seconds=2.5), "Sony", "A7", 0.75),
+            ImageInfo(
+                "img-004", base_time + timedelta(seconds=1.5), "Sony", "A7", 0.85
+            ),
+            ImageInfo(
+                "img-005", base_time + timedelta(seconds=2.0), "Sony", "A7", 0.95
+            ),
+            ImageInfo(
+                "img-006", base_time + timedelta(seconds=2.5), "Sony", "A7", 0.75
+            ),
         ]
 
         bursts = detector.detect_bursts(images)
@@ -111,7 +131,9 @@ class TestBurstDetector:
         images = [
             # Only 2 images - not a burst
             ImageInfo("img-001", base_time, "Canon", "R5", 0.8),
-            ImageInfo("img-002", base_time + timedelta(seconds=0.5), "Canon", "R5", 0.9),
+            ImageInfo(
+                "img-002", base_time + timedelta(seconds=0.5), "Canon", "R5", 0.9
+            ),
         ]
 
         bursts = detector.detect_bursts(images)
@@ -124,7 +146,9 @@ class TestBurstDetector:
 
         images = [
             ImageInfo("img-001", datetime(2024, 1, 1, 12, 0, 0), "Canon", "R5", 0.70),
-            ImageInfo("img-002", datetime(2024, 1, 1, 12, 0, 1), "Canon", "R5", 0.95),  # Best
+            ImageInfo(
+                "img-002", datetime(2024, 1, 1, 12, 0, 1), "Canon", "R5", 0.95
+            ),  # Best
             ImageInfo("img-003", datetime(2024, 1, 1, 12, 0, 2), "Canon", "R5", 0.80),
         ]
         group = BurstGroup(images=images)
