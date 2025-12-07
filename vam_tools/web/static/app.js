@@ -479,6 +479,9 @@ createApp({
             try {
                 const response = await axios.get(`/api/jobs/${jobId}`);
                 const jobData = response.data;
+
+                // Get previous data BEFORE updating cache (for status transition detection)
+                const previousData = this.jobDetailsCache[jobId];
                 this.jobDetailsCache[jobId] = jobData;
 
                 // Track progress for stuck job detection
@@ -518,8 +521,13 @@ createApp({
                     this.connectJobWebSocket(jobId);
                 }
 
-                // Auto-collapse completed jobs on load
-                if (jobData.status === 'SUCCESS' || jobData.status === 'FAILURE') {
+                // Auto-collapse completed jobs ONLY when they transition from in-progress to completed
+                // This respects user's manual expand/collapse choices - once a job is completed,
+                // subsequent polls won't force-collapse it again
+                const wasInProgress = previousData && (previousData.status === 'PENDING' || previousData.status === 'PROGRESS');
+                const isNowComplete = jobData.status === 'SUCCESS' || jobData.status === 'FAILURE';
+                if (isNowComplete && wasInProgress) {
+                    // Job just transitioned to completed state - auto-archive it
                     this.archivedJobs.add(jobId);
                     this.archivedJobs = new Set(this.archivedJobs);
                 }
