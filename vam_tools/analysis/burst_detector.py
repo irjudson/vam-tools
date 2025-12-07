@@ -130,7 +130,7 @@ class BurstDetector:
         all_bursts: List[BurstGroup] = []
 
         # Process each camera's images
-        for camera_key, camera_images in by_camera.items():
+        for _camera_key, camera_images in by_camera.items():
             # Sort by timestamp
             sorted_images = sorted(camera_images, key=lambda x: x.timestamp)
 
