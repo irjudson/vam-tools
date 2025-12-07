@@ -3,10 +3,19 @@
 import asyncio
 import logging
 import uuid
-from typing import Any, Dict, List
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from typing import Any, Dict, List, Optional
 
 from celery.result import AsyncResult
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -19,6 +28,25 @@ from ...jobs.tasks import analyze_catalog_task, scan_catalog_task
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Thread pool for blocking Celery operations (small pool to limit concurrent blocking calls)
+_celery_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="celery_ops")
+
+# Timeout for Celery operations (seconds)
+CELERY_TIMEOUT = 2.0
+
+
+def _run_with_timeout(func, timeout: float = CELERY_TIMEOUT, default=None):
+    """Run a blocking function with a timeout, returning default on failure."""
+    try:
+        future = _celery_executor.submit(func)
+        return future.result(timeout=timeout)
+    except FuturesTimeoutError:
+        logger.warning(f"Celery operation timed out after {timeout}s")
+        return default
+    except Exception as e:
+        logger.warning(f"Celery operation failed: {e}")
+        return default
 
 
 @router.get("/", response_model=List[JobListResponse])
@@ -127,34 +155,52 @@ def start_analyze(request: AnalyzeJobRequest, db: Session = Depends(get_db)):
     )
 
 
+def _get_worker_stats():
+    """Get worker stats - blocking call to be run in thread pool."""
+    inspect = celery_app.control.inspect(timeout=1.0)
+    return inspect.stats()
+
+
+def _get_active_tasks():
+    """Get active tasks - blocking call to be run in thread pool."""
+    inspect = celery_app.control.inspect(timeout=1.0)
+    return inspect.active()
+
+
 @router.get("/health")
 def get_worker_health():
-    """Get Celery worker health status."""
-    try:
-        # Check worker stats
-        inspect = celery_app.control.inspect()
-        stats = inspect.stats()
-        active = inspect.active()
+    """Get Celery worker health status (non-blocking with timeout)."""
+    # Run stats check with timeout
+    stats = _run_with_timeout(_get_worker_stats, timeout=CELERY_TIMEOUT, default=None)
 
-        if stats:
-            worker_count = len(stats)
-            active_count = sum(len(tasks) for tasks in (active or {}).values())
-            return {
-                "status": "healthy",
-                "workers": worker_count,
-                "active_tasks": active_count,
-                "message": f"{worker_count} worker(s) online",
-            }
-        else:
-            return {
-                "status": "unhealthy",
-                "workers": 0,
-                "active_tasks": 0,
-                "message": "No workers available",
-            }
-    except Exception as e:
-        logger.error(f"Error checking worker health: {e}")
-        return {"status": "error", "workers": 0, "active_tasks": 0, "message": str(e)}
+    if stats is None:
+        return {
+            "status": "unknown",
+            "workers": 0,
+            "active_tasks": 0,
+            "message": "Worker status check timed out",
+        }
+
+    if stats:
+        worker_count = len(stats)
+        # Get active tasks with timeout (but don't fail if this times out)
+        active = _run_with_timeout(
+            _get_active_tasks, timeout=CELERY_TIMEOUT, default={}
+        )
+        active_count = sum(len(tasks) for tasks in (active or {}).values())
+        return {
+            "status": "healthy",
+            "workers": worker_count,
+            "active_tasks": active_count,
+            "message": f"{worker_count} worker(s) online",
+        }
+    else:
+        return {
+            "status": "unhealthy",
+            "workers": 0,
+            "active_tasks": 0,
+            "message": "No workers available",
+        }
 
 
 def _safe_get_task_state(task: AsyncResult) -> str:
@@ -177,53 +223,103 @@ def _safe_get_task_info(task: AsyncResult) -> Any:
         return {"error": f"Failed to retrieve task info: {e}"}
 
 
+def _get_celery_task_state(job_id: str) -> Optional[str]:
+    """Get Celery task state with timeout - returns None on failure/timeout."""
+
+    def _fetch_state():
+        task = AsyncResult(job_id, app=celery_app)
+        return _safe_get_task_state(task)
+
+    return _run_with_timeout(_fetch_state, timeout=CELERY_TIMEOUT, default=None)
+
+
+def _get_celery_task_info(job_id: str) -> Optional[Dict[str, Any]]:
+    """Get Celery task info with timeout - returns None on failure/timeout."""
+
+    def _fetch_info():
+        task = AsyncResult(job_id, app=celery_app)
+        return _safe_get_task_info(task)
+
+    return _run_with_timeout(_fetch_info, timeout=CELERY_TIMEOUT, default=None)
+
+
+def _get_celery_task_result(job_id: str) -> Optional[Dict[str, Any]]:
+    """Get Celery task result with timeout - returns None on failure/timeout."""
+
+    def _fetch_result():
+        task = AsyncResult(job_id, app=celery_app)
+        return task.result
+
+    return _run_with_timeout(_fetch_result, timeout=CELERY_TIMEOUT, default=None)
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 def get_job_status(job_id: str, db: Session = Depends(get_db)):
-    """Get job status and progress."""
-    task = AsyncResult(job_id, app=celery_app)
+    """Get job status and progress.
 
-    if not task:
+    This endpoint now prefers database state over Celery to avoid blocking.
+    Celery is only queried (with timeout) for active jobs that may have progress updates.
+    """
+    # First, check database for job (fast, non-blocking)
+    job = db.query(Job).filter(Job.id == job_id).first()
+
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Safely get task state - can raise ValueError if exception info is malformed
-    state = _safe_get_task_state(task)
+    # For terminal states, return database data directly (no Celery query needed)
+    if job.status in ("SUCCESS", "FAILURE", "REVOKED"):
+        return JobResponse(
+            job_id=job_id,
+            status=job.status,
+            progress={},
+            result=job.result or ({"error": job.error} if job.error else {}),
+        )
 
+    # For active jobs (PENDING, PROGRESS), try to get live status from Celery with timeout
+    celery_state = _get_celery_task_state(job_id)
+
+    # If Celery is unavailable or timed out, return database state
+    if celery_state is None:
+        logger.debug(f"Celery unavailable for job {job_id}, using database state")
+        return JobResponse(
+            job_id=job_id,
+            status=job.status,
+            progress={},
+            result=job.result or {},
+        )
+
+    # Build response from Celery state
     response = JobResponse(
         job_id=job_id,
-        status=state,
+        status=celery_state,
         progress={},
         result={},
     )
 
-    # Get progress if available
-    if state == "PROGRESS":
-        response.progress = _safe_get_task_info(task) or {}
+    # Get progress/result based on Celery state
+    if celery_state == "PROGRESS":
+        task_info = _get_celery_task_info(job_id)
+        response.progress = task_info or {}
         # Update job status in database
-        job = db.query(Job).filter(Job.id == job_id).first()
-        if job and job.status != "PROGRESS":
+        if job.status != "PROGRESS":
             job.status = "PROGRESS"
             db.commit()
-    elif state == "SUCCESS":
-        try:
-            response.result = task.result or {}
-        except Exception as e:
-            logger.warning(f"Error getting task result for {job_id}: {e}")
-            response.result = {"error": f"Failed to retrieve result: {e}"}
+    elif celery_state == "SUCCESS":
+        task_result = _get_celery_task_result(job_id)
+        response.result = task_result or {}
 
         # Save result to database for history
-        job = db.query(Job).filter(Job.id == job_id).first()
-        if job and job.status != "SUCCESS":
+        if job.status != "SUCCESS":
             job.status = "SUCCESS"
             job.result = response.result
             db.commit()
             logger.info(f"Saved job {job_id} result to database")
-    elif state == "FAILURE":
-        task_info = _safe_get_task_info(task)
+    elif celery_state == "FAILURE":
+        task_info = _get_celery_task_info(job_id)
         response.result = {"error": str(task_info)}
 
         # Save error to database
-        job = db.query(Job).filter(Job.id == job_id).first()
-        if job and job.status != "FAILURE":
+        if job.status != "FAILURE":
             job.status = "FAILURE"
             job.error = str(task_info)
             # Try to get statistics from failure info if available
@@ -234,14 +330,34 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
     return response
 
 
-@router.delete("/{job_id}", status_code=204)
+def _revoke_celery_task(job_id: str, terminate: bool):
+    """Revoke a Celery task - blocking call to be run in thread pool or background."""
+    try:
+        celery_app.control.revoke(
+            job_id,
+            terminate=terminate,
+            signal="SIGKILL" if terminate else "SIGTERM",
+        )
+        # Also try to forget from result backend
+        task = AsyncResult(job_id, app=celery_app)
+        if task:
+            task.forget()
+        logger.info(f"Celery task {job_id} revoked (terminate={terminate})")
+    except Exception as e:
+        logger.warning(f"Failed to revoke Celery task {job_id}: {e}")
+
+
+@router.delete("/{job_id}")
 def revoke_job(
     job_id: str,
     terminate: bool = False,
     force: bool = False,
+    background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
     """Revoke/cancel a job, or force delete it from the database.
+
+    This is now non-blocking - Celery revocation happens in background.
 
     Args:
         job_id: The job ID to revoke/delete
@@ -252,51 +368,45 @@ def revoke_job(
     logger.info(f"{action.capitalize()} job {job_id} (terminate={terminate})")
 
     try:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
         if force:
             # Force delete: completely remove the job record from the database
-            job = db.query(Job).filter(Job.id == job_id).first()
-            if not job:
-                raise HTTPException(status_code=404, detail="Job not found")
-
-            # Still try to revoke in Celery if it's running
-            celery_app.control.revoke(
-                job_id,
-                terminate=terminate,
-                signal="SIGKILL" if terminate else "SIGTERM",
-            )
-
-            # Clean up result backend
-            task = AsyncResult(job_id, app=celery_app)
-            if task:
-                task.forget()
-
-            # DELETE the job record completely
+            # DELETE the job record first (non-blocking)
             db.delete(job)
             db.commit()
-
             logger.info(f"Job {job_id} deleted from database")
+
+            # Schedule Celery revoke in background (fire-and-forget)
+            if background_tasks:
+                background_tasks.add_task(_revoke_celery_task, job_id, terminate)
+            else:
+                # Fallback: run with short timeout
+                _run_with_timeout(
+                    lambda: _revoke_celery_task(job_id, terminate),
+                    timeout=1.0,
+                    default=None,
+                )
+
             return {"status": "deleted", "job_id": job_id}
         else:
-            # Soft delete: mark as REVOKED (preserves audit trail)
-            # Revoke the task in Celery
-            celery_app.control.revoke(
-                job_id,
-                terminate=terminate,
-                signal="SIGKILL" if terminate else "SIGTERM",
-            )
+            # Soft delete: mark as REVOKED in database immediately (non-blocking)
+            job.status = "REVOKED"
+            job.error = "Job was manually cancelled"
+            db.commit()
 
-            # Also mark it as revoked in the result backend
-            task = AsyncResult(job_id, app=celery_app)
-            if task:
-                # This doesn't actually revoke it but marks it for cleanup
-                task.forget()
-
-            # Update database record to reflect revocation
-            job = db.query(Job).filter(Job.id == job_id).first()
-            if job:
-                job.status = "REVOKED"
-                job.error = "Job was manually cancelled"
-                db.commit()
+            # Schedule Celery revoke in background (fire-and-forget)
+            if background_tasks:
+                background_tasks.add_task(_revoke_celery_task, job_id, terminate)
+            else:
+                # Fallback: run with short timeout
+                _run_with_timeout(
+                    lambda: _revoke_celery_task(job_id, terminate),
+                    timeout=1.0,
+                    default=None,
+                )
 
             return {"status": "revoked", "job_id": job_id}
     except HTTPException:
@@ -316,6 +426,9 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
     - The client disconnects
     - The connection times out (30 minutes max)
     - The server is shutting down
+
+    NOTE: All Celery operations are run in a thread pool to avoid blocking
+    the async event loop, which can cause the app and workers to stall.
     """
     await websocket.accept()
 
@@ -324,9 +437,9 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
     start_time = asyncio.get_event_loop().time()
 
     try:
-        task = AsyncResult(job_id, app=celery_app)
         last_state = None
         last_progress = None
+        loop = asyncio.get_event_loop()
 
         while True:
             # Check for timeout to prevent indefinite connections
@@ -347,8 +460,14 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
                 logger.info(f"WebSocket no longer connected for job {job_id}")
                 break
 
-            # Use safe accessor for task state
-            current_state = _safe_get_task_state(task)
+            # Get task state using non-blocking thread pool (prevents async loop stall)
+            current_state = await loop.run_in_executor(
+                _celery_executor, lambda: _get_celery_task_state(job_id)
+            )
+
+            # If Celery is unavailable, report unknown state but keep connection open
+            if current_state is None:
+                current_state = "UNKNOWN"
 
             # Build update message
             update = {
@@ -358,19 +477,23 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
                 "result": {},
             }
 
-            # Get progress/result based on state
+            # Get progress/result based on state (all non-blocking)
             if current_state == "PROGRESS":
-                update["progress"] = _safe_get_task_info(task) or {}
+                task_info = await loop.run_in_executor(
+                    _celery_executor, lambda: _get_celery_task_info(job_id)
+                )
+                update["progress"] = task_info or {}
             elif current_state == "SUCCESS":
-                try:
-                    update["result"] = task.result or {}
-                except Exception as e:
-                    logger.warning(f"Error getting task result for {job_id}: {e}")
-                    update["result"] = {"error": f"Failed to retrieve result: {e}"}
+                task_result = await loop.run_in_executor(
+                    _celery_executor, lambda: _get_celery_task_result(job_id)
+                )
+                update["result"] = task_result or {}
                 await websocket.send_json(update)
                 break  # Job done, close connection
             elif current_state == "FAILURE":
-                task_info = _safe_get_task_info(task)
+                task_info = await loop.run_in_executor(
+                    _celery_executor, lambda: _get_celery_task_info(job_id)
+                )
                 update["result"] = {"error": str(task_info)}
                 await websocket.send_json(update)
                 break  # Job failed, close connection

@@ -115,7 +115,7 @@ class Image(Base):
     #   "tags_applied": bool,        # Auto-tagging complete
     #   "ready_for_analysis": bool,  # All required fields for analysis tasks
     # }
-    processing_flags = Column(JSONB, nullable=False, default={})
+    processing_flags = Column(JSONB, nullable=False, default={}, server_default="{}")
 
     # Burst detection
     burst_id = Column(UUID(as_uuid=True), ForeignKey("bursts.id", ondelete="SET NULL"))

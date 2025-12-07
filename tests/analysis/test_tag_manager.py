@@ -32,8 +32,8 @@ class TestTagManager:
             """
             INSERT INTO images (
                 id, catalog_id, source_path, file_type, checksum, size_bytes,
-                dates, metadata, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, '{}', '{}', ?, NOW(), NOW())
+                dates, metadata, status, processing_flags, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, '{}', '{}', ?, '{}', NOW(), NOW())
             ON CONFLICT (id) DO NOTHING
             """,
             (

@@ -419,10 +419,10 @@ def analyze(
                         """,
                         (
                             db.catalog_id,
-                            stats_data.get("phase"),
+                            stats_data.get("phase", "unknown"),
                             stats_data.get("files_processed"),
                             stats_data.get("files_total"),
-                            stats_data.get("bytes_processed"),
+                            stats_data.get("bytes_processed", 0),
                             stats_data.get("cpu_percent"),
                             stats_data.get("memory_mb"),
                             stats_data.get("disk_read_mb"),

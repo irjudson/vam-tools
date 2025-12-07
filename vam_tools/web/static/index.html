@@ -566,7 +566,8 @@
                                 <div class="error-label">✗ Error</div>
                                 <div class="error-text">{{ job.error }}</div>
                             </div>
-                            <div class="job-actions">
+                            <!-- Job control buttons hidden until backend properly supports async cancel/kill -->
+                            <div class="job-actions" style="display: none;">
                                 <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
                                         @click="cancelJob(job.id)" class="btn-secondary btn-small" title="Stop job gracefully">
                                     Cancel
@@ -731,18 +732,7 @@
 
                                 <!-- Actions -->
                                 <div v-if="!isJobArchived(job.id)" class="job-history-actions">
-                                    <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
-                                        @click="cancelJob(job.id)"
-                                        class="btn-secondary btn-small"
-                                        title="Cancel job">
-                                        Cancel
-                                    </button>
-                                    <button v-if="job.status === 'PROGRESS' || job.status === 'PENDING'"
-                                        @click="killJob(job.id)"
-                                        class="btn-danger btn-small"
-                                        title="Force kill">
-                                        Kill
-                                    </button>
+                                    <!-- Cancel/Kill buttons hidden until backend properly supports async cancel -->
                                     <button v-if="job.status === 'SUCCESS' || job.status === 'FAILURE'"
                                         @click="showJobDetails(job)"
                                         class="btn-secondary btn-small"
@@ -1745,6 +1735,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=29"></script>
+    <script src="/static/app.js?v=30"></script>
 </body>
 </html>

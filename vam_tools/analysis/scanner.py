@@ -112,6 +112,7 @@ class ImageScannerORM:
 
         # Track scanning statistics
         self.files_added = 0
+        self.files_updated = 0  # Updated incomplete records
         self.files_skipped = 0
         self.files_error = 0
         self.total_bytes = 0
@@ -270,8 +271,22 @@ class ImageScannerORM:
             )
 
             if existing:
-                logger.debug(f"Skipping duplicate: {file_path}")
-                self.files_skipped += 1
+                # Check if the existing record needs updating (incomplete scan)
+                flags = existing.processing_flags or {}
+                needs_update = (
+                    not flags.get("metadata_extracted", False)
+                    or not flags.get("dates_extracted", False)
+                    or not flags.get("thumbnail_generated", False)
+                )
+
+                if needs_update:
+                    # Update the existing record with new metadata
+                    self._update_existing_image(existing, image_record, file_path)
+                    self.files_updated += 1
+                    logger.debug(f"Updated incomplete record: {file_path}")
+                else:
+                    logger.debug(f"Skipping complete record: {file_path}")
+                    self.files_skipped += 1
                 continue
 
             # Track this checksum for the current batch
@@ -357,6 +372,87 @@ class ImageScannerORM:
             logger.error(f"Failed to commit batch: {e}")
             self.session.rollback()
             self.files_error += len(file_paths)
+
+    def _update_existing_image(
+        self, existing: Image, image_record: ImageRecord, file_path: Path
+    ) -> None:
+        """
+        Update an existing image record with new metadata.
+
+        This is called when an image exists but has incomplete processing flags.
+        Only updates fields that are missing or incomplete.
+
+        Args:
+            existing: The existing Image ORM object
+            image_record: The newly extracted ImageRecord
+            file_path: Path to the source file
+        """
+        flags = existing.processing_flags or {}
+
+        # Only update metadata if not already extracted
+        if not flags.get("metadata_extracted", False) and image_record.metadata:
+            existing.metadata_json = image_record.metadata.model_dump(mode="json")
+            existing.size_bytes = image_record.metadata.size_bytes
+
+        # Only update dates if not already extracted
+        if not flags.get("dates_extracted", False) and image_record.dates:
+            existing.dates = image_record.dates.model_dump(mode="json")
+
+        # Check for thumbnail - first check if file exists on disk
+        thumbnail_exists = False
+        thumbnail_full_path = get_thumbnail_path(
+            image_record.checksum,
+            self.catalog_path / "thumbnails",
+        )
+        if thumbnail_full_path.exists():
+            # Thumbnail exists on disk, update DB if needed
+            thumbnail_exists = True
+            if not existing.thumbnail_path:
+                existing.thumbnail_path = str(
+                    thumbnail_full_path.relative_to(self.catalog_path)
+                )
+        elif not flags.get("thumbnail_generated", False):
+            # No thumbnail on disk and not marked as generated, try to create
+            try:
+                if generate_thumbnail(file_path, thumbnail_full_path):
+                    existing.thumbnail_path = str(
+                        thumbnail_full_path.relative_to(self.catalog_path)
+                    )
+                    thumbnail_exists = True
+            except Exception as e:
+                logger.warning(f"Failed to generate thumbnail for {file_path}: {e}")
+
+        # Update processing flags based on current state
+        processing_flags = existing.processing_flags or {}
+        processing_flags["metadata_extracted"] = bool(
+            image_record.metadata and image_record.metadata.exif
+        ) or flags.get("metadata_extracted", False)
+        processing_flags["dates_extracted"] = bool(
+            image_record.dates
+            and image_record.dates.selected_date
+            and image_record.dates.confidence >= 70
+        ) or flags.get("dates_extracted", False)
+        processing_flags["thumbnail_generated"] = thumbnail_exists or bool(
+            existing.thumbnail_path
+        )
+        processing_flags["ready_for_analysis"] = (
+            processing_flags["metadata_extracted"]
+            and processing_flags["dates_extracted"]
+        )
+        # Preserve other flags that may have been set by other tasks
+        for key in [
+            "hashes_computed",
+            "quality_scored",
+            "embedding_generated",
+            "tags_applied",
+        ]:
+            if key not in processing_flags:
+                processing_flags[key] = flags.get(key, False)
+
+        existing.processing_flags = processing_flags
+
+        # Update timestamp
+        existing.updated_at = datetime.utcnow()
 
     def _update_config(self, key: str, value: any) -> None:
         """
@@ -487,6 +583,7 @@ class ImageScanner:
 
         # Copy statistics to self for compatibility
         self.files_added = self.scanner.files_added
+        self.files_updated = self.scanner.files_updated
         self.files_skipped = self.scanner.files_skipped
         self.files_error = self.scanner.files_error
         self.total_bytes = self.scanner.total_bytes

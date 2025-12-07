@@ -338,10 +338,12 @@ class MetadataExtractor:
                 date_info.confidence = 95
                 break
 
-        # If no EXIF date, try any EXIF date
+        # If no EXIF date, try any EXIF date (but not filesystem-based ones)
+        # FileModifyDate and FileAccessDate are filesystem dates, not real EXIF
+        filesystem_fields = {"FileModifyDate", "FileAccessDate", "FileCreateDate"}
         if not date_info.selected_date and date_info.exif_dates:
             for field, date in date_info.exif_dates.items():
-                if date:
+                if date and field not in filesystem_fields:
                     date_info.selected_date = date
                     date_info.selected_source = f"exif:{field}"
                     date_info.confidence = 85
@@ -379,13 +381,17 @@ class MetadataExtractor:
         # Check for suspicious dates
         if date_info.selected_date:
             now = datetime.now()
+            # Ensure we compare naive datetimes (remove timezone if present)
+            selected_naive = date_info.selected_date
+            if hasattr(selected_naive, "tzinfo") and selected_naive.tzinfo is not None:
+                selected_naive = selected_naive.replace(tzinfo=None)
             # Future date
-            if date_info.selected_date > now:
+            if selected_naive > now:
                 date_info.suspicious = True
                 logger.warning(f"Future date detected: {date_info.selected_date}")
 
             # Very old date (before 1990)
-            if date_info.selected_date.year < 1990:
+            if selected_naive.year < 1990:
                 date_info.suspicious = True
                 logger.warning(f"Very old date detected: {date_info.selected_date}")
 
@@ -395,7 +401,7 @@ class MetadataExtractor:
                 datetime(1970, 1, 1),
                 datetime(1980, 1, 1),
             ]
-            if any(date_info.selected_date.date() == d.date() for d in default_dates):
+            if any(selected_naive.date() == d.date() for d in default_dates):
                 date_info.suspicious = True
                 logger.warning(
                     f"Suspicious default date detected: {date_info.selected_date}"
