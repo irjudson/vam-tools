@@ -117,6 +117,11 @@ createApp({
             sortBy: 'date',
             sortOrder: 'desc',
             searchDebounceTimer: null,
+            // Semantic Search
+            semanticSearchQuery: '',
+            searchResults: [],
+            isSearching: false,
+            searchMode: false,
 
             // Lightbox
             lightboxVisible: false,
@@ -159,6 +164,11 @@ createApp({
                 similarity_type: null
             },
             selectedDuplicateGroup: null,
+
+            // Burst Detection
+            bursts: [],
+            currentBurst: null,
+            showBurstModal: false,
         };
     },
 
@@ -279,10 +289,11 @@ createApp({
             // Clear any active filters when switching catalogs
             this.clearFilters();
 
-            // Load catalog stats, filter options, tags, and images
+            // Load catalog stats, filter options, tags, bursts, and images
             this.loadCatalogStats();
             this.loadFilterOptions();
             this.loadAvailableTags();
+            this.loadBursts();
             if (this.currentView === 'browse') {
                 this.loadImages(true);
             }
@@ -1171,6 +1182,79 @@ createApp({
             this.loadImages(true);
         },
 
+        // Semantic Search methods
+        async performSemanticSearch() {
+            if (!this.semanticSearchQuery || !this.currentCatalog) return;
+
+            this.isSearching = true;
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/search`,
+                    {
+                        params: {
+                            q: this.semanticSearchQuery,
+                            limit: 100,
+                            threshold: 0.2
+                        }
+                    }
+                );
+
+                this.searchResults = response.data.results;
+                this.searchMode = true;
+
+                // Update the image grid to show search results
+                this.images = this.searchResults.map(r => ({
+                    id: r.image_id,
+                    source_path: r.source_path,
+                    similarity_score: r.similarity_score,
+                }));
+                this.imagesTotal = this.searchResults.length;
+
+                this.addNotification(`Found ${this.searchResults.length} images`, 'success');
+            } catch (error) {
+                console.error('Search failed:', error);
+                this.addNotification('Search failed: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                this.isSearching = false;
+            }
+        },
+
+        clearSearch() {
+            this.semanticSearchQuery = '';
+            this.searchResults = [];
+            this.searchMode = false;
+            this.loadImages(true);
+        },
+
+        async findSimilarImages(imageId) {
+            if (!this.currentCatalog || !imageId) return;
+
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/similar/${imageId}`,
+                    {
+                        params: { limit: 50, threshold: 0.5 }
+                    }
+                );
+
+                this.searchResults = response.data.results;
+                this.searchMode = true;
+                this.semanticSearchQuery = `Similar to image`;
+
+                this.images = this.searchResults.map(r => ({
+                    id: r.image_id,
+                    source_path: r.source_path,
+                    similarity_score: r.similarity_score,
+                }));
+                this.imagesTotal = this.searchResults.length;
+
+                this.addNotification(`Found ${this.searchResults.length} similar images`, 'success');
+            } catch (error) {
+                console.error('Find similar failed:', error);
+                this.addNotification('Find similar failed: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
         getThumbnailUrl(image) {
             if (!this.currentCatalog) return '';
             return `/api/catalogs/${this.currentCatalog.id}/images/${image.id}/thumbnail?size=${this.thumbnailSize}`;
@@ -1792,6 +1876,93 @@ createApp({
                 similarity_type: null
             };
             this.loadDuplicates(true);
+        },
+
+        // =====================================================================
+        // Burst Detection Methods
+        // =====================================================================
+
+        async loadBursts() {
+            if (!this.currentCatalog) return;
+
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/bursts`
+                );
+                this.bursts = response.data.bursts;
+            } catch (error) {
+                console.error('Failed to load bursts:', error);
+            }
+        },
+
+        async viewBurst(burstId) {
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/bursts/${burstId}`
+                );
+                this.currentBurst = response.data;
+                this.showBurstModal = true;
+            } catch (error) {
+                console.error('Failed to load burst:', error);
+                this.addNotification('Failed to load burst details', 'error');
+            }
+        },
+
+        async setBestImage(burstId, imageId) {
+            try {
+                await axios.put(
+                    `/api/catalogs/${this.currentCatalog.id}/bursts/${burstId}`,
+                    { best_image_id: imageId }
+                );
+                this.addNotification('Best image updated', 'success');
+
+                // Refresh current burst if modal is open
+                if (this.showBurstModal && this.currentBurst && this.currentBurst.id === burstId) {
+                    await this.viewBurst(burstId);
+                }
+
+                // Reload bursts list
+                await this.loadBursts();
+            } catch (error) {
+                console.error('Failed to update burst:', error);
+                this.addNotification('Failed to update best image', 'error');
+            }
+        },
+
+        async startBurstDetection() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog first', 'error');
+                return;
+            }
+
+            try {
+                const response = await axios.post(
+                    `/api/catalogs/${this.currentCatalog.id}/detect-bursts`
+                );
+
+                this.addNotification('Burst detection started', 'success');
+
+                if (response.data.job_id) {
+                    this.allJobs.unshift(response.data.job_id);
+                    this.jobMetadata[response.data.job_id] = {
+                        name: `Detect Bursts: ${this.currentCatalog.name}`,
+                        started: new Date().toISOString()
+                    };
+                    this.persistJobs();
+                    this.loadJobDetails(response.data.job_id);
+                }
+
+                this.setView('jobs');
+            } catch (error) {
+                console.error('Failed to start burst detection:', error);
+                this.addNotification('Failed to start burst detection: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
+        getBurstInfo(image) {
+            if (!image.burst_id) return null;
+            const burst = this.bursts.find(b => b.id === image.burst_id);
+            return burst;
         },
 
         // Job Streaming

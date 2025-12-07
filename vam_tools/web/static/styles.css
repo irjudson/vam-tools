@@ -2129,6 +2129,133 @@ section h3 {
 }
 
 /* =====================================================
+   Semantic Search Styles
+   ===================================================== */
+
+.semantic-search-section {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #334155;
+}
+
+.search-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.search-section-header label {
+    font-size: 0.875rem;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.search-mode-indicator {
+    font-size: 0.75rem;
+    color: #60a5fa;
+    background: rgba(96, 165, 250, 0.1);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+}
+
+.search-input-wrapper {
+    display: flex;
+    gap: 0.5rem;
+    flex-direction: column;
+}
+
+.semantic-search-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 0.375rem;
+    color: #e2e8f0;
+    font-size: 0.875rem;
+}
+
+.semantic-search-input:focus {
+    outline: none;
+    border-color: #60a5fa;
+}
+
+.semantic-search-input::placeholder {
+    color: #64748b;
+}
+
+.search-btn {
+    padding: 0.5rem 1rem;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.search-btn:hover:not(:disabled) {
+    background: #2563eb;
+}
+
+.search-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.search-results-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    color: #94a3b8;
+}
+
+.clear-search-btn {
+    background: transparent;
+    border: 1px solid #334155;
+    color: #94a3b8;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all 0.2s;
+}
+
+.clear-search-btn:hover {
+    background: #334155;
+    color: #e2e8f0;
+    border-color: #475569;
+}
+
+/* Lightbox Actions */
+.lightbox-actions {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #334155;
+}
+
+.lightbox-action-btn {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.lightbox-action-btn:hover {
+    background: #2563eb;
+}
+
+/* =====================================================
    Search, Filter, and Sort Controls
    ===================================================== */
 

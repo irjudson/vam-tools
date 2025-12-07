@@ -200,6 +200,13 @@
                                 <div class="action-desc">Detect duplicate files</div>
                             </div>
                         </button>
+                        <button @click="startBurstDetection" class="action-btn" :disabled="!currentCatalog">
+                            <span class="action-icon">📸</span>
+                            <div class="action-text">
+                                <div class="action-title">Detect Bursts</div>
+                                <div class="action-desc">Find burst sequences</div>
+                            </div>
+                        </button>
                         <button @click="setView('review')" class="action-btn" :disabled="!currentCatalog || reviewQueueStats.total_needing_review === 0">
                             <span class="action-icon">📝</span>
                             <div class="action-text">
@@ -357,6 +364,34 @@
                             </div>
                         </div>
 
+                        <!-- Semantic Search Section -->
+                        <div v-if="currentCatalog" class="semantic-search-section">
+                            <div class="search-section-header">
+                                <label>Semantic Search</label>
+                                <span v-if="searchMode" class="search-mode-indicator">Search mode active</span>
+                            </div>
+                            <div class="search-input-wrapper">
+                                <input
+                                    type="text"
+                                    v-model="semanticSearchQuery"
+                                    @keyup.enter="performSemanticSearch"
+                                    placeholder="e.g., sunset over mountains"
+                                    class="semantic-search-input"
+                                >
+                                <button
+                                    @click="performSemanticSearch"
+                                    :disabled="!semanticSearchQuery || isSearching"
+                                    class="search-btn"
+                                >
+                                    {{ isSearching ? 'Searching...' : 'Search' }}
+                                </button>
+                            </div>
+                            <div v-if="searchResults.length > 0" class="search-results-info">
+                                Found {{ searchResults.length }} results
+                                <button @click="clearSearch" class="clear-search-btn">Clear</button>
+                            </div>
+                        </div>
+
                         <!-- Tags Filter Section -->
                         <div v-if="availableTags.length > 0" class="tags-filter-section">
                             <div class="tags-filter-header">
@@ -441,6 +476,11 @@
                             :alt="image.source_path"
                             loading="lazy"
                         />
+                        <!-- Burst indicator -->
+                        <div v-if="image.burst_id && getBurstInfo(image)" class="burst-indicator" @click.stop="viewBurst(image.burst_id)">
+                            <span class="burst-icon">📷</span>
+                            <span class="burst-count">{{ getBurstInfo(image).image_count }}</span>
+                        </div>
                         <div class="thumbnail-overlay">
                             <div class="text-sm">{{ image.source_path.split('/').pop() }}</div>
                         </div>
@@ -1506,6 +1546,17 @@
                 <div class="lightbox-sidebar">
                     <h3 class="mb-md">Image Details</h3>
 
+                    <!-- Find Similar Action -->
+                    <div class="lightbox-actions">
+                        <button
+                            @click="findSimilarImages(lightboxImage.id); closeLightbox();"
+                            class="lightbox-action-btn"
+                            title="Find Similar Images"
+                        >
+                            Find Similar Images
+                        </button>
+                    </div>
+
                     <!-- File Info -->
                     <div class="lightbox-metadata-section">
                         <h3>File Information</h3>
@@ -1647,6 +1698,46 @@
                         <div class="lightbox-metadata-item">
                             <span class="lightbox-metadata-label">Close</span>
                             <span class="lightbox-metadata-value">ESC</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Burst Detail Modal -->
+        <div v-if="showBurstModal && currentBurst" class="modal-overlay" @click.self="showBurstModal = false">
+            <div class="modal burst-modal">
+                <div class="modal-header">
+                    <h3>Burst: {{ currentBurst.image_count }} images</h3>
+                    <button @click="showBurstModal = false" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="burst-info">
+                        <p v-if="currentBurst.camera_make || currentBurst.camera_model">
+                            <strong>Camera:</strong> {{ currentBurst.camera_make }} {{ currentBurst.camera_model }}
+                        </p>
+                        <p v-if="currentBurst.duration_seconds !== null && currentBurst.duration_seconds !== undefined">
+                            <strong>Duration:</strong> {{ currentBurst.duration_seconds.toFixed(1) }}s
+                        </p>
+                        <p v-if="currentBurst.start_time">
+                            <strong>Time:</strong> {{ formatDate(currentBurst.start_time) }}
+                        </p>
+                    </div>
+                    <div class="burst-images-grid">
+                        <div
+                            v-for="image in currentBurst.images"
+                            :key="image.id"
+                            class="burst-image-item"
+                            :class="{ 'is-best': image.is_best }"
+                            @click="setBestImage(currentBurst.id, image.id)"
+                        >
+                            <img :src="image.thumbnail_url" :alt="image.source_path">
+                            <div class="burst-image-overlay">
+                                <span v-if="image.is_best" class="best-badge">BEST</span>
+                                <span v-if="image.quality_score !== null && image.quality_score !== undefined" class="quality-score">
+                                    Q: {{ (image.quality_score * 100).toFixed(0) }}%
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
