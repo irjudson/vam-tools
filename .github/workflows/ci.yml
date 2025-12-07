@@ -134,7 +134,8 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15
+        # Use pgvector-enabled PostgreSQL for CLIP embeddings
+        image: pgvector/pgvector:pg15
         env:
           POSTGRES_USER: pg
           POSTGRES_PASSWORD: test

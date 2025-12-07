@@ -3,6 +3,8 @@
 import pytest
 from sqlalchemy import text
 
+pytestmark = pytest.mark.integration
+
 
 class TestClipEmbeddingColumn:
     """Tests for clip_embedding column in images table."""

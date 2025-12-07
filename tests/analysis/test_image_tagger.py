@@ -1,5 +1,7 @@
 """Tests for AI-based image tagger."""
 
+# Check if torch is available without importing it
+import importlib.util
 from pathlib import Path
 from typing import Dict, List, Tuple
 from unittest.mock import MagicMock, patch
@@ -14,6 +16,10 @@ from vam_tools.analysis.image_tagger import (
     TagResult,
     check_backends_available,
 )
+
+HAS_TORCH = importlib.util.find_spec("torch") is not None
+
+requires_torch = pytest.mark.skipif(not HAS_TORCH, reason="torch not installed")
 
 
 class TestTagResult:
@@ -486,6 +492,7 @@ class TestMockBackend:
 class TestImageTaggerEmbeddings:
     """Tests for CLIP embedding extraction."""
 
+    @requires_torch
     def test_openclip_backend_get_embedding_returns_768_dim_vector(self) -> None:
         """Test that OpenCLIPBackend.get_embedding returns 768-dimensional vector."""
         with patch.object(OpenCLIPBackend, "_load_model"):

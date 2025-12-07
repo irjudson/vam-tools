@@ -1,5 +1,7 @@
 """Tests for semantic search service."""
 
+# Check if torch is available without importing it
+import importlib.util
 from pathlib import Path
 from typing import List
 from unittest.mock import MagicMock, patch
@@ -7,6 +9,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vam_tools.analysis.semantic_search import SearchResult, SemanticSearchService
+
+HAS_TORCH = importlib.util.find_spec("torch") is not None
+
+requires_torch = pytest.mark.skipif(not HAS_TORCH, reason="torch not installed")
 
 
 class TestSearchResult:
@@ -32,6 +38,7 @@ class TestSemanticSearchService:
         assert service._model is None  # Lazy loading
         assert service.model_name == "ViT-L-14"
 
+    @requires_torch
     def test_encode_text_returns_768_dim_vector(self) -> None:
         """Test that text encoding returns 768-dimensional vector."""
         service = SemanticSearchService()
@@ -57,6 +64,7 @@ class TestSemanticSearchService:
                     assert isinstance(embedding, list)
                     assert all(isinstance(x, float) for x in embedding)
 
+    @requires_torch
     def test_encode_image_returns_768_dim_vector(self) -> None:
         """Test that image encoding returns 768-dimensional vector."""
         service = SemanticSearchService()
@@ -235,6 +243,7 @@ class TestSemanticSearchService:
         assert service._preprocess is None
         assert service._tokenizer is None
 
+    @requires_torch
     def test_encode_text_normalizes_embeddings(self) -> None:
         """Test that text embeddings are normalized."""
         service = SemanticSearchService()

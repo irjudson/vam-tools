@@ -3,6 +3,8 @@
 import pytest
 from sqlalchemy import text
 
+pytestmark = pytest.mark.integration
+
 
 class TestBurstsTable:
     """Tests for bursts table."""
