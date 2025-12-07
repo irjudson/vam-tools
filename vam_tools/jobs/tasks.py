@@ -1716,11 +1716,15 @@ def detect_bursts_task(
             result = db.session.execute(
                 text(
                     """
-                    SELECT id, date_taken, camera_make, camera_model, quality_score
+                    SELECT id,
+                           (dates->>'selected_date')::timestamp as date_taken,
+                           metadata->>'camera_make' as camera_make,
+                           metadata->>'camera_model' as camera_model,
+                           quality_score
                     FROM images
                     WHERE catalog_id = :catalog_id
-                    AND date_taken IS NOT NULL
-                    ORDER BY date_taken
+                    AND dates->>'selected_date' IS NOT NULL
+                    ORDER BY (dates->>'selected_date')::timestamp
                 """
                 ),
                 {"catalog_id": catalog_id},
