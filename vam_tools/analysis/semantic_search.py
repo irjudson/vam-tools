@@ -45,9 +45,9 @@ class SemanticSearchService:
         """
         self.model_name = model_name
         self.pretrained = pretrained
-        self._model = None
-        self._preprocess = None
-        self._tokenizer = None
+        self._model: Any = None
+        self._preprocess: Any = None
+        self._tokenizer: Any = None
         self._device = "cpu"
 
     def _ensure_model_loaded(self) -> None:
