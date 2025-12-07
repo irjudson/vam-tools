@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from sqlalchemy import text
 
 from vam_tools.core.types import FileType, ImageRecord, ImageStatus
 
+from ..analysis.burst_detector import BurstDetector, BurstGroup, ImageInfo
 from ..analysis.duplicate_detector import DuplicateDetector
 from ..analysis.scanner import _process_file_worker
 from ..db import CatalogDB as CatalogDatabase
@@ -1537,7 +1539,27 @@ def auto_tag_task(
                                         tag_stats[t.tag_name] = (
                                             tag_stats.get(t.tag_name, 0) + 1
                                         )
-                            # Note: images without tags don't need any marker
+
+                            # Save CLIP embedding for semantic search (OpenCLIP/combined only)
+                            if backend in ("openclip", "combined") and hasattr(
+                                tagger, "get_embedding"
+                            ):
+                                try:
+                                    embedding = tagger.get_embedding(img_path)
+                                    db.session.execute(
+                                        text(
+                                            """
+                                            UPDATE images
+                                            SET clip_embedding = :embedding
+                                            WHERE id = :image_id
+                                        """
+                                        ),
+                                        {"image_id": str(img_id), "embedding": embedding},
+                                    )
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Failed to save embedding for {img_id}: {e}"
+                                    )
 
                         db.session.commit()
 
@@ -1646,6 +1668,162 @@ def auto_tag_task(
 
     except Exception as e:
         logger.error(f"Auto-tagging failed: {e}", exc_info=True)
+        self.update_state(
+            state="FAILURE",
+            meta={
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
+        raise
+
+
+@app.task(bind=True, base=ProgressTask, name="detect_bursts")
+def detect_bursts_task(
+    self: ProgressTask,
+    catalog_id: str,
+    gap_threshold: float = 2.0,
+    min_burst_size: int = 3,
+) -> Dict[str, Any]:
+    """Detect burst sequences in a catalog.
+
+    Args:
+        catalog_id: Catalog ID to process
+        gap_threshold: Maximum seconds between burst images
+        min_burst_size: Minimum images to form a burst
+
+    Returns:
+        Dict with detection results
+    """
+    job_id = self.request.id if hasattr(self.request, 'id') else "unknown"
+    logger.info(f"[{job_id}] Starting burst detection for catalog {catalog_id}")
+
+    try:
+        self.update_progress(
+            0, 1, "Initializing burst detection...", {"phase": "init"}
+        )
+
+        with CatalogDatabase(catalog_id) as db:
+            # Clear existing bursts for this catalog
+            db.session.execute(
+                text("DELETE FROM bursts WHERE catalog_id = :catalog_id"),
+                {"catalog_id": catalog_id},
+            )
+            db.session.commit()
+
+            # Load images with timestamps
+            result = db.session.execute(
+                text("""
+                    SELECT id, date_taken, camera_make, camera_model, quality_score
+                    FROM images
+                    WHERE catalog_id = :catalog_id
+                    AND date_taken IS NOT NULL
+                    ORDER BY date_taken
+                """),
+                {"catalog_id": catalog_id},
+            )
+
+            images = [
+                ImageInfo(
+                    image_id=str(row[0]),
+                    timestamp=row[1],
+                    camera_make=row[2],
+                    camera_model=row[3],
+                    quality_score=row[4] or 0.0,
+                )
+                for row in result.fetchall()
+            ]
+
+            logger.info(f"[{job_id}] Loaded {len(images)} images with timestamps")
+
+            self.update_progress(
+                1,
+                2,
+                f"Detecting bursts from {len(images)} images...",
+                {"phase": "detecting", "images_loaded": len(images)},
+            )
+
+            # Detect bursts
+            detector = BurstDetector(
+                gap_threshold_seconds=gap_threshold,
+                min_burst_size=min_burst_size,
+            )
+            bursts = detector.detect_bursts(images)
+
+            logger.info(f"[{job_id}] Detected {len(bursts)} bursts")
+
+            self.update_progress(
+                1,
+                2,
+                f"Saving {len(bursts)} bursts to database...",
+                {"phase": "saving", "bursts_detected": len(bursts)},
+            )
+
+            # Save bursts to database
+            for burst in bursts:
+                burst_id = str(uuid.uuid4())
+
+                # Insert burst record
+                db.session.execute(
+                    text("""
+                        INSERT INTO bursts (
+                            id, catalog_id, image_count, start_time, end_time,
+                            duration_seconds, camera_make, camera_model,
+                            best_image_id, selection_method
+                        ) VALUES (
+                            :id, :catalog_id, :image_count, :start_time, :end_time,
+                            :duration, :camera_make, :camera_model,
+                            :best_image_id, :selection_method
+                        )
+                    """),
+                    {
+                        "id": burst_id,
+                        "catalog_id": catalog_id,
+                        "image_count": burst.image_count,
+                        "start_time": burst.start_time,
+                        "end_time": burst.end_time,
+                        "duration": burst.duration_seconds,
+                        "camera_make": burst.camera_make,
+                        "camera_model": burst.camera_model,
+                        "best_image_id": burst.best_image_id,
+                        "selection_method": burst.selection_method,
+                    },
+                )
+
+                # Update images with burst_id and sequence
+                for seq, img in enumerate(burst.images):
+                    db.session.execute(
+                        text("""
+                            UPDATE images
+                            SET burst_id = :burst_id, burst_sequence = :seq
+                            WHERE id = :image_id
+                        """),
+                        {
+                            "burst_id": burst_id,
+                            "image_id": img.image_id,
+                            "seq": seq,
+                        },
+                    )
+
+            db.session.commit()
+
+            self.update_progress(
+                2,
+                2,
+                f"Complete: {len(bursts)} bursts detected",
+                {"phase": "complete"},
+            )
+
+            return {
+                "status": "completed",
+                "catalog_id": catalog_id,
+                "images_processed": len(images),
+                "bursts_detected": len(bursts),
+                "total_burst_images": sum(b.image_count for b in bursts),
+            }
+
+    except Exception as e:
+        logger.error(f"[{job_id}] Burst detection failed: {e}", exc_info=True)
         self.update_state(
             state="FAILURE",
             meta={
