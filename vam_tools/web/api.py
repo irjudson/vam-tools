@@ -17,11 +17,18 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
+from ..analysis.semantic_search import SearchResult, SemanticSearchService
 from ..core.types import ImageRecord
 from ..db import CatalogDB as CatalogDatabase
 from ..shared.preview_cache import PreviewCache
 from .catalogs_api import router as catalogs_router
 from .jobs_api import router as jobs_router
+
+# Import burst detection task for job submission
+try:
+    from ..jobs.tasks import detect_bursts_task
+except ImportError:
+    detect_bursts_task = None
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +73,9 @@ _catalog: Optional[CatalogDatabase] = None
 _catalog_path: Optional[Path] = None
 _catalog_mtime: Optional[float] = None  # Track last modification time
 _preview_cache: Optional[PreviewCache] = None
+
+# Global semantic search service (lazy loaded)
+_search_service: Optional[SemanticSearchService] = None
 
 
 # WebSocket connection manager for real-time updates
@@ -233,6 +243,26 @@ def get_preview_cache() -> PreviewCache:
     if _preview_cache is None:
         raise HTTPException(status_code=500, detail="Preview cache not initialized")
     return _preview_cache
+
+
+def get_search_service() -> SemanticSearchService:
+    """Get or create the semantic search service."""
+    global _search_service
+    if _search_service is None:
+        _search_service = SemanticSearchService()
+    return _search_service
+
+
+def get_catalog_db(catalog_id: str) -> CatalogDatabase:
+    """Get a CatalogDatabase instance for a specific catalog ID.
+
+    Args:
+        catalog_id: Catalog UUID
+
+    Returns:
+        CatalogDatabase instance
+    """
+    return CatalogDatabase(catalog_id=catalog_id)
 
 
 @app.get("/", response_model=None)
@@ -1809,3 +1839,304 @@ def sync_broadcast_performance_update(stats_data: Dict[str, Any]) -> None:  # no
     except RuntimeError:
         # No event loop available, create one
         asyncio.run(broadcast_performance_update(stats_data))
+
+
+# ============================================================================
+# Burst Detection Endpoints
+# ============================================================================
+
+
+@app.get("/api/catalogs/{catalog_id}/bursts")
+async def list_bursts(
+    catalog_id: str,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """List burst groups for a catalog.
+
+    Args:
+        catalog_id: Catalog ID
+        limit: Maximum bursts to return
+        offset: Pagination offset
+    """
+    from sqlalchemy import text
+
+    db = get_catalog_db(catalog_id)
+
+    try:
+        result = db.session.execute(
+            text("""
+                SELECT
+                    b.id, b.image_count, b.start_time, b.end_time,
+                    b.duration_seconds, b.camera_make, b.camera_model,
+                    b.best_image_id, b.selection_method
+                FROM bursts b
+                WHERE b.catalog_id = :catalog_id
+                ORDER BY b.start_time DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {"catalog_id": catalog_id, "limit": limit, "offset": offset},
+        )
+
+        bursts = [
+            {
+                "id": str(row[0]),
+                "image_count": row[1],
+                "start_time": row[2].isoformat() if row[2] else None,
+                "end_time": row[3].isoformat() if row[3] else None,
+                "duration_seconds": row[4],
+                "camera_make": row[5],
+                "camera_model": row[6],
+                "best_image_id": str(row[7]) if row[7] else None,
+                "selection_method": row[8],
+                "best_thumbnail_url": (
+                    f"/api/catalogs/{catalog_id}/images/{row[7]}/thumbnail"
+                    if row[7]
+                    else None
+                ),
+            }
+            for row in result.fetchall()
+        ]
+
+        # Get total count
+        count_result = db.session.execute(
+            text("SELECT COUNT(*) FROM bursts WHERE catalog_id = :catalog_id"),
+            {"catalog_id": catalog_id},
+        )
+        total = count_result.scalar() or 0
+
+        return {
+            "bursts": bursts,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/catalogs/{catalog_id}/bursts/{burst_id}")
+async def get_burst(catalog_id: str, burst_id: str):
+    """Get burst details including all images.
+
+    Args:
+        catalog_id: Catalog ID
+        burst_id: Burst ID
+    """
+    from sqlalchemy import text
+
+    db = get_catalog_db(catalog_id)
+
+    try:
+        # Get burst info
+        result = db.session.execute(
+            text("""
+                SELECT
+                    id, image_count, start_time, end_time,
+                    duration_seconds, camera_make, camera_model,
+                    best_image_id, selection_method
+                FROM bursts
+                WHERE id = :burst_id AND catalog_id = :catalog_id
+            """),
+            {"burst_id": burst_id, "catalog_id": catalog_id},
+        )
+        row = result.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Burst not found")
+
+        # Get images in burst
+        images_result = db.session.execute(
+            text("""
+                SELECT id, source_path, burst_sequence, quality_score
+                FROM images
+                WHERE burst_id = :burst_id
+                ORDER BY burst_sequence
+            """),
+            {"burst_id": burst_id},
+        )
+
+        images = [
+            {
+                "id": str(img[0]),
+                "source_path": img[1],
+                "sequence": img[2],
+                "quality_score": img[3],
+                "is_best": str(img[0]) == str(row[7]),
+                "thumbnail_url": f"/api/catalogs/{catalog_id}/images/{img[0]}/thumbnail",
+            }
+            for img in images_result.fetchall()
+        ]
+
+        return {
+            "id": str(row[0]),
+            "image_count": row[1],
+            "start_time": row[2].isoformat() if row[2] else None,
+            "end_time": row[3].isoformat() if row[3] else None,
+            "duration_seconds": row[4],
+            "camera_make": row[5],
+            "camera_model": row[6],
+            "best_image_id": str(row[7]) if row[7] else None,
+            "selection_method": row[8],
+            "images": images,
+        }
+    finally:
+        db.close()
+
+
+@app.put("/api/catalogs/{catalog_id}/bursts/{burst_id}")
+async def update_burst(catalog_id: str, burst_id: str, data: dict):
+    """Update burst (e.g., change best image).
+
+    Args:
+        catalog_id: Catalog ID
+        burst_id: Burst ID
+        data: Update data (best_image_id)
+    """
+    from sqlalchemy import text
+
+    db = get_catalog_db(catalog_id)
+
+    try:
+        if "best_image_id" in data:
+            db.session.execute(
+                text("""
+                    UPDATE bursts
+                    SET best_image_id = :best_id, selection_method = 'manual'
+                    WHERE id = :burst_id AND catalog_id = :catalog_id
+                """),
+                {
+                    "best_id": data["best_image_id"],
+                    "burst_id": burst_id,
+                    "catalog_id": catalog_id,
+                },
+            )
+            db.session.commit()
+
+        return {"status": "updated"}
+    finally:
+        db.close()
+
+
+@app.post("/api/catalogs/{catalog_id}/detect-bursts", status_code=202)
+async def start_burst_detection(
+    catalog_id: str,
+    gap_threshold: float = 2.0,
+    min_burst_size: int = 3,
+):
+    """Start burst detection job.
+
+    Args:
+        catalog_id: Catalog ID to process
+        gap_threshold: Maximum seconds between burst images
+        min_burst_size: Minimum images to form a burst
+    """
+    if detect_bursts_task is None:
+        raise HTTPException(
+            status_code=500, detail="Burst detection task not available"
+        )
+
+    task = detect_bursts_task.delay(
+        catalog_id=catalog_id,
+        gap_threshold=gap_threshold,
+        min_burst_size=min_burst_size,
+    )
+
+    return {
+        "job_id": task.id,
+        "status": "queued",
+        "message": "Burst detection job started",
+    }
+
+
+# ============================================================================
+# Semantic Search Endpoints
+# ============================================================================
+
+
+@app.get("/api/catalogs/{catalog_id}/search")
+async def search_images(
+    catalog_id: str,
+    q: str,
+    limit: int = 50,
+    threshold: float = 0.2,
+):
+    """Search for images using natural language query.
+
+    Args:
+        catalog_id: Catalog to search in
+        q: Search query (e.g., "sunset over mountains")
+        limit: Maximum results to return
+        threshold: Minimum similarity score (0-1)
+    """
+    db = get_catalog_db(catalog_id)
+    service = get_search_service()
+
+    try:
+        results = service.search(
+            session=db.session,
+            catalog_id=catalog_id,
+            query=q,
+            limit=limit,
+            threshold=threshold,
+        )
+
+        return {
+            "query": q,
+            "results": [
+                {
+                    "image_id": r.image_id,
+                    "source_path": r.source_path,
+                    "similarity_score": r.similarity_score,
+                    "thumbnail_url": f"/api/catalogs/{catalog_id}/images/{r.image_id}/thumbnail",
+                }
+                for r in results
+            ],
+            "count": len(results),
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/catalogs/{catalog_id}/similar/{image_id}")
+async def find_similar_images(
+    catalog_id: str,
+    image_id: str,
+    limit: int = 20,
+    threshold: float = 0.5,
+):
+    """Find images similar to a given image.
+
+    Args:
+        catalog_id: Catalog to search in
+        image_id: Source image ID
+        limit: Maximum results to return
+        threshold: Minimum similarity score (0-1)
+    """
+    db = get_catalog_db(catalog_id)
+    service = get_search_service()
+
+    try:
+        results = service.find_similar(
+            session=db.session,
+            catalog_id=catalog_id,
+            image_id=image_id,
+            limit=limit,
+            threshold=threshold,
+        )
+
+        return {
+            "source_image_id": image_id,
+            "results": [
+                {
+                    "image_id": r.image_id,
+                    "source_path": r.source_path,
+                    "similarity_score": r.similarity_score,
+                    "thumbnail_url": f"/api/catalogs/{catalog_id}/images/{r.image_id}/thumbnail",
+                }
+                for r in results
+            ],
+            "count": len(results),
+        }
+    finally:
+        db.close()
