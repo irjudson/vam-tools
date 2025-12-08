@@ -9,7 +9,7 @@ This document tracks the development progress of VAM Tools features. GitHub rend
 ## Overview
 
 <!-- GitHub will render this as a progress bar -->
-### Overall Progress: 14/22 features complete
+### Overall Progress: 15/22 features complete
 
 - [x] Core scanning and analysis
 - [x] Duplicate detection
@@ -25,8 +25,8 @@ This document tracks the development progress of VAM Tools features. GitHub rend
 - [x] GPU acceleration (with fallback)
 - [x] Adaptive batch sizing
 - [x] Real-time progress tracking
+- [x] Auto-tagging with AI
 - [ ] Duplicate resolution UI
-- [ ] Auto-tagging with AI
 - [ ] FAISS index persistence
 - [ ] Batch edit operations
 - [ ] Advanced analytics dashboard
@@ -72,24 +72,15 @@ This document tracks the development progress of VAM Tools features. GitHub rend
 - [x] **Job persistence** - Job history stored in database
 - [x] **Geohash indexing** - Fast spatial queries
 
----
+### AI & Analysis
+- [x] **Auto-tagging with AI** - OpenCLIP and Ollama-based image classification
+- [x] **Tag taxonomy** - Hierarchical tags with categories (subject, scene, lighting, mood)
+- [x] **Batch tagging** - Background Celery task with checkpointing for resumability
+- [x] **Combined backend** - Weighted OpenCLIP + Ollama for high accuracy
+- [x] **CLIP embeddings** - Stored for semantic search capability
+- [x] **Tag API** - Full REST API for tag management and filtering
 
-## 🚧 In Progress
-
-### Auto-Tagging System
-[Issue #13](https://github.com/irjudson/vam-tools/issues/13)
-
-**Status**: Tag taxonomy implemented, AI integration pending
-
-- [x] Tag taxonomy with categories (subject, scene, lighting, mood)
-- [x] Hierarchical tag relationships
-- [x] Database schema for tags and image_tags
-- [ ] CLIP model integration for image classification
-- [ ] Batch tagging during analysis
-- [ ] Tag confidence scores
-- [ ] Manual tag editing UI
-
-**Files**: [`tag_taxonomy.py`](../vam_tools/analysis/tag_taxonomy.py), [`tag_manager.py`](../vam_tools/analysis/tag_manager.py)
+**Files**: [`image_tagger.py`](../vam_tools/analysis/image_tagger.py), [`tag_taxonomy.py`](../vam_tools/analysis/tag_taxonomy.py), [`tag_manager.py`](../vam_tools/analysis/tag_manager.py)
 
 ---
 
@@ -209,10 +200,11 @@ Alerts when long jobs complete.
 | Web UI | 5 | 0 | 2 | 0 |
 | Backend | 5 | 0 | 0 | 0 |
 | Performance | 4 | 0 | 1 | 0 |
-| Data | 4 | 1 | 2 | 0 |
+| Data | 4 | 0 | 2 | 0 |
+| AI & Analysis | 6 | 0 | 0 | 0 |
 | Analytics | 0 | 0 | 1 | 0 |
 | Ops | 0 | 0 | 0 | 2 |
-| **Total** | **24** | **1** | **6** | **2** |
+| **Total** | **30** | **0** | **6** | **2** |
 
 ---
 
