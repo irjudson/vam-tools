@@ -1,6 +1,7 @@
 """Database configuration."""
 
 import os
+from pathlib import Path
 from typing import Optional
 
 from pydantic import ConfigDict
@@ -26,6 +27,9 @@ class Settings(BaseSettings):
     # SQLAlchemy settings
     sql_echo: bool = False  # Set to True to log all SQL queries
 
+    # Data directory for caches and indices
+    data_dir: str = "/var/lib/vam-tools"
+
     @property
     def database_url(self) -> str:
         """Construct PostgreSQL database URL."""
@@ -40,6 +44,11 @@ class Settings(BaseSettings):
         if self.redis_password:
             return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+
+    @property
+    def faiss_index_dir(self) -> Path:
+        """Get directory for FAISS index files."""
+        return Path(self.data_dir) / "faiss_indices"
 
     model_config = ConfigDict(
         env_file=".env",

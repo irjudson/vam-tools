@@ -758,12 +758,15 @@ class DuplicateDetector:
         """
         Find similar images using FAISS fast similarity search.
 
+        Uses persisted index when available for faster startup.
+
         Args:
             hashed_images: List of images with perceptual hashes
 
         Returns:
             List of similar image groups
         """
+        from ..db.config import settings
         from .fast_search import FastSimilaritySearcher
 
         logger.info("Using FAISS for fast similarity search")
@@ -799,11 +802,36 @@ class DuplicateDetector:
             logger.warning("No valid hashes found for FAISS search")
             return []
 
-        # Build FAISS index
+        # Get catalog ID for index persistence
+        catalog_id = getattr(self.catalog, "catalog_id", None)
+
+        # Create searcher with catalog ID for persistence
         searcher = FastSimilaritySearcher(
-            hash_size=64, use_gpu=self.use_gpu  # 64-bit hash
+            hash_size=64,  # 64-bit hash
+            use_gpu=self.use_gpu,
+            catalog_id=catalog_id,
         )
-        searcher.build_index(hashes, method=primary_method.value)
+
+        # Try to load persisted index
+        index_dir = settings.faiss_index_dir
+        index_loaded = False
+        current_image_ids = set(hashes.keys())
+
+        if searcher.load(index_dir):
+            # Check if loaded index is valid for current images
+            if not searcher.needs_rebuild(current_image_ids, tolerance=0.1):
+                logger.info("Using persisted FAISS index")
+                index_loaded = True
+            else:
+                logger.info("Persisted index outdated, rebuilding")
+
+        # Build new index if not loaded or invalid
+        if not index_loaded:
+            searcher.build_index(hashes, method=primary_method.value)
+
+            # Persist the newly built index
+            if searcher.save(index_dir):
+                logger.info("FAISS index persisted for future use")
 
         # Find similar pairs
         similar_pairs = searcher.find_similar(

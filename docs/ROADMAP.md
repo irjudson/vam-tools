@@ -9,7 +9,7 @@ This document tracks the development progress of VAM Tools features. GitHub rend
 ## Overview
 
 <!-- GitHub will render this as a progress bar -->
-### Overall Progress: 15/22 features complete
+### Overall Progress: 16/22 features complete
 
 - [x] Core scanning and analysis
 - [x] Duplicate detection
@@ -26,8 +26,8 @@ This document tracks the development progress of VAM Tools features. GitHub rend
 - [x] Adaptive batch sizing
 - [x] Real-time progress tracking
 - [x] Auto-tagging with AI
+- [x] FAISS index persistence
 - [ ] Duplicate resolution UI
-- [ ] FAISS index persistence
 - [ ] Batch edit operations
 - [ ] Advanced analytics dashboard
 - [ ] Job scheduling
@@ -82,6 +82,14 @@ This document tracks the development progress of VAM Tools features. GitHub rend
 
 **Files**: [`image_tagger.py`](../vam_tools/analysis/image_tagger.py), [`tag_taxonomy.py`](../vam_tools/analysis/tag_taxonomy.py), [`tag_manager.py`](../vam_tools/analysis/tag_manager.py)
 
+### Search & Indexing
+- [x] **FAISS index persistence** - Save/load indices for instant startup
+- [x] **Incremental updates** - Add images without full rebuild
+- [x] **Index versioning** - Track version and hash method for compatibility
+- [x] **Auto-validation** - Detect when rebuild is needed
+
+**Files**: [`fast_search.py`](../vam_tools/analysis/fast_search.py), [`duplicate_detector.py`](../vam_tools/analysis/duplicate_detector.py)
+
 ---
 
 ## 📋 Planned Features
@@ -106,20 +114,6 @@ Interactive UI for reviewing and resolving duplicates with confidence.
 ---
 
 ### Medium Priority
-
-#### FAISS Index Persistence
-[Issue #14](https://github.com/irjudson/vam-tools/issues/14)
-
-Save and load FAISS indices to disk for instant startup.
-
-- [ ] Save indices to `.faiss` files
-- [ ] Incremental updates (no full rebuild)
-- [ ] Index versioning and migration
-- [ ] Automatic rebuild on corruption
-
-**Why**: Currently indices are rebuilt on each search, slow for large catalogs.
-
----
 
 #### Batch Edit Operations
 [Issue #15](https://github.com/irjudson/vam-tools/issues/15)
@@ -199,12 +193,13 @@ Alerts when long jobs complete.
 | Core | 6 | 0 | 0 | 0 |
 | Web UI | 5 | 0 | 2 | 0 |
 | Backend | 5 | 0 | 0 | 0 |
-| Performance | 4 | 0 | 1 | 0 |
+| Performance | 4 | 0 | 0 | 0 |
 | Data | 4 | 0 | 2 | 0 |
 | AI & Analysis | 6 | 0 | 0 | 0 |
+| Search & Indexing | 4 | 0 | 0 | 0 |
 | Analytics | 0 | 0 | 1 | 0 |
 | Ops | 0 | 0 | 0 | 2 |
-| **Total** | **30** | **0** | **6** | **2** |
+| **Total** | **34** | **0** | **5** | **2** |
 
 ---
 

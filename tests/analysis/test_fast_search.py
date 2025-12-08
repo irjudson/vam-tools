@@ -477,6 +477,258 @@ class TestFindSimilarTo:
         assert all(idx < len(searcher.id_map) for idx, _ in [(0, 0)])
 
 
+class TestIndexPersistence:
+    """Tests for FAISS index save/load functionality."""
+
+    def test_save_and_load_index(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """Test saving and loading an index."""
+        import json
+
+        mock_faiss = MagicMock()
+        mock_index = MagicMock()
+        mock_index.ntotal = 3
+
+        mock_faiss.IndexBinaryFlat.return_value = mock_index
+
+        # Make write_index_binary actually create the file
+        def mock_write(index, path):
+            with open(path, "wb") as f:
+                f.write(b"fake_index_data")
+
+        mock_faiss.write_index_binary = MagicMock(side_effect=mock_write)
+        mock_faiss.read_index_binary = MagicMock(return_value=mock_index)
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            # Create and build index
+            searcher = FastSimilaritySearcher(hash_size=16, catalog_id="test-catalog")
+            hashes = {"img1": "aaaa", "img2": "bbbb", "img3": "cccc"}
+            searcher.build_index(hashes, method="dhash")
+
+            # Save the index
+            result = searcher.save(tmp_path)
+            assert result is True
+            mock_faiss.write_index_binary.assert_called_once()
+
+            # Create a new searcher and load
+            searcher2 = FastSimilaritySearcher(hash_size=16, catalog_id="test-catalog")
+            result = searcher2.load(tmp_path)
+            assert result is True
+            mock_faiss.read_index_binary.assert_called_once()
+
+    def test_save_without_index(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """Test that save fails gracefully when no index exists."""
+        mock_faiss = MagicMock()
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=16)
+            result = searcher.save(tmp_path)
+
+            assert result is False
+
+    def test_load_nonexistent_index(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """Test that load fails gracefully for missing index."""
+        mock_faiss = MagicMock()
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=16, catalog_id="test-catalog")
+            result = searcher.load(tmp_path)
+
+            assert result is False
+
+    def test_metadata_tracking(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that metadata is correctly tracked after build."""
+        mock_faiss = MagicMock()
+        mock_index = MagicMock()
+        mock_index.ntotal = 2
+        mock_faiss.IndexBinaryFlat.return_value = mock_index
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=16, catalog_id="test-catalog")
+            hashes = {"img1": "aaaa", "img2": "bbbb"}
+            searcher.build_index(hashes, method="dhash")
+
+            assert searcher.metadata is not None
+            assert searcher.metadata.version == 1
+            assert searcher.metadata.hash_size == 16
+            assert searcher.metadata.hash_method == "dhash"
+            assert searcher.metadata.image_count == 2
+            assert searcher.metadata.catalog_id == "test-catalog"
+
+    def test_needs_rebuild_same_images(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test needs_rebuild returns False for same image set."""
+        mock_faiss = MagicMock()
+        mock_index = MagicMock()
+        mock_faiss.IndexBinaryFlat.return_value = mock_index
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=16)
+            hashes = {"img1": "aaaa", "img2": "bbbb", "img3": "cccc"}
+            searcher.build_index(hashes)
+
+            # needs_rebuild returns (needs_rebuild, missing_ids, extra_ids)
+            needs_rebuild, missing, extra = searcher.needs_rebuild(
+                {"img1", "img2", "img3"}
+            )
+            assert needs_rebuild is False
+            assert len(missing) == 0
+            assert len(extra) == 0
+
+    def test_needs_rebuild_different_images(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test needs_rebuild returns True for different image set."""
+        mock_faiss = MagicMock()
+        mock_index = MagicMock()
+        mock_faiss.IndexBinaryFlat.return_value = mock_index
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=16)
+            hashes = {"img1": "aaaa", "img2": "bbbb", "img3": "cccc"}
+            searcher.build_index(hashes)
+
+            # Completely different image set
+            needs_rebuild, missing, extra = searcher.needs_rebuild(
+                {"img4", "img5", "img6"}
+            )
+            assert needs_rebuild is True
+            assert missing == {"img4", "img5", "img6"}
+            assert extra == {"img1", "img2", "img3"}
+
+    def test_needs_rebuild_within_tolerance(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test needs_rebuild respects tolerance for minor changes."""
+        mock_faiss = MagicMock()
+        mock_index = MagicMock()
+        mock_faiss.IndexBinaryFlat.return_value = mock_index
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=16)
+            hashes = {f"img{i}": "aaaa" for i in range(100)}
+            searcher.build_index(hashes)
+
+            # 5% different images (5 changed) should be within 10% tolerance
+            new_ids = {f"img{i}" for i in range(5, 105)}
+            needs_rebuild, missing, extra = searcher.needs_rebuild(
+                new_ids, tolerance=0.1
+            )
+            assert needs_rebuild is False
+            assert len(missing) == 5  # img100-104
+            assert len(extra) == 5  # img0-4
+
+    def test_get_statistics(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test get_statistics returns index info."""
+        mock_faiss = MagicMock()
+        mock_index = MagicMock()
+        mock_index.ntotal = 5
+        mock_faiss.IndexBinaryFlat.return_value = mock_index
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=64, catalog_id="test-cat")
+            hashes = {f"img{i}": "a" * 16 for i in range(5)}
+            searcher.build_index(hashes, method="ahash")
+
+            stats = searcher.get_statistics()
+
+            # Check actual field names from get_statistics
+            assert stats["has_index"] is True
+            assert stats["hash_size"] == 64
+            assert stats["id_map_size"] == 5
+            assert stats["total_vectors"] == 5
+            # Metadata is in a nested dict
+            assert stats["metadata"]["hash_method"] == "ahash"
+            assert stats["metadata"]["catalog_id"] == "test-cat"
+
+
+class TestIncrementalUpdates:
+    """Tests for incremental index update functionality."""
+
+    def test_add_hashes_to_index(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test adding new hashes to existing index."""
+        mock_faiss = MagicMock()
+        mock_index = MagicMock()
+        mock_index.ntotal = 2
+        mock_faiss.IndexBinaryFlat.return_value = mock_index
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=16)
+            hashes = {"img1": "aaaa", "img2": "bbbb"}
+            searcher.build_index(hashes)
+
+            # Add new hashes
+            new_hashes = {"img3": "cccc", "img4": "dddd"}
+            searcher.add_hashes(new_hashes)
+
+            # Verify add was called again
+            assert mock_index.add.call_count == 2
+            assert len(searcher.id_map) == 4
+
+    def test_add_hashes_without_index(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that add_hashes without index logs warning and returns 0."""
+        mock_faiss = MagicMock()
+        mock_index = MagicMock()
+        mock_index.ntotal = 0
+        mock_faiss.IndexBinaryFlat.return_value = mock_index
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=16)
+            # No build_index called first, so index is None
+
+            new_hashes = {"img1": "aaaa", "img2": "bbbb"}
+            result = searcher.add_hashes(new_hashes)
+
+            # Should return 0 and not add anything (need to build first)
+            assert result == 0
+
+    def test_remove_ids_marks_as_removed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that remove_ids marks entries as removed."""
+        mock_faiss = MagicMock()
+        mock_index = MagicMock()
+        mock_index.ntotal = 3
+        mock_faiss.IndexBinaryFlat.return_value = mock_index
+
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "faiss", mock_faiss)
+
+            searcher = FastSimilaritySearcher(hash_size=16)
+            hashes = {"img1": "aaaa", "img2": "bbbb", "img3": "cccc"}
+            searcher.build_index(hashes)
+
+            # Remove some IDs
+            searcher.remove_ids({"img1", "img3"})
+
+            # img1 and img3 should be marked as removed
+            assert searcher.id_map[0] == "__REMOVED__"
+            assert searcher.id_map[1] == "img2"
+            assert searcher.id_map[2] == "__REMOVED__"
+
+
 class TestIntegration:
     """Integration tests with real FAISS if available."""
 
