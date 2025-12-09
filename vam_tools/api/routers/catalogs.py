@@ -1085,6 +1085,9 @@ def get_map_clusters(
     total_photos = 0
     for row in result:
         row_dict = dict(row._mapping)
+        # Skip clusters with missing coordinates
+        if row_dict["center_lat"] is None or row_dict["center_lon"] is None:
+            continue
         clusters.append(
             {
                 "geohash": row_dict["geohash"],
@@ -2261,6 +2264,7 @@ def list_bursts(
         burst_id = row_dict["id"]
 
         # Get member images for this burst
+        # Convert burst_id to string since images.burst_id is varchar and bursts.id is UUID
         members_query = text(
             """
             SELECT
@@ -2275,7 +2279,7 @@ def list_bursts(
             ORDER BY i.burst_sequence
         """
         )
-        members_result = db.execute(members_query, {"burst_id": burst_id})
+        members_result = db.execute(members_query, {"burst_id": str(burst_id)})
 
         members = []
         for member_row in members_result:

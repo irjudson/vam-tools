@@ -129,6 +129,20 @@ createApp({
             lightboxImage: null,
             lightboxZoom: 1,
 
+            // 3-Column Layout Panels
+            showLeftPanel: true,
+            showRightPanel: true,
+            selectedImage: null,
+            sections: {
+                search: true,
+                folders: true,
+                tags: true,
+                filters: false,
+                imageInfo: true,
+                catalogInfo: true,
+                quickActions: true
+            },
+
             // Job streaming
             streamingJob: null,
             streamEvents: [],
@@ -255,6 +269,28 @@ createApp({
                 this.$nextTick(() => this.initMapView());
             } else if (view === 'duplicates') {
                 this.loadDuplicates(true);
+            }
+        },
+
+        // Panel toggle for collapsible sections
+        toggleSection(section) {
+            this.sections[section] = !this.sections[section];
+        },
+
+        // Keyboard shortcut handler for panel toggles
+        handlePanelShortcuts(e) {
+            // Only handle in browse view
+            if (this.currentView !== 'browse') return;
+
+            // F6 - Toggle left panel
+            if (e.key === 'F6') {
+                e.preventDefault();
+                this.showLeftPanel = !this.showLeftPanel;
+            }
+            // F7 - Toggle right panel
+            else if (e.key === 'F7') {
+                e.preventDefault();
+                this.showRightPanel = !this.showRightPanel;
             }
         },
 
@@ -1284,7 +1320,7 @@ createApp({
             this.selectedImages.clear();
         },
 
-        handleScroll() {
+        handleScroll(event) {
             if (!this.infiniteScrollEnabled || this.imagesLoading || !this.hasMoreImages) {
                 return;
             }
@@ -1294,9 +1330,13 @@ createApp({
                 return;
             }
 
-            const scrollTop = window.scrollY || document.documentElement.scrollTop;
-            const scrollHeight = document.documentElement.scrollHeight;
-            const clientHeight = document.documentElement.clientHeight;
+            // Get the scroll container (.main-content element)
+            const container = event ? event.target : document.querySelector('.main-content');
+            if (!container) return;
+
+            const scrollTop = container.scrollTop;
+            const scrollHeight = container.scrollHeight;
+            const clientHeight = container.clientHeight;
 
             // Load more when within threshold of bottom
             if (scrollHeight - scrollTop - clientHeight < this.scrollThreshold) {
@@ -2168,9 +2208,18 @@ createApp({
             this.startJobsRefresh();
         });
 
-        // Set up infinite scroll listener
+        // Set up infinite scroll listener on .main-content element
         this._boundScrollHandler = this.handleScroll.bind(this);
-        window.addEventListener('scroll', this._boundScrollHandler, { passive: true });
+        this.$nextTick(() => {
+            this._scrollContainer = document.querySelector('.main-content');
+            if (this._scrollContainer) {
+                this._scrollContainer.addEventListener('scroll', this._boundScrollHandler, { passive: true });
+            }
+        });
+
+        // Set up keyboard shortcuts for panel toggles (F6, F7)
+        this._boundPanelShortcuts = this.handlePanelShortcuts.bind(this);
+        window.addEventListener('keydown', this._boundPanelShortcuts);
     },
 
     beforeUnmount() {
@@ -2182,8 +2231,13 @@ createApp({
         });
 
         // Remove scroll listener
-        if (this._boundScrollHandler) {
-            window.removeEventListener('scroll', this._boundScrollHandler);
+        if (this._boundScrollHandler && this._scrollContainer) {
+            this._scrollContainer.removeEventListener('scroll', this._boundScrollHandler);
+        }
+
+        // Remove keyboard shortcuts listener
+        if (this._boundPanelShortcuts) {
+            window.removeEventListener('keydown', this._boundPanelShortcuts);
         }
     }
 }).mount('#app');
