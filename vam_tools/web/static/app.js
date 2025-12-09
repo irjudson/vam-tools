@@ -117,11 +117,13 @@ createApp({
             sortBy: 'date',
             sortOrder: 'desc',
             searchDebounceTimer: null,
-            // Semantic Search
-            semanticSearchQuery: '',
+            // Unified Search
+            searchQuery: '',
+            semanticSearchQuery: '', // Keep for backward compatibility
             searchResults: [],
             isSearching: false,
             searchMode: false,
+            lastSearchType: null, // 'text' or 'semantic'
 
             // Lightbox
             lightboxVisible: false,
@@ -139,8 +141,10 @@ createApp({
                 tags: true,
                 filters: false,
                 imageInfo: true,
-                catalogInfo: true,
-                quickActions: true
+                catalogInfo: false,
+                quickActions: true,
+                activeJobs: true,
+                jobHistory: false
             },
 
             // Job streaming
@@ -1264,10 +1268,106 @@ createApp({
         },
 
         clearSearch() {
+            this.searchQuery = '';
             this.semanticSearchQuery = '';
+            this.filters.search = '';
             this.searchResults = [];
             this.searchMode = false;
+            this.lastSearchType = null;
             this.loadImages(true);
+        },
+
+        // Detect if query is semantic (descriptive phrase) or text (filename)
+        isSemanticQuery(query) {
+            if (!query) return false;
+            const trimmed = query.trim();
+            const words = trimmed.split(/\s+/);
+
+            // Heuristics for semantic search:
+            // 1. 3+ words is likely descriptive
+            // 2. Contains common descriptive words
+            // 3. Not a filename pattern (no extension, no path separators)
+
+            const hasExtension = /\.\w{2,4}$/.test(trimmed);
+            const hasPath = trimmed.includes('/') || trimmed.includes('\\');
+            const descriptiveWords = ['with', 'of', 'in', 'at', 'the', 'a', 'an', 'on', 'by', 'for', 'showing', 'featuring'];
+            const hasDescriptiveWord = descriptiveWords.some(w => words.map(w => w.toLowerCase()).includes(w));
+
+            if (hasExtension || hasPath) return false;
+            if (words.length >= 3) return true;
+            if (hasDescriptiveWord) return true;
+
+            return false;
+        },
+
+        getSearchModeHint() {
+            if (!this.searchQuery) return 'Enter filename or description';
+            if (this.isSemanticQuery(this.searchQuery)) {
+                return 'semantic search';
+            }
+            return 'text search';
+        },
+
+        onSearchQueryChange() {
+            // For short text queries, do instant filtering
+            if (this.searchQuery && !this.isSemanticQuery(this.searchQuery)) {
+                if (this.searchDebounceTimer) {
+                    clearTimeout(this.searchDebounceTimer);
+                }
+                this.searchDebounceTimer = setTimeout(() => {
+                    this.filters.search = this.searchQuery;
+                    this.lastSearchType = 'text';
+                    this.searchMode = true;
+                    this.loadImages(true);
+                }, 300);
+            }
+        },
+
+        async performUnifiedSearch() {
+            if (!this.searchQuery || !this.currentCatalog) return;
+
+            if (this.isSemanticQuery(this.searchQuery)) {
+                // Perform semantic search
+                this.isSearching = true;
+                this.lastSearchType = 'semantic';
+                try {
+                    const response = await axios.get(
+                        `/api/catalogs/${this.currentCatalog.id}/search`,
+                        {
+                            params: {
+                                q: this.searchQuery,
+                                limit: 100,
+                                threshold: 0.2
+                            }
+                        }
+                    );
+
+                    this.searchResults = response.data.results;
+                    this.searchMode = true;
+                    this.filters.search = ''; // Clear text filter
+
+                    this.images = this.searchResults.map(r => ({
+                        id: r.image_id,
+                        source_path: r.source_path,
+                        similarity_score: r.similarity_score,
+                    }));
+                    this.imagesTotal = this.searchResults.length;
+
+                    this.addNotification(`Found ${this.searchResults.length} images`, 'success');
+                } catch (error) {
+                    console.error('Semantic search failed:', error);
+                    this.addNotification('Search failed: ' + (error.response?.data?.detail || error.message), 'error');
+                } finally {
+                    this.isSearching = false;
+                }
+            } else {
+                // Text search - apply immediately
+                this.filters.search = this.searchQuery;
+                this.lastSearchType = 'text';
+                this.searchMode = true;
+                this.searchResults = [];
+                this.loadImages(true);
+            }
         },
 
         async findSimilarImages(imageId) {
@@ -2004,6 +2104,63 @@ createApp({
             } catch (error) {
                 console.error('Failed to start burst detection:', error);
                 this.addNotification('Failed to start burst detection: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
+        async startGenerateThumbnails() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog first', 'error');
+                return;
+            }
+
+            try {
+                const response = await axios.post('/api/jobs/start', {
+                    job_type: 'generate_thumbnails',
+                    catalog_id: this.currentCatalog.id
+                });
+
+                this.addNotification('Thumbnail generation started', 'success');
+
+                if (response.data.job_id) {
+                    this.allJobs.unshift(response.data.job_id);
+                    this.jobMetadata[response.data.job_id] = {
+                        name: `Generate Thumbnails: ${this.currentCatalog.name}`,
+                        started: new Date().toISOString()
+                    };
+                    this.persistJobs();
+                    this.loadJobDetails(response.data.job_id);
+                }
+            } catch (error) {
+                console.error('Failed to start thumbnail generation:', error);
+                this.addNotification('Failed to start thumbnail generation: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
+        async startAnalyzeCatalog() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog first', 'error');
+                return;
+            }
+
+            try {
+                const response = await axios.post('/api/jobs/analyze', {
+                    catalog_id: this.currentCatalog.id
+                });
+
+                this.addNotification('Catalog analysis started', 'success');
+
+                if (response.data.job_id) {
+                    this.allJobs.unshift(response.data.job_id);
+                    this.jobMetadata[response.data.job_id] = {
+                        name: `Analyze: ${this.currentCatalog.name}`,
+                        started: new Date().toISOString()
+                    };
+                    this.persistJobs();
+                    this.loadJobDetails(response.data.job_id);
+                }
+            } catch (error) {
+                console.error('Failed to start catalog analysis:', error);
+                this.addNotification('Failed to start catalog analysis: ' + (error.response?.data?.detail || error.message), 'error');
             }
         },
 

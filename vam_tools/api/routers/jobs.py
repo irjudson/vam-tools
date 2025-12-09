@@ -350,6 +350,62 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
     return response
 
 
+@router.get("/{job_id}/progress")
+def get_job_progress(job_id: str, db: Session = Depends(get_db)):
+    """Get job progress from Redis (fast, never blocks).
+
+    This endpoint is designed for frontend polling (1-2s intervals).
+    It reads directly from Redis without any blocking Celery calls,
+    so it will never hang even if Celery/workers are unresponsive.
+
+    The response includes:
+    - status: Current job state
+    - progress: Current/total/percent/message
+    - timestamp: When the progress was last updated
+
+    For terminal states (SUCCESS/FAILURE), falls back to database.
+    """
+    # First check database for the job
+    job = db.query(Job).filter(Job.id == job_id).first()
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # For terminal states, return from database (definitive source)
+    if job.status in ("SUCCESS", "FAILURE", "REVOKED"):
+        return {
+            "job_id": job_id,
+            "status": job.status,
+            "progress": {},
+            "result": job.result or ({"error": job.error} if job.error else {}),
+            "source": "database",
+        }
+
+    # Try to get progress from Redis (fast, non-blocking)
+    try:
+        from ...jobs.progress_publisher import get_last_progress
+
+        redis_progress = get_last_progress(job_id)
+
+        if redis_progress:
+            return {
+                **redis_progress,
+                "source": "redis",
+            }
+    except Exception as e:
+        logger.warning(f"Failed to get Redis progress for job {job_id}: {e}")
+
+    # Fall back to database state if Redis unavailable
+    return {
+        "job_id": job_id,
+        "status": job.status,
+        "progress": {},
+        "result": {},
+        "source": "database",
+        "message": "No real-time progress available",
+    }
+
+
 def _revoke_celery_task(job_id: str, terminate: bool):
     """Revoke a Celery task - blocking call to be run in thread pool or background."""
     try:
@@ -440,15 +496,18 @@ def revoke_job(
 async def stream_job_updates(websocket: WebSocket, job_id: str):
     """Stream real-time job updates via WebSocket.
 
-    This endpoint streams job progress updates in real-time. The connection
-    will automatically close when:
+    This endpoint uses Redis pub/sub for real-time updates, falling back
+    to Redis key polling. This is much faster and more reliable than
+    polling Celery directly.
+
+    The connection will automatically close when:
     - The job completes (SUCCESS or FAILURE)
     - The client disconnects
     - The connection times out (30 minutes max)
     - The server is shutting down
 
-    NOTE: All Celery operations are run in a thread pool to avoid blocking
-    the async event loop, which can cause the app and workers to stall.
+    The frontend should also implement a fallback to REST polling
+    (/api/jobs/{job_id}/progress) in case WebSocket connection fails.
     """
     await websocket.accept()
 
@@ -457,8 +516,9 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
     start_time = asyncio.get_event_loop().time()
 
     try:
-        last_state = None
-        last_progress = None
+        from ...jobs.progress_publisher import get_last_progress
+
+        last_progress_str = None
         loop = asyncio.get_event_loop()
 
         while True:
@@ -480,56 +540,37 @@ async def stream_job_updates(websocket: WebSocket, job_id: str):
                 logger.info(f"WebSocket no longer connected for job {job_id}")
                 break
 
-            # Get task state using non-blocking thread pool (prevents async loop stall)
-            current_state = await loop.run_in_executor(
-                _celery_executor, lambda: _get_celery_task_state(job_id)
-            )
-
-            # If Celery is unavailable, report unknown state but keep connection open
-            if current_state is None:
-                current_state = "UNKNOWN"
-
-            # Build update message
-            update = {
-                "job_id": job_id,
-                "status": current_state,
-                "progress": {},
-                "result": {},
-            }
-
-            # Get progress/result based on state (all non-blocking)
-            if current_state == "PROGRESS":
-                task_info = await loop.run_in_executor(
-                    _celery_executor, lambda: _get_celery_task_info(job_id)
+            # Get progress from Redis (fast, non-blocking)
+            try:
+                progress = await loop.run_in_executor(
+                    _celery_executor, lambda: get_last_progress(job_id)
                 )
-                update["progress"] = task_info or {}
-            elif current_state == "SUCCESS":
-                task_result = await loop.run_in_executor(
-                    _celery_executor, lambda: _get_celery_task_result(job_id)
-                )
-                update["result"] = task_result or {}
-                await websocket.send_json(update)
-                break  # Job done, close connection
-            elif current_state == "FAILURE":
-                task_info = await loop.run_in_executor(
-                    _celery_executor, lambda: _get_celery_task_info(job_id)
-                )
-                update["result"] = {"error": str(task_info)}
-                await websocket.send_json(update)
-                break  # Job failed, close connection
+            except Exception as e:
+                logger.warning(f"Redis error for job {job_id}: {e}")
+                progress = None
 
-            # Send update if state changed OR progress data changed
-            current_progress = str(update.get("progress", {}))
-            if current_state != last_state or current_progress != last_progress:
-                try:
-                    await websocket.send_json(update)
-                except Exception as send_error:
-                    logger.warning(f"Failed to send WebSocket update: {send_error}")
+            if progress:
+                # Send update if progress changed
+                progress_str = str(progress)
+                if progress_str != last_progress_str:
+                    try:
+                        await websocket.send_json(progress)
+                    except Exception as send_error:
+                        logger.warning(f"Failed to send WebSocket update: {send_error}")
+                        break
+                    last_progress_str = progress_str
+
+                # Check for terminal states
+                status = progress.get("status", "")
+                if status in ("SUCCESS", "FAILURE"):
+                    logger.info(f"Job {job_id} completed with status {status}")
                     break
-                last_state = current_state
-                last_progress = current_progress
+            else:
+                # No Redis progress yet - check if job exists and is pending
+                # This happens for new jobs before first progress update
+                pass
 
-            # Poll every 500ms using wait_for to allow cancellation
+            # Poll Redis every 500ms (much faster than Celery polling)
             try:
                 await asyncio.wait_for(asyncio.sleep(0.5), timeout=1.0)
             except asyncio.TimeoutError:

@@ -122,7 +122,8 @@ class ProgressTask(Task):
     """
     Base task class with progress reporting.
 
-    Provides utilities for reporting progress to the result backend.
+    Provides utilities for reporting progress to the result backend
+    and publishing to Redis for real-time updates.
     """
 
     def update_progress(
@@ -134,6 +135,10 @@ class ProgressTask(Task):
     ) -> None:
         """
         Update task progress.
+
+        This updates both:
+        1. Celery task state (for result backend)
+        2. Redis pub/sub channel (for real-time frontend updates)
 
         Args:
             current: Current item number
@@ -150,10 +155,29 @@ class ProgressTask(Task):
         if extra:
             meta.update(extra)
 
+        # Update Celery state
         self.update_state(
             state="PROGRESS",
             meta=meta,
         )
+
+        # Publish to Redis for real-time updates (non-blocking, fails silently)
+        try:
+            from .progress_publisher import publish_progress
+
+            job_id = self.request.id if self.request else None
+            if job_id:
+                publish_progress(
+                    job_id=job_id,
+                    state="PROGRESS",
+                    current=current,
+                    total=total,
+                    message=message,
+                    extra=extra,
+                )
+        except Exception as e:
+            # Don't let Redis failures affect task execution
+            logger.debug(f"Failed to publish progress to Redis: {e}")
 
 
 @app.task(bind=True, base=ProgressTask, name="analyze_catalog")
@@ -285,8 +309,7 @@ def analyze_catalog_task(
                                 {
                                     "phase": "processing",
                                     "added": stats.files_added,
-                                    "skipped": stats.total_skipped
-                                    + stats.skipped_already_in_catalog,
+                                    "skipped": stats.total_skipped,
                                     "errors": stats.total_errors,
                                 },
                             )
@@ -662,8 +685,7 @@ def scan_catalog_task(
                                         "phase": "scanning",
                                         "processed": files_processed,
                                         "added": stats.files_added,
-                                        "skipped": stats.total_skipped
-                                        + stats.skipped_already_in_catalog,
+                                        "skipped": stats.total_skipped,
                                         "errors": stats.total_errors,
                                     },
                                 )

@@ -7,7 +7,7 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <link rel="stylesheet" href="/static/dark-theme.css">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=40">
     <!-- Leaflet.js for mapping -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -23,77 +23,6 @@
                 <div class="nav-container">
                     <div class="nav-brand">
                         <h1>VAM Tools</h1>
-                    </div>
-
-                    <!-- Catalog Selector (primary position) -->
-                    <div class="catalog-selector">
-                        <button @click="showCatalogManager = !showCatalogManager" class="catalog-button">
-                            <span v-if="currentCatalog" :style="{color: currentCatalog.color}">
-                                📁 {{ currentCatalog.name }}
-                            </span>
-                            <span v-else>📁 Select Catalog</span>
-                            <span class="dropdown-arrow">▼</span>
-                        </button>
-
-                        <div v-if="showCatalogManager" class="catalog-dropdown">
-                            <div class="catalog-list">
-                                <div v-if="catalogs.length === 0" class="empty-catalogs">
-                                    No catalogs configured. Add one to get started!
-                                </div>
-                                <div v-for="catalog in catalogs" :key="catalog.id"
-                                     :class="['catalog-item', {active: currentCatalog && currentCatalog.id === catalog.id}]">
-                                    <div class="catalog-color" :style="{background: catalog.color}"></div>
-                                    <div class="catalog-info" @click="switchCatalog(catalog); showCatalogManager = false">
-                                        <div class="catalog-name">{{ catalog.name }}</div>
-                                        <div class="catalog-path">{{ catalog.source_directories.map(d => displayPath(d)).join(', ') }}</div>
-                                    </div>
-                                    <button
-                                        @click.stop="openEditCatalog(catalog)"
-                                        class="catalog-edit-btn"
-                                        title="Edit catalog"
-                                        style="margin-right: 4px;">
-                                        ✎
-                                    </button>
-                                    <button
-                                        @click.stop="deleteCatalog(catalog.id)"
-                                        class="catalog-delete-btn"
-                                        title="Delete catalog configuration">
-                                        ×
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="catalog-actions">
-                                <button @click="showAddCatalogForm = true; showCatalogManager = false" class="btn-primary btn-small">
-                                    + Add Catalog
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Module Navigation (Lightroom-style) -->
-                    <div class="module-nav">
-                        <button
-                            @click="setView('browse')"
-                            :class="['module-nav-btn', {'active': currentView === 'browse'}]">
-                            Library
-                        </button>
-                        <button
-                            @click="setView('maptime')"
-                            :class="['module-nav-btn', {'active': currentView === 'maptime'}]">
-                            Map
-                        </button>
-                        <button
-                            @click="setView('jobs')"
-                            :class="['module-nav-btn', {'active': currentView === 'jobs'}]">
-                            Jobs
-                            <span v-if="hasActiveJobs" class="badge">{{ activeJobs.length }}</span>
-                        </button>
-                    </div>
-
-                    <!-- Worker Health Indicator -->
-                    <div class="worker-health" :class="'health-' + workerHealth.status" :title="workerHealth.message">
-                        <span class="health-dot"></span>
-                        <span class="health-text">{{ workerHealth.workers }} worker{{ workerHealth.workers !== 1 ? 's' : '' }}</span>
                     </div>
                 </div>
             </nav>
@@ -129,53 +58,36 @@
                         <span class="collapse-icon">{{ sections.search ? '▼' : '▶' }}</span>
                     </div>
                     <div class="panel-section-content" v-show="sections.search">
-                        <input
-                            type="text"
-                            v-model="filters.search"
-                            @input="onSearchInput"
-                            placeholder="Search files..."
-                            class="search-input"
-                            style="width: 100%; margin-bottom: 8px;"
-                        />
-                        <!-- Semantic Search -->
-                        <div v-if="currentCatalog" class="semantic-search-compact">
+                        <div class="unified-search">
                             <input
                                 type="text"
-                                v-model="semanticSearchQuery"
-                                @keyup.enter="performSemanticSearch"
-                                placeholder="Semantic search..."
+                                v-model="searchQuery"
+                                @keyup.enter="performUnifiedSearch"
+                                @input="onSearchQueryChange"
+                                placeholder="Search by name or describe what you're looking for..."
                                 class="search-input"
-                                style="width: 100%;"
                             />
-                            <button
-                                @click="performSemanticSearch"
-                                :disabled="!semanticSearchQuery || isSearching"
-                                class="btn-small"
-                                style="width: 100%; margin-top: 4px;">
-                                {{ isSearching ? 'Searching...' : 'Search' }}
-                            </button>
-                            <div v-if="searchResults.length > 0" style="margin-top: 4px; font-size: 11px;">
-                                {{ searchResults.length }} results
-                                <button @click="clearSearch" class="btn-link" style="font-size: 11px;">Clear</button>
+                            <div class="search-controls">
+                                <span class="search-mode-hint" :class="{ active: searchQuery }">
+                                    {{ getSearchModeHint() }}
+                                </span>
+                                <button
+                                    @click="performUnifiedSearch"
+                                    :disabled="!searchQuery || isSearching"
+                                    class="btn-small search-btn">
+                                    {{ isSearching ? '...' : 'Go' }}
+                                </button>
+                            </div>
+                            <div v-if="searchResults.length > 0 || searchMode" class="search-results-info">
+                                <span v-if="lastSearchType === 'semantic'">
+                                    {{ searchResults.length }} semantic matches
+                                </span>
+                                <span v-else-if="lastSearchType === 'text'">
+                                    {{ imagesTotal }} text matches
+                                </span>
+                                <button @click="clearSearch" class="btn-link">Clear</button>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Folders Section -->
-                <div class="panel-section">
-                    <div class="panel-section-header" @click="toggleSection('folders')">
-                        <h4>Folders</h4>
-                        <span class="collapse-icon">{{ sections.folders ? '▼' : '▶' }}</span>
-                    </div>
-                    <div class="panel-section-content" v-show="sections.folders">
-                        <div v-if="currentCatalog && catalogStats" class="folder-tree">
-                            <div v-for="dir in catalogStats.source_directories" :key="dir" class="folder-item">
-                                <span class="folder-icon">📁</span>
-                                <span class="folder-name" :title="dir">{{ displayPath(dir) }}</span>
-                            </div>
-                        </div>
-                        <div v-else class="text-muted" style="font-size: 12px;">Select a catalog</div>
                     </div>
                 </div>
 
@@ -210,6 +122,16 @@
                         <span class="collapse-icon">{{ sections.filters ? '▼' : '▶' }}</span>
                     </div>
                     <div class="panel-section-content" v-show="sections.filters">
+                        <!-- Date Range (most used) -->
+                        <div class="filter-group-compact">
+                            <label>Date From</label>
+                            <input type="date" v-model="filters.date_from" @change="applyFilters" class="input-small">
+                        </div>
+                        <div class="filter-group-compact">
+                            <label>Date To</label>
+                            <input type="date" v-model="filters.date_to" @change="applyFilters" class="input-small">
+                        </div>
+                        <!-- File Type -->
                         <div class="filter-group-compact">
                             <label>Type</label>
                             <select v-model="filters.file_type" @change="applyFilters" class="select-small">
@@ -218,6 +140,16 @@
                                 <option value="video">Videos</option>
                             </select>
                         </div>
+                        <!-- Tags -->
+                        <div class="filter-group-compact">
+                            <label>Tags</label>
+                            <select v-model="filters.has_tags" @change="applyFilters" class="select-small">
+                                <option :value="null">All</option>
+                                <option :value="true">With Tags</option>
+                                <option :value="false">Untagged</option>
+                            </select>
+                        </div>
+                        <!-- Camera Make -->
                         <div class="filter-group-compact">
                             <label>Camera</label>
                             <select v-model="filters.camera_make" @change="applyFilters" class="select-small">
@@ -225,6 +157,39 @@
                                 <option v-for="make in (filterOptions?.camera_makes || [])" :key="make" :value="make">{{ make }}</option>
                             </select>
                         </div>
+                        <!-- Camera Model -->
+                        <div class="filter-group-compact" v-if="filterOptions?.camera_models?.length">
+                            <label>Model</label>
+                            <select v-model="filters.camera_model" @change="applyFilters" class="select-small">
+                                <option value="">All</option>
+                                <option v-for="model in filterOptions.camera_models" :key="model" :value="model">{{ model }}</option>
+                            </select>
+                        </div>
+                        <!-- Lens -->
+                        <div class="filter-group-compact" v-if="filterOptions?.lenses?.length">
+                            <label>Lens</label>
+                            <select v-model="filters.lens" @change="applyFilters" class="select-small">
+                                <option value="">All</option>
+                                <option v-for="lens in filterOptions.lenses" :key="lens" :value="lens">{{ lens }}</option>
+                            </select>
+                        </div>
+                        <!-- Focal Length -->
+                        <div class="filter-group-compact" v-if="filterOptions?.focal_lengths?.length">
+                            <label>Focal</label>
+                            <select v-model="filters.focal_length" @change="applyFilters" class="select-small">
+                                <option value="">All</option>
+                                <option v-for="fl in filterOptions.focal_lengths" :key="fl" :value="fl">{{ fl }}mm</option>
+                            </select>
+                        </div>
+                        <!-- Aperture -->
+                        <div class="filter-group-compact" v-if="filterOptions?.f_stops?.length">
+                            <label>Aperture</label>
+                            <select v-model="filters.f_stop" @change="applyFilters" class="select-small">
+                                <option value="">All</option>
+                                <option v-for="fs in filterOptions.f_stops" :key="fs" :value="fs">f/{{ fs }}</option>
+                            </select>
+                        </div>
+                        <!-- GPS -->
                         <div class="filter-group-compact">
                             <label>GPS</label>
                             <select v-model="filters.has_gps" @change="applyFilters" class="select-small">
@@ -252,6 +217,22 @@
 
         <!-- Main Content Area -->
         <main class="main-content">
+            <!-- Main Toolbar with View Switcher -->
+            <div class="main-toolbar">
+                <div class="view-switcher">
+                    <button
+                        @click="setView('browse')"
+                        :class="['view-btn', {'active': currentView === 'browse'}]">
+                        Library
+                    </button>
+                    <button
+                        @click="setView('maptime')"
+                        :class="['view-btn', {'active': currentView === 'maptime'}]">
+                        Map
+                    </button>
+                </div>
+            </div>
+
             <!-- Main Browse View (default home page / Library module) -->
             <div v-if="currentView === 'browse'" class="view-container">
             <div class="content-wrapper">
@@ -1636,32 +1617,68 @@
                     </div>
                 </div>
 
-                <!-- Catalog Stats -->
+                <!-- Catalog Info (with folders) -->
                 <div class="panel-section">
                     <div class="panel-section-header" @click="toggleSection('catalogInfo')">
-                        <h4>Catalog</h4>
+                        <h4>
+                            <template v-if="currentCatalog">
+                                {{ currentCatalog.name }}
+                                <span class="header-count">{{ formatNumber(catalogStats?.statistics?.total_files || 0) }}</span>
+                            </template>
+                            <template v-else>Catalog</template>
+                        </h4>
                         <span class="collapse-icon">{{ sections.catalogInfo ? '▼' : '▶' }}</span>
                     </div>
                     <div class="panel-section-content" v-show="sections.catalogInfo">
-                        <div v-if="currentCatalog && catalogStats" class="metadata-group">
-                            <div class="metadata-row">
-                                <span class="metadata-label">Total Files</span>
-                                <span class="metadata-value">{{ formatNumber(catalogStats.statistics.total_files) }}</span>
+                        <!-- Catalog Selector -->
+                        <div class="catalog-selector-panel">
+                            <div class="catalog-list-compact">
+                                <div v-if="catalogs.length === 0" class="empty-catalogs">
+                                    No catalogs configured.
+                                </div>
+                                <div v-for="catalog in catalogs" :key="catalog.id"
+                                     :class="['catalog-item-compact', {active: currentCatalog && currentCatalog.id === catalog.id}]"
+                                     @click="switchCatalog(catalog)">
+                                    <div class="catalog-color" :style="{background: catalog.color}"></div>
+                                    <span class="catalog-name">{{ catalog.name }}</span>
+                                    <button
+                                        @click.stop="openEditCatalog(catalog)"
+                                        class="catalog-edit-btn"
+                                        title="Edit catalog">
+                                        ✎
+                                    </button>
+                                </div>
                             </div>
-                            <div class="metadata-row">
-                                <span class="metadata-label">Images</span>
-                                <span class="metadata-value">{{ formatNumber(catalogStats.statistics.images) }}</span>
+                            <button @click="showAddCatalogForm = true" class="btn-small btn-add-catalog">
+                                + Add Catalog
+                            </button>
+                        </div>
+
+                        <div v-if="currentCatalog && catalogStats">
+                            <!-- Stats -->
+                            <div class="metadata-group" style="margin-top: 8px;">
+                                <div class="metadata-row">
+                                    <span class="metadata-label">Images</span>
+                                    <span class="metadata-value">{{ formatNumber(catalogStats.statistics.images) }}</span>
+                                </div>
+                                <div class="metadata-row">
+                                    <span class="metadata-label">Videos</span>
+                                    <span class="metadata-value">{{ formatNumber(catalogStats.statistics.videos) }}</span>
+                                </div>
+                                <div class="metadata-row">
+                                    <span class="metadata-label">Size</span>
+                                    <span class="metadata-value">{{ catalogStats.statistics.total_gb }} GB</span>
+                                </div>
                             </div>
-                            <div class="metadata-row">
-                                <span class="metadata-label">Videos</span>
-                                <span class="metadata-value">{{ formatNumber(catalogStats.statistics.videos) }}</span>
-                            </div>
-                            <div class="metadata-row">
-                                <span class="metadata-label">Size</span>
-                                <span class="metadata-value">{{ catalogStats.statistics.total_gb }} GB</span>
+                            <!-- Source Directories -->
+                            <div class="catalog-folders" v-if="catalogStats.source_directories?.length > 0">
+                                <div class="folders-header">Source Folders</div>
+                                <div v-for="dir in catalogStats.source_directories" :key="dir" class="folder-item compact">
+                                    <span class="folder-icon">📁</span>
+                                    <span class="folder-name" :title="dir">{{ displayPath(dir) }}</span>
+                                </div>
                             </div>
                         </div>
-                        <div v-else class="text-muted" style="font-size: 12px;">Select a catalog</div>
                     </div>
                 </div>
 
@@ -1673,22 +1690,121 @@
                     </div>
                     <div class="panel-section-content" v-show="sections.quickActions">
                         <div class="quick-actions">
-                            <button class="quick-action-btn" @click="startScan" :disabled="!currentCatalog">
+                            <button class="quick-action-btn" @click="startScan" :disabled="!currentCatalog" title="Scan directories for new files">
                                 <span class="action-icon">📂</span>
-                                <span class="action-label">Find Files</span>
+                                <span class="action-label">Scan</span>
                             </button>
-                            <button class="quick-action-btn" @click="startAutoTag" :disabled="!currentCatalog">
+                            <button class="quick-action-btn" @click="startAutoTag" :disabled="!currentCatalog" title="Auto-tag images with AI">
                                 <span class="action-icon">🏷️</span>
-                                <span class="action-label">Auto-Tag</span>
+                                <span class="action-label">Tag</span>
                             </button>
-                            <button class="quick-action-btn" @click="startFindDuplicates" :disabled="!currentCatalog">
+                            <button class="quick-action-btn" @click="startFindDuplicates" :disabled="!currentCatalog" title="Find duplicate files">
                                 <span class="action-icon">🔍</span>
-                                <span class="action-label">Duplicates</span>
+                                <span class="action-label">Dupes</span>
                             </button>
-                            <button class="quick-action-btn" @click="startBurstDetection" :disabled="!currentCatalog">
+                            <button class="quick-action-btn" @click="startBurstDetection" :disabled="!currentCatalog" title="Detect burst photo sequences">
                                 <span class="action-icon">📸</span>
                                 <span class="action-label">Bursts</span>
                             </button>
+                            <button class="quick-action-btn" @click="startGenerateThumbnails" :disabled="!currentCatalog" title="Generate missing thumbnails">
+                                <span class="action-icon">🖼️</span>
+                                <span class="action-label">Thumbs</span>
+                            </button>
+                            <button class="quick-action-btn" @click="startAnalyzeCatalog" :disabled="!currentCatalog" title="Analyze catalog (extract EXIF, embeddings)">
+                                <span class="action-icon">📊</span>
+                                <span class="action-label">Analyze</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Jobs -->
+                <div class="panel-section" v-if="activeJobs.length > 0">
+                    <div class="panel-section-header" @click="toggleSection('activeJobs')">
+                        <h4>Active Jobs <span class="badge">{{ activeJobs.length }}</span>
+                            <span class="worker-status" :class="'health-' + workerHealth.status" :title="workerHealth.message">
+                                ({{ workerHealth.workers }} worker{{ workerHealth.workers !== 1 ? 's' : '' }})
+                            </span>
+                        </h4>
+                        <span class="collapse-icon">{{ sections.activeJobs ? '▼' : '▶' }}</span>
+                    </div>
+                    <div class="panel-section-content" v-show="sections.activeJobs">
+                        <div class="panel-jobs-list">
+                            <div v-for="job in activeJobs" :key="job.id" class="panel-job-card active">
+                                <div class="panel-job-header">
+                                    <span class="job-type-icon">{{ getJobIcon(job.name) }}</span>
+                                    <strong>{{ job.name || 'Job' }}</strong>
+                                    <span :class="['status-badge', getJobStatusClass(job.status)]">
+                                        {{ formatJobStatus(job.status) }}
+                                    </span>
+                                </div>
+                                <!-- Progress bar and message -->
+                                <div v-if="job.progress && (job.progress.current !== undefined || job.progress.message)" class="panel-job-progress">
+                                    <div class="progress-message">{{ job.progress.message || 'Processing...' }}</div>
+                                    <div v-if="job.progress.total > 0" class="progress-bar-container">
+                                        <div class="progress-bar" :style="{width: (job.progress.percent || 0) + '%'}"></div>
+                                    </div>
+                                    <div v-if="job.progress.current !== undefined && job.progress.total > 0" class="progress-counts">
+                                        {{ formatNumber(job.progress.current) }} / {{ formatNumber(job.progress.total) }}
+                                        <span v-if="job.progress.percent">({{ job.progress.percent }}%)</span>
+                                    </div>
+                                </div>
+                                <!-- Legacy stats display -->
+                                <div v-else-if="job.progress && Object.keys(job.progress).length > 0" class="panel-job-stats">
+                                    <span v-if="job.progress.added" class="result-badge badge-success">+{{ job.progress.added }}</span>
+                                    <span v-if="job.progress.skipped" class="result-badge badge-muted">{{ job.progress.skipped }} skip</span>
+                                    <span v-if="job.progress.processed" class="result-badge badge-info">{{ job.progress.processed }} done</span>
+                                </div>
+                                <div v-if="job.error" class="panel-job-error">{{ job.error }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Job History -->
+                <div class="panel-section">
+                    <div class="panel-section-header" @click="toggleSection('jobHistory')">
+                        <h4>Job History</h4>
+                        <span class="collapse-icon">{{ sections.jobHistory ? '▼' : '▶' }}</span>
+                    </div>
+                    <div class="panel-section-content" v-show="sections.jobHistory">
+                        <div class="panel-jobs-list">
+                            <div v-if="completedJobs.length > 0">
+                                <div v-for="job in completedJobs.slice(0, 10)" :key="job.id"
+                                     class="panel-job-card"
+                                     :class="['job-' + job.status.toLowerCase()]">
+                                    <div class="panel-job-header">
+                                        <span class="job-type-icon">{{ getJobIcon(job.name) }}</span>
+                                        <strong>{{ job.name || 'Job' }}</strong>
+                                        <span :class="['status-badge', getJobStatusClass(job.status)]">
+                                            {{ formatJobStatus(job.status) }}
+                                        </span>
+                                    </div>
+                                    <div class="panel-job-meta">
+                                        <span class="job-date">{{ formatDate(job.started) }}</span>
+                                        <span v-if="job.durationSeconds" class="job-duration">{{ formatDuration(job.durationSeconds) }}</span>
+                                    </div>
+                                    <div v-if="job.result" class="panel-job-stats">
+                                        <!-- Scan results -->
+                                        <template v-if="job.result.files_added !== undefined">
+                                            <span class="result-badge badge-success">+{{ formatNumber(job.result.files_added) }}</span>
+                                            <span v-if="job.result.total_skipped" class="result-badge badge-muted">{{ formatNumber(job.result.total_skipped) }} skip</span>
+                                        </template>
+                                        <!-- Auto-tag results -->
+                                        <template v-else-if="job.result.images_tagged !== undefined">
+                                            <span class="result-badge badge-success">{{ formatNumber(job.result.images_tagged) }} tagged</span>
+                                        </template>
+                                        <!-- Generic results -->
+                                        <template v-else-if="job.result.processed !== undefined">
+                                            <span class="result-badge badge-info">{{ formatNumber(job.result.processed) }} done</span>
+                                        </template>
+                                    </div>
+                                    <div v-if="job.error" class="panel-job-error">{{ job.error }}</div>
+                                </div>
+                            </div>
+                            <div v-else class="text-muted" style="font-size: 12px; padding: 8px 0;">
+                                No completed jobs yet
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1717,6 +1833,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=34"></script>
+    <script src="/static/app.js?v=37"></script>
 </body>
 </html>
