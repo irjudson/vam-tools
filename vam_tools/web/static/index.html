@@ -1737,6 +1737,7 @@
                                     <span :class="['status-badge', getJobStatusClass(job.status)]">
                                         {{ formatJobStatus(job.status) }}
                                     </span>
+                                    <button class="job-dismiss-btn" @click.stop="dismissJob(job.id)" title="Dismiss job">x</button>
                                 </div>
                                 <!-- Progress bar and message -->
                                 <div v-if="job.progress && (job.progress.current !== undefined || job.progress.message)" class="panel-job-progress">

@@ -321,10 +321,14 @@ createApp({
             }
         },
 
-        switchCatalog(catalog) {
+        switchCatalog(catalog, showNotification = true) {
             this.currentCatalog = catalog;
             this.analyzeForm.catalog_id = catalog.id;
-            this.addNotification(`Switched to catalog: ${catalog.name}`, 'success');
+
+            // Only show notification if explicitly switching (not on first load or single catalog)
+            if (showNotification && this.catalogs.length > 1) {
+                this.addNotification(`Switched to catalog: ${catalog.name}`, 'success');
+            }
 
             // Clear any active filters when switching catalogs
             this.clearFilters();
@@ -669,6 +673,20 @@ createApp({
             this.persistJobs();
 
             console.log(`Removed job ${jobId} from tracked jobs`);
+        },
+
+        async dismissJob(jobId) {
+            // Revoke job on server (non-terminating) and remove from UI
+            try {
+                await axios.delete(`/api/jobs/${jobId}`, {
+                    params: { terminate: false }
+                });
+            } catch (error) {
+                // Ignore errors - job may already be gone
+                console.log(`Could not revoke job ${jobId}:`, error.message);
+            }
+            // Always remove from UI
+            this.removeJob(jobId);
         },
 
         async revokeJob(jobId, terminate = false) {
@@ -2356,9 +2374,9 @@ createApp({
 
         // Load catalogs first
         this.loadCatalogs().then(() => {
-            // Auto-select first catalog if available
+            // Auto-select first catalog if available (no notification on first load)
             if (this.catalogs.length > 0) {
-                this.switchCatalog(this.catalogs[0]);
+                this.switchCatalog(this.catalogs[0], false);
             }
 
             // Start monitoring worker health

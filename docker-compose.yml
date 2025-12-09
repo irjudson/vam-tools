@@ -45,12 +45,12 @@ services:
       timeout: 5s
       retries: 3
 
-  # Celery worker - Handles background jobs
+  # Celery worker - Handles background jobs (scalable)
   celery-worker:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: vam-celery-worker
+    # No container_name - allows scaling with --scale celery-worker=N
     runtime: nvidia
     volumes:
       # Same mounts as web service

@@ -24,14 +24,14 @@ from ...celery_app import app as celery_app
 from ...db import get_db
 from ...db.models import Job
 from ...db.schemas import JobListResponse
+from ...jobs.parallel_bursts import burst_coordinator_task
+from ...jobs.parallel_duplicates import duplicates_coordinator_task
+from ...jobs.parallel_scan import scan_coordinator_task, scan_recovery_task
+from ...jobs.parallel_tagging import tagging_coordinator_task
+from ...jobs.parallel_thumbnails import thumbnail_coordinator_task
 from ...jobs.tasks import (
     analyze_catalog_task,
-    auto_tag_task,
-    detect_bursts_task,
-    detect_duplicates_task,
-    generate_thumbnails_task,
     organize_catalog_task,
-    scan_catalog_task,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,14 +39,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Map job types to their Celery tasks for restart functionality
+# All job types use the parallel coordinator pattern automatically
 JOB_TYPE_TO_TASK = {
-    "scan": scan_catalog_task,
+    "scan": scan_coordinator_task,  # Now uses coordinator pattern
+    "scan_parallel": scan_coordinator_task,  # Legacy alias
     "analyze": analyze_catalog_task,
-    "detect_duplicates": detect_duplicates_task,
-    "auto_tag": auto_tag_task,
-    "detect_bursts": detect_bursts_task,
-    "generate_thumbnails": generate_thumbnails_task,
-    "organize": organize_catalog_task,
+    "detect_duplicates": duplicates_coordinator_task,  # Now uses coordinator pattern
+    "auto_tag": tagging_coordinator_task,  # Now uses coordinator pattern
+    "detect_bursts": burst_coordinator_task,  # Now uses coordinator pattern
+    "generate_thumbnails": thumbnail_coordinator_task,  # Now uses coordinator pattern
+    "organize": organize_catalog_task,  # TODO: Parallelize in future
 }
 
 # Thread pool for blocking Celery operations (small pool to limit concurrent blocking calls)
@@ -85,6 +87,16 @@ class ScanJobRequest(BaseModel):
     directories: List[str]
 
 
+class ParallelScanJobRequest(BaseModel):
+    """Request to start a parallel scan job."""
+
+    catalog_id: uuid.UUID
+    directories: List[str]
+    batch_size: int = 1000  # Files per worker batch
+    force_rescan: bool = False
+    generate_previews: bool = True
+
+
 class AnalyzeJobRequest(BaseModel):
     """Request to start an analyze job."""
 
@@ -105,15 +117,24 @@ class JobResponse(BaseModel):
 
 @router.post("/scan", response_model=JobResponse, status_code=202)
 def start_scan(request: ScanJobRequest, db: Session = Depends(get_db)):
-    """Start a simple directory scan job (metadata extraction + thumbnails only)."""
-    logger.info(f"Starting scan for catalog {request.catalog_id}")
+    """Start a directory scan job using the coordinator pattern.
 
-    # Submit Celery task - simple scan (no duplicate detection)
-    task = scan_catalog_task.delay(
+    This automatically breaks the work into batches that can be processed
+    by available workers. With 1 worker, batches run sequentially.
+    With N workers, they swarm the batches for faster processing.
+    """
+    logger.info(
+        f"Starting scan for catalog {request.catalog_id} "
+        f"with directories: {request.directories}"
+    )
+
+    # Use coordinator pattern - works with 1 or N workers
+    task = scan_coordinator_task.delay(
         catalog_id=str(request.catalog_id),
         source_directories=request.directories,
         force_rescan=False,
         generate_previews=True,
+        batch_size=5000,  # Default batch size
     )
 
     # Save job to database
@@ -126,6 +147,8 @@ def start_scan(request: ScanJobRequest, db: Session = Depends(get_db)):
             "directories": request.directories,
             "force_rescan": False,
             "generate_previews": True,
+            "parallel": True,
+            "batch_size": 5000,
         },
     )
     db.add(job)
@@ -134,7 +157,102 @@ def start_scan(request: ScanJobRequest, db: Session = Depends(get_db)):
     return JobResponse(
         job_id=task.id,
         status="pending",
-        progress={},
+        progress={"parallel": True, "batch_size": 5000},
+        result={},
+    )
+
+
+@router.post("/scan/parallel", response_model=JobResponse, status_code=202)
+def start_parallel_scan(request: ParallelScanJobRequest, db: Session = Depends(get_db)):
+    """Start a parallel directory scan job that distributes work across multiple workers.
+
+    This uses the Coordinator pattern:
+    1. Coordinator discovers all files and creates batches in the database
+    2. Worker tasks are spawned to process batches in parallel
+    3. Finalizer aggregates results when all workers complete
+
+    The batch_size parameter controls how many files each worker processes.
+    With 6 workers and batch_size=1000, a 100k file scan would create 100 batches,
+    with up to 6 batches processing simultaneously.
+
+    Progress is tracked per-batch and aggregated for the parent job.
+    Failed batches can be retried independently via /scan/recover/{job_id}.
+    """
+    logger.info(
+        f"Starting parallel scan for catalog {request.catalog_id} "
+        f"(batch_size={request.batch_size})"
+    )
+
+    # Submit coordinator task - it will spawn workers
+    task = scan_coordinator_task.delay(
+        catalog_id=str(request.catalog_id),
+        source_directories=request.directories,
+        force_rescan=request.force_rescan,
+        generate_previews=request.generate_previews,
+        batch_size=request.batch_size,
+    )
+
+    # Save job to database
+    job = Job(
+        id=task.id,
+        catalog_id=request.catalog_id,
+        job_type="scan",
+        status="PENDING",
+        parameters={
+            "directories": request.directories,
+            "force_rescan": request.force_rescan,
+            "generate_previews": request.generate_previews,
+            "batch_size": request.batch_size,
+            "parallel": True,
+        },
+    )
+    db.add(job)
+    db.commit()
+
+    return JobResponse(
+        job_id=task.id,
+        status="pending",
+        progress={"parallel": True, "batch_size": request.batch_size},
+        result={},
+    )
+
+
+@router.post("/scan/recover/{job_id}", response_model=JobResponse)
+def recover_parallel_scan(
+    job_id: str,
+    stale_minutes: int = 30,
+    db: Session = Depends(get_db),
+):
+    """Recover a parallel scan job by retrying stale/stuck batches.
+
+    This is useful when workers die mid-processing and batches are left
+    in RUNNING state without completing.
+
+    Args:
+        job_id: The coordinator job ID to recover
+        stale_minutes: Minutes after which RUNNING batches are considered stale
+    """
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not job.parameters or not job.parameters.get("parallel"):
+        raise HTTPException(
+            status_code=400,
+            detail="Job is not a parallel scan job",
+        )
+
+    # Submit recovery task
+    task = scan_recovery_task.delay(
+        catalog_id=str(job.catalog_id),
+        parent_job_id=job_id,
+        stale_minutes=stale_minutes,
+    )
+
+    return JobResponse(
+        job_id=task.id,
+        status="pending",
+        progress={"recovering_job": job_id},
         result={},
     )
 
@@ -287,7 +405,28 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Job not found")
 
     # For terminal states, return database data directly (no Celery query needed)
+    # BUT: for parallel scan jobs, check if result shows "dispatched" (workers still running)
     if job.status in ("SUCCESS", "FAILURE", "REVOKED"):
+        is_parallel_job = job.parameters and job.parameters.get("parallel", False)
+        is_dispatched = (
+            isinstance(job.result, dict) and job.result.get("status") == "dispatched"
+        )
+
+        if is_parallel_job and is_dispatched and job.status == "SUCCESS":
+            # Coordinator finished dispatching, but workers are still running
+            # Return as PROGRESS state until finalizer completes
+            return JobResponse(
+                job_id=job_id,
+                status="PROGRESS",
+                progress={
+                    "phase": "processing",
+                    "message": job.result.get("message", "Processing..."),
+                    "total_files": job.result.get("total_files", 0),
+                    "num_batches": job.result.get("num_batches", 0),
+                },
+                result={},
+            )
+
         return JobResponse(
             job_id=job_id,
             status=job.status,
@@ -328,8 +467,29 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
         task_result = _get_celery_task_result(job_id)
         response.result = task_result or {}
 
-        # Save result to database for history
-        if job.status != "SUCCESS":
+        # For parallel scan jobs, the coordinator returns "dispatched" status
+        # but workers are still processing. Don't mark as SUCCESS until finalizer completes.
+        is_parallel_job = job.parameters and job.parameters.get("parallel", False)
+        is_dispatched = (
+            isinstance(task_result, dict) and task_result.get("status") == "dispatched"
+        )
+
+        if is_parallel_job and is_dispatched:
+            # Coordinator finished dispatching, but workers are still running
+            # Keep job in PROGRESS state (set by coordinator's _update_job_status)
+            response.status = "PROGRESS"
+            response.progress = {
+                "phase": "processing",
+                "message": task_result.get("message", "Processing..."),
+                "total_files": task_result.get("total_files", 0),
+                "num_batches": task_result.get("num_batches", 0),
+            }
+            # Ensure database reflects PROGRESS
+            if job.status != "PROGRESS":
+                job.status = "PROGRESS"
+                db.commit()
+        elif job.status != "SUCCESS":
+            # Normal job completion
             job.status = "SUCCESS"
             job.result = response.result
             db.commit()
@@ -634,13 +794,15 @@ def restart_job(job_id: str, db: Session = Depends(get_db)):
     params = job.parameters or {}
 
     # Submit new Celery task with the original parameters
+    # All job types now use the coordinator pattern which handles parallelization automatically
     try:
-        if job.job_type == "scan":
+        if job.job_type == "scan" or job.job_type == "scan_parallel":
             new_task = task_func.delay(
                 catalog_id=str(job.catalog_id),
                 source_directories=params.get("directories", []),
                 force_rescan=params.get("force_rescan", False),
                 generate_previews=params.get("generate_previews", True),
+                batch_size=params.get("batch_size", 5000),
             )
         elif job.job_type == "analyze":
             new_task = task_func.delay(
@@ -650,36 +812,40 @@ def restart_job(job_id: str, db: Session = Depends(get_db)):
                 force_reanalyze=params.get("force_reanalyze", False),
             )
         elif job.job_type == "detect_duplicates":
+            # Now uses duplicates_coordinator_task
             new_task = task_func.delay(
                 catalog_id=str(job.catalog_id),
                 similarity_threshold=params.get("similarity_threshold", 5),
                 recompute_hashes=params.get("recompute_hashes", False),
+                batch_size=params.get("batch_size", 1000),
             )
         elif job.job_type == "auto_tag":
+            # Now uses tagging_coordinator_task
             new_task = task_func.delay(
                 catalog_id=str(job.catalog_id),
                 backend=params.get("backend", "openclip"),
                 model=params.get("model"),
                 threshold=params.get("threshold", 0.25),
                 max_tags=params.get("max_tags", 10),
-                batch_size=params.get("batch_size", 32),
-                continue_pipeline=params.get("continue_pipeline", False),
-                max_images=params.get("max_images"),
+                batch_size=params.get("batch_size", 500),
                 tag_mode=params.get("tag_mode", "untagged_only"),
-                resume_from_job=job_id,  # Resume from the failed job's checkpoint
             )
         elif job.job_type == "detect_bursts":
+            # Now uses burst_coordinator_task
             new_task = task_func.delay(
                 catalog_id=str(job.catalog_id),
                 gap_threshold=params.get("gap_threshold", 2.0),
                 min_burst_size=params.get("min_burst_size", 3),
+                batch_size=params.get("batch_size", 5000),
             )
         elif job.job_type == "generate_thumbnails":
+            # Now uses thumbnail_coordinator_task
             new_task = task_func.delay(
                 catalog_id=str(job.catalog_id),
                 sizes=params.get("sizes"),
                 quality=params.get("quality", 85),
                 force=params.get("force", False),
+                batch_size=params.get("batch_size", 500),
             )
         elif job.job_type == "organize":
             new_task = task_func.delay(

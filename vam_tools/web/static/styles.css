@@ -2572,14 +2572,15 @@ section h3 {
 .maptime-container {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 80px);
+    height: calc(100vh - 140px);
     position: relative;
+    overflow: hidden;
 }
 
 .map-section {
     flex: 1;
     position: relative;
-    min-height: 400px;
+    min-height: 300px;
 }
 
 .photo-map {
@@ -2591,7 +2592,7 @@ section h3 {
 .map-controls {
     position: absolute;
     top: 1rem;
-    left: 1rem;
+    right: 1rem;
     z-index: 1000;
 }
 
@@ -4182,6 +4183,24 @@ input[type="date"].input-small {
 .panel-job-header .status-badge {
     font-size: 10px;
     padding: 2px 6px;
+}
+
+.job-dismiss-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #808080);
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    opacity: 0.6;
+    margin-left: auto;
+}
+
+.job-dismiss-btn:hover {
+    color: var(--danger, #f87171);
+    opacity: 1;
 }
 
 .panel-job-meta {

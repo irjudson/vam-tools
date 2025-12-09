@@ -72,13 +72,13 @@ class MetadataExtractor:
                 metadata.exif = exif_data
 
                 # Extract camera information (ExifTool uses prefixes like "EXIF:")
-                metadata.camera_make = exif_data.get("EXIF:Make") or exif_data.get(
-                    "Make"
+                metadata.camera_make = self._parse_string(
+                    exif_data.get("EXIF:Make") or exif_data.get("Make")
                 )
-                metadata.camera_model = exif_data.get("EXIF:Model") or exif_data.get(
-                    "Model"
+                metadata.camera_model = self._parse_string(
+                    exif_data.get("EXIF:Model") or exif_data.get("Model")
                 )
-                metadata.lens_model = (
+                metadata.lens_model = self._parse_string(
                     exif_data.get("EXIF:LensModel")
                     or exif_data.get("Composite:LensID")
                     or exif_data.get("LensModel")
@@ -91,7 +91,7 @@ class MetadataExtractor:
                 metadata.aperture = self._parse_float(
                     exif_data.get("EXIF:FNumber") or exif_data.get("FNumber")
                 )
-                metadata.shutter_speed = (
+                metadata.shutter_speed = self._parse_shutter_speed(
                     exif_data.get("EXIF:ShutterSpeedValue")
                     or exif_data.get("EXIF:ExposureTime")
                     or exif_data.get("ShutterSpeed")
@@ -124,11 +124,11 @@ class MetadataExtractor:
                 metadata.flash = self._parse_int(
                     exif_data.get("EXIF:Flash") or exif_data.get("Flash")
                 )
-                metadata.artist = exif_data.get("EXIF:Artist") or exif_data.get(
-                    "Artist"
+                metadata.artist = self._parse_string(
+                    exif_data.get("EXIF:Artist") or exif_data.get("Artist")
                 )
-                metadata.copyright = exif_data.get("EXIF:Copyright") or exif_data.get(
-                    "Copyright"
+                metadata.copyright = self._parse_string(
+                    exif_data.get("EXIF:Copyright") or exif_data.get("Copyright")
                 )
 
             # Get format and resolution
@@ -596,3 +596,69 @@ class MetadataExtractor:
             return int(float(value))  # Convert via float to handle "100.0" strings
         except (ValueError, TypeError):
             return None
+
+    def _parse_string(self, value: Any) -> Optional[str]:
+        """
+        Parse a value to string, handling non-string EXIF values.
+
+        Some EXIF fields that should be strings (like lens_model) can return
+        integers (e.g., 65535 for "unknown").
+
+        Args:
+            value: Value from EXIF (could be str, int, etc.)
+
+        Returns:
+            String value or None if empty/invalid
+        """
+        if value is None:
+            return None
+
+        # Convert to string
+        result = str(value)
+
+        # Filter out known invalid/placeholder values
+        if result in ("0", "65535", "Unknown", "unknown", ""):
+            return None
+
+        return result
+
+    def _parse_shutter_speed(self, value: Any) -> Optional[str]:
+        """
+        Parse shutter speed to a string representation.
+
+        EXIF can return shutter speed as:
+        - A string like "1/320" (already formatted)
+        - A float like 0.003125 (exposure time in seconds)
+        - An int like 1 (1 second exposure)
+
+        Args:
+            value: Shutter speed value from EXIF
+
+        Returns:
+            String representation (e.g., "1/320") or None
+        """
+        if value is None:
+            return None
+
+        # Already a string - return as-is
+        if isinstance(value, str):
+            return value
+
+        try:
+            # Convert numeric values to fraction string
+            if isinstance(value, (int, float)):
+                exposure = float(value)
+                if exposure <= 0:
+                    return None
+                if exposure >= 1:
+                    # 1 second or longer - show as decimal or whole number
+                    if exposure == int(exposure):
+                        return f"{int(exposure)}s"
+                    return f"{exposure:.1f}s"
+                # Less than 1 second - show as fraction
+                denominator = round(1 / exposure)
+                return f"1/{denominator}"
+        except (ValueError, TypeError, ZeroDivisionError):
+            pass
+
+        return None
