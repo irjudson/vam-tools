@@ -29,10 +29,7 @@ from ...jobs.parallel_duplicates import duplicates_coordinator_task
 from ...jobs.parallel_scan import scan_coordinator_task, scan_recovery_task
 from ...jobs.parallel_tagging import tagging_coordinator_task
 from ...jobs.parallel_thumbnails import thumbnail_coordinator_task
-from ...jobs.tasks import (
-    analyze_catalog_task,
-    organize_catalog_task,
-)
+from ...jobs.tasks import analyze_catalog_task, organize_catalog_task
 
 logger = logging.getLogger(__name__)
 
