@@ -94,15 +94,18 @@ def duplicates_coordinator_task(
 
         # Clear existing duplicate groups for this catalog
         with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
             db.session.execute(
                 text("DELETE FROM duplicate_groups WHERE catalog_id = :catalog_id"),
                 {"catalog_id": catalog_id},
             )
+            assert db.session is not None
             db.session.commit()
 
             # Get all images
             if recompute_hashes:
                 # Get all images
+                assert db.session is not None
                 result = db.session.execute(
                     text(
                         """
@@ -115,6 +118,7 @@ def duplicates_coordinator_task(
                 )
             else:
                 # Only get images without perceptual hashes
+                assert db.session is not None
                 result = db.session.execute(
                     text(
                         """
@@ -130,6 +134,7 @@ def duplicates_coordinator_task(
             images_to_hash = [(str(row[0]), row[1]) for row in result.fetchall()]
 
             # Count total images for comparison phase
+            assert db.session is not None
             result = db.session.execute(
                 text(
                     """
@@ -254,14 +259,13 @@ def duplicates_coordinator_task(
 
 @app.task(bind=True, name="duplicates_hash_worker")
 def duplicates_hash_worker_task(
-    self,
+    self: Any,
     catalog_id: str,
     batch_id: str,
     parent_job_id: str,
 ) -> Dict[str, Any]:
     """Worker task that computes perceptual hashes for a batch of images."""
-    from ..analysis.duplicate_detector import compute_perceptual_hash
-    from .job_metrics import check_gpu_available
+    from ..analysis.perceptual_hash import dhash
 
     worker_id = self.request.id or "unknown"
     logger.info(f"[{worker_id}] Starting hash worker for batch {batch_id}")
@@ -291,8 +295,6 @@ def duplicates_hash_worker_task(
 
         result = BatchResult(batch_id=batch_id, batch_number=batch_number)
 
-        use_gpu = check_gpu_available()
-
         with CatalogDatabase(catalog_id) as db:
             for image_id, source_path in image_data:
                 try:
@@ -305,10 +307,11 @@ def duplicates_hash_worker_task(
                         continue
 
                     # Compute perceptual hash
-                    phash = compute_perceptual_hash(path, use_gpu=use_gpu)
+                    phash = dhash(path)
 
                     if phash:
                         # Save hash to database
+                        assert db.session is not None
                         db.session.execute(
                             text(
                                 """
@@ -332,6 +335,7 @@ def duplicates_hash_worker_task(
                     result.error_count += 1
                     result.errors.append({"image_id": image_id, "error": str(e)})
 
+            assert db.session is not None
             db.session.commit()
 
             # Mark batch complete
@@ -405,6 +409,7 @@ def duplicates_comparison_phase_task(
 
         # Load all image hashes from database
         with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
             result = db.session.execute(
                 text(
                     """
@@ -515,7 +520,7 @@ def duplicates_comparison_phase_task(
 
 @app.task(bind=True, name="duplicates_compare_worker")
 def duplicates_compare_worker_task(
-    self,
+    self: Any,
     catalog_id: str,
     parent_job_id: str,
     block_i: int,
@@ -660,11 +665,12 @@ def duplicates_finalizer_task(
             for group_images in groups:
                 for img_id in group_images:
                     if img_id not in image_quality:
-                        result = db.session.execute(
+                        assert db.session is not None
+                        query_result = db.session.execute(
                             text("SELECT quality_score FROM images WHERE id = :id"),
                             {"id": img_id},
                         )
-                        row = result.fetchone()
+                        row = query_result.fetchone()
                         image_quality[img_id] = row[0] if row and row[0] else 0.0
 
         # Save groups to database
@@ -680,6 +686,7 @@ def duplicates_finalizer_task(
                 primary_id = max(group_images, key=lambda x: image_quality.get(x, 0))
 
                 # Insert group
+                assert db.session is not None
                 db.session.execute(
                     text(
                         """
@@ -701,6 +708,7 @@ def duplicates_finalizer_task(
                 # Update images with group membership
                 for img_id in group_images:
                     is_primary = img_id == primary_id
+                    assert db.session is not None
                     db.session.execute(
                         text(
                             """
@@ -721,6 +729,7 @@ def duplicates_finalizer_task(
                     len(group_images) - 1
                 )  # Don't count primary as duplicate
 
+            assert db.session is not None
             db.session.commit()
 
         failed_comparisons = sum(

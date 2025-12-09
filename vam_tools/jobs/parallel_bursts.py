@@ -84,13 +84,16 @@ def burst_coordinator_task(
 
         # Clear existing bursts for this catalog
         with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
             db.session.execute(
                 text("DELETE FROM bursts WHERE catalog_id = :catalog_id"),
                 {"catalog_id": catalog_id},
             )
+            assert db.session is not None
             db.session.commit()
 
             # Get all images with timestamps (sorted by time)
+            assert db.session is not None
             result = db.session.execute(
                 text(
                     """
@@ -224,7 +227,7 @@ def burst_coordinator_task(
 
 @app.task(bind=True, name="burst_worker")
 def burst_worker_task(
-    self,
+    self: Any,
     catalog_id: str,
     batch_id: str,
     parent_job_id: str,
@@ -300,8 +303,10 @@ def burst_worker_task(
             burst_data.append(
                 {
                     "image_ids": [img.image_id for img in burst.images],
-                    "start_time": burst.start_time.isoformat(),
-                    "end_time": burst.end_time.isoformat(),
+                    "start_time": (
+                        burst.start_time.isoformat() if burst.start_time else None
+                    ),
+                    "end_time": burst.end_time.isoformat() if burst.end_time else None,
                     "camera_make": burst.camera_make,
                     "camera_model": burst.camera_model,
                     "best_image_id": burst.best_image_id,
@@ -410,6 +415,7 @@ def burst_finalizer_task(
                 duration = (end_time - start_time).total_seconds()
 
                 # Insert burst record
+                assert db.session is not None
                 db.session.execute(
                     text(
                         """
@@ -440,6 +446,7 @@ def burst_finalizer_task(
 
                 # Update images with burst_id and sequence
                 for seq, img_id in enumerate(image_ids):
+                    assert db.session is not None
                     db.session.execute(
                         text(
                             """
@@ -455,6 +462,7 @@ def burst_finalizer_task(
                         },
                     )
 
+            assert db.session is not None
             db.session.commit()
 
         batch_manager = BatchManager(catalog_id, parent_job_id, "bursts")

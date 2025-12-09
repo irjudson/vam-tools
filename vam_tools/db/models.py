@@ -1,8 +1,8 @@
 """SQLAlchemy ORM models for global schema."""
 
-import uuid
+import uuid as uuid_module
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -20,7 +20,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 
 Base = declarative_base()
 
@@ -30,19 +30,29 @@ class Job(Base):
 
     __tablename__ = "jobs"
 
-    id = Column(String(255), primary_key=True)  # Celery task ID
-    catalog_id = Column(UUID(as_uuid=True), nullable=True)  # Optional catalog reference
-    job_type = Column(String(50), nullable=False)  # 'scan' or 'analyze'
-    status = Column(
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)  # Celery task ID
+    catalog_id: Mapped[Optional[uuid_module.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )  # Optional catalog reference
+    job_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # 'scan' or 'analyze'
+    status: Mapped[str] = mapped_column(
         String(50), nullable=False
     )  # PENDING, PROGRESS, SUCCESS, FAILURE, etc.
-    parameters = Column(
+    parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSONB, nullable=True
     )  # Job parameters (directories, options, etc.)
-    result = Column(JSONB, nullable=True)  # Final result when complete
-    error = Column(Text, nullable=True)  # Error message if failed
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    result: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )  # Final result when complete
+    error: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )  # Error message if failed
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
@@ -55,7 +65,7 @@ class Catalog(Base):
 
     __tablename__ = "catalogs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid_module.uuid4)
     name = Column(String(255), nullable=False)
     schema_name = Column(String(255), nullable=False, unique=True)
     source_directories = Column(ARRAY(Text), nullable=False)
@@ -151,7 +161,7 @@ class Burst(Base):
 
     __tablename__ = "bursts"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid_module.uuid4)
     catalog_id = Column(
         UUID(as_uuid=True),
         ForeignKey("catalogs.id", ondelete="CASCADE"),

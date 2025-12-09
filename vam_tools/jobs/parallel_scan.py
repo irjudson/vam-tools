@@ -199,10 +199,12 @@ def scan_coordinator_task(
                 self.update_progress(
                     0, 1, "Clearing existing images...", {"phase": "clearing"}
                 )
+                assert db.session is not None
                 db.session.execute(
                     text("DELETE FROM images WHERE catalog_id = :catalog_id"),
                     {"catalog_id": catalog_id},
                 )
+                assert db.session is not None
                 db.session.commit()
 
         # Phase 2: Discover files
@@ -355,7 +357,7 @@ def scan_coordinator_task(
 
 @app.task(bind=True, name="scan_worker")
 def scan_worker_task(
-    self,
+    self: Any,
     catalog_id: str,
     batch_id: str,
     parent_job_id: str,
@@ -574,6 +576,7 @@ def scan_finalizer_task(
             progress = batch_manager.get_progress(db)
 
             # Get discovery stats saved by coordinator
+            assert db.session is not None
             result = db.session.execute(
                 text(
                     """
@@ -613,6 +616,7 @@ def scan_finalizer_task(
             )
 
             # Clean up discovery stats
+            assert db.session is not None
             db.session.execute(
                 text(
                     """

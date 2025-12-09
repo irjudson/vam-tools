@@ -84,6 +84,7 @@ def thumbnail_coordinator_task(
 
         # Get all image IDs that need thumbnails
         with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
             result = db.session.execute(
                 text(
                     "SELECT id, source_path FROM images WHERE catalog_id = :catalog_id"
@@ -192,7 +193,7 @@ def thumbnail_coordinator_task(
 
 @app.task(bind=True, name="thumbnail_worker")
 def thumbnail_worker_task(
-    self,
+    self: Any,
     catalog_id: str,
     batch_id: str,
     parent_job_id: str,
@@ -246,7 +247,7 @@ def thumbnail_worker_task(
                     thumbnail_path = thumbnail_base / f"{image_id}_{size}.jpg"
                     if thumbnail_path.exists() and not force:
                         continue
-                    generate_thumbnail(source, thumbnail_path, size, quality)
+                    generate_thumbnail(source, thumbnail_path, (size, size), quality)
 
                 result.success_count += 1
                 result.processed_count += 1

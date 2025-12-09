@@ -90,6 +90,7 @@ def tagging_coordinator_task(
 
         # Get images based on tag_mode
         with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
             if tag_mode == "untagged_only":
                 result = db.session.execute(
                     text(
@@ -105,6 +106,7 @@ def tagging_coordinator_task(
                     {"catalog_id": catalog_id},
                 )
             else:
+                assert db.session is not None
                 result = db.session.execute(
                     text(
                         """
@@ -221,7 +223,7 @@ def tagging_coordinator_task(
 
 @app.task(bind=True, name="tagging_worker")
 def tagging_worker_task(
-    self,
+    self: Any,
     catalog_id: str,
     batch_id: str,
     parent_job_id: str,
@@ -262,6 +264,8 @@ def tagging_worker_task(
         result = BatchResult(batch_id=batch_id, batch_number=batch_number)
 
         # Initialize tagger for this batch
+        from typing import Union
+
         from ..analysis.image_tagger import CombinedTagger, ImageTagger
 
         use_gpu = (
@@ -269,6 +273,7 @@ def tagging_worker_task(
         )
         device = "cuda" if use_gpu else "cpu"
 
+        tagger: Union[ImageTagger, CombinedTagger]
         if backend == "combined":
             tagger = CombinedTagger(
                 openclip_model=model or "ViT-B-32",
@@ -292,7 +297,7 @@ def tagging_worker_task(
 
                 try:
                     tag_results = tagger.tag_batch(
-                        batch_paths,
+                        list(map(str, batch_paths)),
                         threshold=threshold,
                         max_tags=max_tags,
                     )
@@ -307,6 +312,7 @@ def tagging_worker_task(
                                 result.success_count += 1
                         result.processed_count += 1
 
+                    assert db.session is not None
                     db.session.commit()
 
                 except Exception as e:
@@ -334,6 +340,7 @@ def tagging_worker_task(
                         result.error_count += 1
                         result.errors.append({"image_id": img_id, "error": str(e)})
 
+                assert db.session is not None
                 db.session.commit()
 
             # Mark batch complete
