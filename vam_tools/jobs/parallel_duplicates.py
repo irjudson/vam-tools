@@ -560,7 +560,7 @@ def duplicates_compare_worker_task(
             # For same block, only compare with images after this one
             start_idx = idx_i + 1 if block_i == block_j else 0
 
-            for idx_j, img_j in enumerate(block_j_images[start_idx:], start=start_idx):
+            for _idx_j, img_j in enumerate(block_j_images[start_idx:], start=start_idx):
                 # Check exact duplicates (same checksum)
                 if (
                     img_i["checksum"]
