@@ -748,7 +748,7 @@ createApp({
                     this.loadJobDetails(response.data.job_id);
                 }
 
-                this.setView('jobs');
+                // Jobs are displayed in the right sidebar panel
             } catch (error) {
                 this.addNotification('Failed to submit analysis job: ' + (error.response?.data?.detail || error.message), 'error');
                 console.error(error);
@@ -816,7 +816,7 @@ createApp({
                     }
                 }
 
-                this.setView('jobs');
+                // Jobs are displayed in the right sidebar panel
             } catch (error) {
                 this.addNotification('Failed to submit scan job: ' + (error.response?.data?.detail || error.message), 'error');
                 console.error(error);
@@ -852,7 +852,7 @@ createApp({
                     this.loadJobDetails(response.data.job_id);
                 }
 
-                this.setView('jobs');
+                // Jobs are displayed in the right sidebar panel
             } catch (error) {
                 this.addNotification('Failed to submit auto-tag job: ' + (error.response?.data?.detail || error.message), 'error');
                 console.error(error);
@@ -884,7 +884,7 @@ createApp({
                     this.loadJobDetails(response.data.job_id);
                 }
 
-                this.setView('jobs');
+                // Jobs are displayed in the right sidebar panel
             } catch (error) {
                 this.addNotification('Failed to submit duplicate detection job: ' + (error.response?.data?.detail || error.message), 'error');
                 console.error(error);
@@ -2123,7 +2123,7 @@ createApp({
                     this.loadJobDetails(response.data.job_id);
                 }
 
-                this.setView('jobs');
+                // Jobs are displayed in the right sidebar panel
             } catch (error) {
                 console.error('Failed to start burst detection:', error);
                 this.addNotification('Failed to start burst detection: ' + (error.response?.data?.detail || error.message), 'error');
