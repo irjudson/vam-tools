@@ -220,8 +220,10 @@ createApp({
         },
 
         activeJobs() {
-            // Include all jobs so they don't disappear when status changes
-            return this.jobs;
+            // Only truly active jobs (PENDING or PROGRESS)
+            return this.jobs.filter(job =>
+                job.status === 'PENDING' || job.status === 'PROGRESS'
+            );
         },
 
         hasActiveJobs() {
@@ -229,8 +231,9 @@ createApp({
         },
 
         completedJobs() {
+            // Terminal states: SUCCESS, FAILURE, REVOKED
             return this.jobs.filter(job =>
-                job.status === 'SUCCESS' || job.status === 'FAILURE'
+                job.status === 'SUCCESS' || job.status === 'FAILURE' || job.status === 'REVOKED'
             );
         },
 
