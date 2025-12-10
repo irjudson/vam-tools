@@ -341,6 +341,9 @@ def analyze_catalog_task(
                                     db.add_image(image_record)
                                     stats.files_added += 1
                                 except Exception as e:
+                                    # Rollback to clear failed transaction state (PostgreSQL requirement)
+                                    if db.session:
+                                        db.session.rollback()
                                     stats.errors_database += 1
                                     stats.record_error(file_path, "database", str(e))
                             else:
@@ -658,6 +661,9 @@ def scan_catalog_task(
                                         db.add_image(image_record)
                                         stats.files_added += 1
                                     except Exception as e:
+                                        # Rollback to clear failed transaction state (PostgreSQL requirement)
+                                        if db.session:
+                                            db.session.rollback()
                                         stats.errors_database += 1
                                         stats.record_error(
                                             file_path, "database", str(e)
