@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from ...celery_app import app as celery_app
 from ...db import get_db
+from ...db.catalog_schema import delete_catalog_data
 from ...db.models import Job
 from ...db.schemas import JobListResponse
 from ...jobs.job_recovery import job_recovery_check_task, job_recovery_task
@@ -83,6 +84,7 @@ class ScanJobRequest(BaseModel):
 
     catalog_id: uuid.UUID
     directories: List[str]
+    reset_catalog: bool = False  # Clear ALL data (images, tags, duplicates) first
 
 
 class ParallelScanJobRequest(BaseModel):
@@ -91,7 +93,8 @@ class ParallelScanJobRequest(BaseModel):
     catalog_id: uuid.UUID
     directories: List[str]
     batch_size: int = 1000  # Files per worker batch
-    force_rescan: bool = False
+    force_rescan: bool = False  # Rescan existing files (keeps other data)
+    reset_catalog: bool = False  # Clear ALL data (images, tags, duplicates) first
     generate_previews: bool = True
 
 
@@ -120,11 +123,34 @@ def start_scan(request: ScanJobRequest, db: Session = Depends(get_db)):
     This automatically breaks the work into batches that can be processed
     by available workers. With 1 worker, batches run sequentially.
     With N workers, they swarm the batches for faster processing.
+
+    Args:
+        reset_catalog: If True, clears ALL catalog metadata in the database (image records,
+                      tags, duplicates, jobs) before starting the scan. Use for a fresh start.
+                      NOTE: This only removes database records - original files on disk are
+                      NEVER touched or modified.
     """
     logger.info(
         f"Starting scan for catalog {request.catalog_id} "
         f"with directories: {request.directories}"
+        f" (reset_catalog={request.reset_catalog})"
     )
+
+    # Reset catalog data if requested
+    # This clears DATABASE RECORDS ONLY (image metadata, tags, duplicates, jobs, config)
+    # Original files on disk are NEVER touched or modified
+    if request.reset_catalog:
+        logger.info(
+            f"Resetting catalog {request.catalog_id} - clearing database records"
+        )
+        try:
+            delete_catalog_data(str(request.catalog_id))
+            logger.info(f"Catalog {request.catalog_id} reset complete")
+        except Exception as e:
+            logger.error(f"Failed to reset catalog {request.catalog_id}: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to reset catalog: {str(e)}"
+            )
 
     # Use coordinator pattern - works with 1 or N workers
     task = scan_coordinator_task.delay(
@@ -143,6 +169,7 @@ def start_scan(request: ScanJobRequest, db: Session = Depends(get_db)):
         status="PENDING",
         parameters={
             "directories": request.directories,
+            "reset_catalog": request.reset_catalog,
             "force_rescan": False,
             "generate_previews": True,
             "parallel": True,
@@ -155,7 +182,11 @@ def start_scan(request: ScanJobRequest, db: Session = Depends(get_db)):
     return JobResponse(
         job_id=task.id,
         status="pending",
-        progress={"parallel": True, "batch_size": 5000},
+        progress={
+            "parallel": True,
+            "batch_size": 5000,
+            "reset_catalog": request.reset_catalog,
+        },
         result={},
     )
 
@@ -175,11 +206,34 @@ def start_parallel_scan(request: ParallelScanJobRequest, db: Session = Depends(g
 
     Progress is tracked per-batch and aggregated for the parent job.
     Failed batches can be retried independently via /scan/recover/{job_id}.
+
+    Args:
+        force_rescan: If True, rescans files even if already in database (keeps tags, duplicates).
+        reset_catalog: If True, clears ALL catalog metadata in the database (image records,
+                      tags, duplicates, jobs) before starting the scan. Use for a fresh start.
+                      NOTE: This only removes database records - original files on disk are
+                      NEVER touched or modified.
     """
     logger.info(
         f"Starting parallel scan for catalog {request.catalog_id} "
-        f"(batch_size={request.batch_size})"
+        f"(batch_size={request.batch_size}, reset_catalog={request.reset_catalog})"
     )
+
+    # Reset catalog data if requested
+    # This clears DATABASE RECORDS ONLY (image metadata, tags, duplicates, jobs, config)
+    # Original files on disk are NEVER touched or modified
+    if request.reset_catalog:
+        logger.info(
+            f"Resetting catalog {request.catalog_id} - clearing database records"
+        )
+        try:
+            delete_catalog_data(str(request.catalog_id))
+            logger.info(f"Catalog {request.catalog_id} reset complete")
+        except Exception as e:
+            logger.error(f"Failed to reset catalog {request.catalog_id}: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to reset catalog: {str(e)}"
+            )
 
     # Submit coordinator task - it will spawn workers
     task = scan_coordinator_task.delay(
@@ -198,6 +252,7 @@ def start_parallel_scan(request: ParallelScanJobRequest, db: Session = Depends(g
         status="PENDING",
         parameters={
             "directories": request.directories,
+            "reset_catalog": request.reset_catalog,
             "force_rescan": request.force_rescan,
             "generate_previews": request.generate_previews,
             "batch_size": request.batch_size,
@@ -210,7 +265,11 @@ def start_parallel_scan(request: ParallelScanJobRequest, db: Session = Depends(g
     return JobResponse(
         job_id=task.id,
         status="pending",
-        progress={"parallel": True, "batch_size": request.batch_size},
+        progress={
+            "parallel": True,
+            "batch_size": request.batch_size,
+            "reset_catalog": request.reset_catalog,
+        },
         result={},
     )
 

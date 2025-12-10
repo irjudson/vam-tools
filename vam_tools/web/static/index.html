@@ -1254,6 +1254,16 @@
                     </p>
                     <div class="form-group" style="margin-top: 16px;">
                         <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" v-model="scanResetCatalog" style="width: 18px; height: 18px;">
+                            <span>Reset catalog (clear all data and start fresh)</span>
+                        </label>
+                        <p v-if="scanResetCatalog" style="margin: 8px 0 0 26px; font-size: 12px; color: var(--warning-color);">
+                            This will clear all image records, tags, duplicates, and job history from the database.
+                            Original files on disk are never modified.
+                        </p>
+                    </div>
+                    <div class="form-group" style="margin-top: 12px;">
+                        <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                             <input type="checkbox" v-model="scanContinuePipeline" style="width: 18px; height: 18px;">
                             <span>Continue with Auto-Tag and Find Duplicates when done</span>
                         </label>

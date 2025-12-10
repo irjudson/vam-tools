@@ -52,6 +52,7 @@ createApp({
 
             // Pipeline options
             scanContinuePipeline: false,
+            scanResetCatalog: false,
             autoTagContinuePipeline: false,
             autoTagBackend: 'openclip',
             autoTagMode: 'untagged_only',
@@ -783,11 +784,14 @@ createApp({
             try {
                 this.showScanConfirmModal = false;
                 const continuePipeline = this.scanContinuePipeline;
+                const resetCatalog = this.scanResetCatalog;
                 this.scanContinuePipeline = false; // Reset for next time
+                this.scanResetCatalog = false; // Reset for next time
 
                 const response = await axios.post('/api/jobs/scan', {
                     catalog_id: this.currentCatalog.id,
-                    directories: this.currentCatalog.source_directories
+                    directories: this.currentCatalog.source_directories,
+                    reset_catalog: resetCatalog
                 });
 
                 this.addNotification('Scan job submitted successfully', 'success');
