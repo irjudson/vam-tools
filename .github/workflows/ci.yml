@@ -88,9 +88,10 @@ jobs:
 
     - name: Install system dependencies (Ubuntu)
       if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libimage-exiftool-perl
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libimage-exiftool-perl
+        version: 1.0
 
     - name: Install system dependencies (macOS)
       if: runner.os == 'macOS'
@@ -179,9 +180,10 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libimage-exiftool-perl ffmpeg
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libimage-exiftool-perl ffmpeg
+        version: 1.0
 
     - name: Install Python dependencies
       run: |
