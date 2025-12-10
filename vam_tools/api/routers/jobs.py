@@ -498,6 +498,7 @@ def _get_batch_progress(job_id: str) -> Optional[Dict[str, Any]]:
             running_batches = 0
             pending_batches = 0
             failed_batches = 0
+            cancelled_batches = 0
             total_processed = 0
             total_success = 0
             total_items = 0
@@ -516,6 +517,8 @@ def _get_batch_progress(job_id: str) -> Optional[Dict[str, Any]]:
                     pending_batches = count
                 elif status == "FAILED":
                     failed_batches = count
+                elif status == "CANCELLED":
+                    cancelled_batches = count
 
             # Calculate percent complete
             percent = 0
@@ -525,7 +528,10 @@ def _get_batch_progress(job_id: str) -> Optional[Dict[str, Any]]:
                 percent = int((completed_batches / total_batches) * 100)
 
             # Determine job status from batches
-            if completed_batches == total_batches and total_batches > 0:
+            if cancelled_batches > 0:
+                # Job was revoked/cancelled
+                batch_status = "REVOKED"
+            elif completed_batches == total_batches and total_batches > 0:
                 batch_status = "SUCCESS"
             elif failed_batches > 0 and running_batches == 0 and pending_batches == 0:
                 batch_status = "FAILURE"
@@ -546,6 +552,7 @@ def _get_batch_progress(job_id: str) -> Optional[Dict[str, Any]]:
                     "batches_running": running_batches,
                     "batches_pending": pending_batches,
                     "batches_failed": failed_batches,
+                    "batches_cancelled": cancelled_batches,
                     "success_count": total_success,
                 },
             }
@@ -603,6 +610,14 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
                     status="FAILURE",
                     progress=progress_data,
                     result=job.result or {"error": job.error} if job.error else {},
+                )
+            # If job was revoked/cancelled
+            elif batch_status == "REVOKED":
+                return JobResponse(
+                    job_id=job_id,
+                    status="REVOKED",
+                    progress=progress_data,
+                    result=job.result or {"status": "cancelled"},
                 )
             # Unknown state - fall through to database state
 
@@ -748,6 +763,58 @@ def get_job_progress(job_id: str, db: Session = Depends(get_db)):
     }
 
 
+def _cancel_job_batches(job_id: str):
+    """Cancel all batches for a job by marking them as CANCELLED."""
+    from sqlalchemy import text
+
+    from ...db import get_db_context
+
+    try:
+        with get_db_context() as session:
+            result = session.execute(
+                text(
+                    """
+                    UPDATE job_batches
+                    SET status = 'CANCELLED'
+                    WHERE parent_job_id = :job_id
+                    AND status IN ('PENDING', 'RUNNING')
+                """
+                ),
+                {"job_id": job_id},
+            )
+            cancelled_count = result.rowcount
+            session.commit()
+            if cancelled_count > 0:
+                logger.info(f"Cancelled {cancelled_count} batches for job {job_id}")
+    except Exception as e:
+        logger.warning(f"Failed to cancel batches for job {job_id}: {e}")
+
+
+def _delete_job_batches(job_id: str):
+    """Delete all batches for a job from the database."""
+    from sqlalchemy import text
+
+    from ...db import get_db_context
+
+    try:
+        with get_db_context() as session:
+            result = session.execute(
+                text(
+                    """
+                    DELETE FROM job_batches
+                    WHERE parent_job_id = :job_id
+                """
+                ),
+                {"job_id": job_id},
+            )
+            deleted_count = result.rowcount
+            session.commit()
+            if deleted_count > 0:
+                logger.info(f"Deleted {deleted_count} batches for job {job_id}")
+    except Exception as e:
+        logger.warning(f"Failed to delete batches for job {job_id}: {e}")
+
+
 def _revoke_celery_task(job_id: str, terminate: bool):
     """Revoke a Celery task - blocking call to be run in thread pool or background."""
     try:
@@ -790,9 +857,15 @@ def revoke_job(
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
+        # Cancel all batches for this job first (prevents workers from picking them up)
+        _cancel_job_batches(job_id)
+
         if force:
-            # Force delete: completely remove the job record from the database
-            # DELETE the job record first (non-blocking)
+            # Force delete: completely remove the job and its batches from the database
+            # Delete batches first (they reference the job)
+            _delete_job_batches(job_id)
+
+            # Then delete the job record
             db.delete(job)
             db.commit()
             logger.info(f"Job {job_id} deleted from database")

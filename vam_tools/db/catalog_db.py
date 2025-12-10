@@ -10,6 +10,7 @@ import uuid as uuid_module
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from .models import Catalog, DuplicateGroup, DuplicateMember, Image, Statistics
@@ -229,7 +230,11 @@ class CatalogDB:
 
     def add_image(self, image_record: Any) -> None:
         """
-        Add image to catalog.
+        Add image to catalog using INSERT ... ON CONFLICT DO NOTHING.
+
+        This method is race-condition safe - if multiple workers try to insert
+        the same image simultaneously, only one will succeed and the others
+        will silently skip (no UniqueViolation error).
 
         Args:
             image_record: ImageRecord object to add
@@ -244,59 +249,56 @@ class CatalogDB:
         if not existing_catalog:
             self.initialize()
 
-        # Check if image already exists
-        existing = (
-            self.session.query(Image)
-            .filter_by(catalog_id=self.catalog_id, checksum=image_record.checksum)
-            .first()
-        )
-
-        if existing:
-            logger.debug(f"Image already exists: {image_record.checksum}")
-            return
-
-        # Create ORM object
-        image = Image(
-            id=image_record.id,
-            catalog_id=self.catalog_id,
-            source_path=str(image_record.source_path),
-            file_type=(
+        # Build the values dict for the insert
+        values = {
+            "id": image_record.id,
+            "catalog_id": self.catalog_id,
+            "source_path": str(image_record.source_path),
+            "file_type": (
                 image_record.file_type.value
                 if hasattr(image_record.file_type, "value")
                 else image_record.file_type
             ),
-            checksum=image_record.checksum,
-            size_bytes=(
+            "checksum": image_record.checksum,
+            "size_bytes": (
                 image_record.metadata.size_bytes if image_record.metadata else None
             ),
-            dates=(
+            "dates": (
                 image_record.dates.model_dump(mode="json")
                 if hasattr(image_record.dates, "model_dump")
                 else (image_record.dates or {})
             ),
-            metadata_json=(
+            "metadata_json": (
                 image_record.metadata.model_dump(mode="json")
                 if hasattr(image_record.metadata, "model_dump")
                 else (image_record.metadata or {})
             ),
-            dhash=(
+            "dhash": (
                 getattr(image_record.metadata, "perceptual_hash_dhash", None)
                 if image_record.metadata
                 else None
             ),
-            ahash=(
+            "ahash": (
                 getattr(image_record.metadata, "perceptual_hash_ahash", None)
                 if image_record.metadata
                 else None
             ),
-            status=(
+            "status": (
                 image_record.status.value
                 if hasattr(image_record.status, "value")
                 else (image_record.status or "pending")
             ),
-        )
+        }
 
-        self.session.add(image)
+        # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
+        # This handles race conditions where multiple workers try to insert
+        # the same image - the first one wins, others silently skip
+        stmt = (
+            pg_insert(Image)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=["id"])
+        )
+        self.session.execute(stmt)
         self.session.commit()
 
     def update_image(self, image_id: str, **updates) -> None:
