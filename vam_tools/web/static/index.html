@@ -1803,6 +1803,7 @@
                                         <span :class="['status-badge', getJobStatusClass(job.status)]">
                                             {{ formatJobStatus(job.status) }}
                                         </span>
+                                        <button class="job-delete-btn" @click.stop="deleteJob(job.id)" title="Delete job from history">x</button>
                                     </div>
                                     <div class="panel-job-meta">
                                         <span class="job-date">{{ formatDate(job.started) }}</span>

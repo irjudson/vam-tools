@@ -4203,6 +4203,24 @@ input[type="date"].input-small {
     opacity: 1;
 }
 
+.job-delete-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #808080);
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    opacity: 0.6;
+    margin-left: auto;
+}
+
+.job-delete-btn:hover {
+    color: var(--danger, #f87171);
+    opacity: 1;
+}
+
 .panel-job-meta {
     display: flex;
     justify-content: space-between;

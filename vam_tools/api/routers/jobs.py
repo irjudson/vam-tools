@@ -71,11 +71,39 @@ def _run_with_timeout(func, timeout: float = CELERY_TIMEOUT, default=None):
 
 
 @router.get("/", response_model=List[JobListResponse])
-def list_jobs(limit: int = 100, offset: int = 0, db: Session = Depends(get_db)):
-    """List all jobs with pagination."""
-    jobs = (
-        db.query(Job).order_by(Job.created_at.desc()).limit(limit).offset(offset).all()
-    )
+def list_jobs(
+    limit: int = 100,
+    offset: int = 0,
+    status: Optional[str] = None,
+    exclude_status: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """List all jobs with pagination and optional status filtering.
+
+    Args:
+        limit: Maximum number of jobs to return (default: 100)
+        offset: Number of jobs to skip (default: 0)
+        status: Comma-separated list of statuses to include (e.g., "PENDING,PROGRESS")
+        exclude_status: Comma-separated list of statuses to exclude (e.g., "SUCCESS,FAILURE,REVOKED")
+
+    Examples:
+        - Active jobs only: ?exclude_status=SUCCESS,FAILURE,REVOKED
+        - Completed jobs only: ?status=SUCCESS,FAILURE
+        - Failed jobs: ?status=FAILURE
+    """
+    query = db.query(Job)
+
+    # Filter by status if provided
+    if status:
+        status_list = [s.strip().upper() for s in status.split(",")]
+        query = query.filter(Job.status.in_(status_list))
+
+    # Exclude statuses if provided
+    if exclude_status:
+        exclude_list = [s.strip().upper() for s in exclude_status.split(",")]
+        query = query.filter(~Job.status.in_(exclude_list))
+
+    jobs = query.order_by(Job.created_at.desc()).limit(limit).offset(offset).all()
     return jobs
 
 
