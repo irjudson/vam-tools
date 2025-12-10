@@ -24,6 +24,7 @@ from ...celery_app import app as celery_app
 from ...db import get_db
 from ...db.models import Job
 from ...db.schemas import JobListResponse
+from ...jobs.job_recovery import job_recovery_check_task, job_recovery_task
 from ...jobs.parallel_bursts import burst_coordinator_task
 from ...jobs.parallel_duplicates import duplicates_coordinator_task
 from ...jobs.parallel_scan import scan_coordinator_task, scan_recovery_task
@@ -254,6 +255,73 @@ def recover_parallel_scan(
     )
 
 
+@router.post("/{job_id}/recover", response_model=JobResponse)
+def recover_job(
+    job_id: str,
+    stale_minutes: int = 10,
+    db: Session = Depends(get_db),
+):
+    """Recover any stale/interrupted parallel job.
+
+    This is a generic recovery endpoint that works for all parallel job types:
+    - scan
+    - auto_tag
+    - detect_duplicates
+    - generate_thumbnails
+    - detect_bursts
+
+    When workers die (container restart, crash, etc.), batches can be left
+    in RUNNING or PENDING state. This endpoint detects such batches and
+    re-dispatches them with a proper finalizer.
+
+    Args:
+        job_id: The job ID to recover
+        stale_minutes: Minutes after which RUNNING batches are considered stale
+    """
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Submit recovery task
+    task = job_recovery_task.delay(
+        job_id=job_id,
+        stale_minutes=stale_minutes,
+    )
+
+    return JobResponse(
+        job_id=task.id,
+        status="pending",
+        progress={"recovering_job": job_id, "stale_minutes": stale_minutes},
+        result={},
+    )
+
+
+@router.post("/recover-all")
+def recover_all_stale_jobs(
+    stale_minutes: int = 10,
+):
+    """Check for and recover all stale parallel jobs.
+
+    This endpoint scans for jobs that:
+    - Are in PROGRESS state
+    - Haven't been updated recently (based on stale_minutes)
+    - Have incomplete batches
+
+    For each stale job found, it triggers recovery to re-dispatch
+    incomplete batches with proper finalizers.
+
+    Args:
+        stale_minutes: Minutes after which jobs are considered stale
+    """
+    task = job_recovery_check_task.delay(stale_minutes=stale_minutes)
+
+    return {
+        "status": "recovery_check_started",
+        "task_id": task.id,
+        "stale_minutes": stale_minutes,
+    }
+
+
 @router.post("/analyze", response_model=JobResponse, status_code=202)
 def start_analyze(request: AnalyzeJobRequest, db: Session = Depends(get_db)):
     """Start an analyze job (scan directories for a catalog)."""
@@ -388,12 +456,110 @@ def _get_celery_task_result(job_id: str) -> Optional[Dict[str, Any]]:
     return _run_with_timeout(_fetch_result, timeout=CELERY_TIMEOUT, default=None)
 
 
+def _get_batch_progress(job_id: str) -> Optional[Dict[str, Any]]:
+    """Get progress from job_batches table for coordinator-pattern jobs.
+
+    This is the source of truth for parallel jobs since:
+    - Redis progress may expire (1 hour TTL)
+    - Celery coordinator returns SUCCESS after dispatching, not actual completion
+    - Database job status may show FAILURE from a previous crash
+    """
+    from sqlalchemy import text
+
+    from ...db import get_db_context
+
+    try:
+        with get_db_context() as session:
+            # Get batch counts by status with aggregated progress
+            result = session.execute(
+                text(
+                    """
+                    SELECT
+                        status,
+                        COUNT(*) as count,
+                        COALESCE(SUM(success_count), 0) as total_success,
+                        COALESCE(SUM(processed_count), 0) as total_processed,
+                        COALESCE(SUM(items_count), 0) as total_items
+                    FROM job_batches
+                    WHERE parent_job_id = :job_id
+                    GROUP BY status
+                """
+                ),
+                {"job_id": job_id},
+            )
+            rows = result.fetchall()
+
+            if not rows:
+                return None
+
+            # Aggregate batch stats
+            total_batches = 0
+            completed_batches = 0
+            running_batches = 0
+            pending_batches = 0
+            failed_batches = 0
+            total_processed = 0
+            total_success = 0
+            total_items = 0
+
+            for row in rows:
+                status, count, success, processed, items = row
+                total_batches += count
+                total_processed += processed or 0
+                total_success += success or 0
+                total_items += items or 0
+                if status == "COMPLETED":
+                    completed_batches = count
+                elif status == "RUNNING":
+                    running_batches = count
+                elif status == "PENDING":
+                    pending_batches = count
+                elif status == "FAILED":
+                    failed_batches = count
+
+            # Calculate percent complete
+            percent = 0
+            if total_items > 0:
+                percent = int((total_processed / total_items) * 100)
+            elif total_batches > 0:
+                percent = int((completed_batches / total_batches) * 100)
+
+            # Determine job status from batches
+            if completed_batches == total_batches and total_batches > 0:
+                batch_status = "SUCCESS"
+            elif failed_batches > 0 and running_batches == 0 and pending_batches == 0:
+                batch_status = "FAILURE"
+            elif running_batches > 0 or pending_batches > 0:
+                batch_status = "PROGRESS"
+            else:
+                batch_status = "UNKNOWN"
+
+            return {
+                "status": batch_status,
+                "progress": {
+                    "current": total_processed,
+                    "total": total_items,
+                    "percent": percent,
+                    "message": f"Processing: {completed_batches}/{total_batches} batches complete ({percent}%)",
+                    "batches_total": total_batches,
+                    "batches_completed": completed_batches,
+                    "batches_running": running_batches,
+                    "batches_pending": pending_batches,
+                    "batches_failed": failed_batches,
+                    "success_count": total_success,
+                },
+            }
+    except Exception as e:
+        logger.warning(f"Failed to get batch progress for job {job_id}: {e}")
+        return None
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 def get_job_status(job_id: str, db: Session = Depends(get_db)):
     """Get job status and progress.
 
-    This endpoint now prefers database state over Celery to avoid blocking.
-    Celery is only queried (with timeout) for active jobs that may have progress updates.
+    This endpoint now prefers batch progress over database state for parallel jobs.
+    The job_batches table is the source of truth for coordinator-pattern jobs.
     """
     # First, check database for job (fast, non-blocking)
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -401,29 +567,48 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # For terminal states, return database data directly (no Celery query needed)
-    # BUT: for parallel scan jobs, check if result shows "dispatched" (workers still running)
+    # For parallel jobs, ALWAYS check batch progress first (source of truth)
+    # This handles cases where:
+    # - Coordinator returned SUCCESS after dispatching but workers still running
+    # - Job marked FAILURE from a previous crash but workers may have completed
+    # - Redis progress expired but batch table has current state
+    is_parallel_job = job.parameters and job.parameters.get("parallel", False)
+
+    if is_parallel_job:
+        batch_progress = _get_batch_progress(job_id)
+        if batch_progress:
+            batch_status = batch_progress["status"]
+            progress_data = batch_progress["progress"]
+
+            # If batches show work is still ongoing, report PROGRESS
+            if batch_status == "PROGRESS":
+                return JobResponse(
+                    job_id=job_id,
+                    status="PROGRESS",
+                    progress=progress_data,
+                    result={},
+                )
+            # If all batches completed successfully
+            elif batch_status == "SUCCESS":
+                return JobResponse(
+                    job_id=job_id,
+                    status="SUCCESS",
+                    progress=progress_data,
+                    result=job.result or {"status": "completed"},
+                )
+            # If batches show failure (all done, some failed)
+            elif batch_status == "FAILURE":
+                return JobResponse(
+                    job_id=job_id,
+                    status="FAILURE",
+                    progress=progress_data,
+                    result=job.result or {"error": job.error} if job.error else {},
+                )
+            # Unknown state - fall through to database state
+
+    # For non-parallel jobs or when batch progress unavailable,
+    # use database/Celery state
     if job.status in ("SUCCESS", "FAILURE", "REVOKED"):
-        is_parallel_job = job.parameters and job.parameters.get("parallel", False)
-        is_dispatched = (
-            isinstance(job.result, dict) and job.result.get("status") == "dispatched"
-        )
-
-        if is_parallel_job and is_dispatched and job.status == "SUCCESS":
-            # Coordinator finished dispatching, but workers are still running
-            # Return as PROGRESS state until finalizer completes
-            return JobResponse(
-                job_id=job_id,
-                status="PROGRESS",
-                progress={
-                    "phase": "processing",
-                    "message": job.result.get("message", "Processing..."),
-                    "total_files": job.result.get("total_files", 0),
-                    "num_batches": job.result.get("num_batches", 0),
-                },
-                result={},
-            )
-
         return JobResponse(
             job_id=job_id,
             status=job.status,

@@ -366,8 +366,21 @@
                                 </span>
                             </div>
                             <div class="job-id">ID: {{ job.id }}</div>
-                            <!-- Stats display for all jobs -->
-                            <div v-if="(job.progress && Object.keys(job.progress).length > 0) || (job.result && Object.keys(job.result).length > 0)" class="job-stats-display">
+                            <!-- Stats display for all jobs - always show to prevent visual collapse -->
+                            <div class="job-stats-display">
+                                <!-- Progress bar and counter -->
+                                <div v-if="job.progress?.current !== undefined && job.progress?.total" class="job-progress-bar-container" style="margin-bottom: 8px;">
+                                    <div class="job-progress-text" style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 4px;">
+                                        {{ job.progress.current }} / {{ job.progress.total }}
+                                        <span v-if="job.progress.message" style="margin-left: 8px;">- {{ job.progress.message }}</span>
+                                    </div>
+                                    <div class="progress-bar" style="background: #334155; border-radius: 4px; height: 8px; overflow: hidden;">
+                                        <div class="progress-fill" :style="{ width: Math.round((job.progress.current / job.progress.total) * 100) + '%', background: '#3b82f6', height: '100%', transition: 'width 0.3s' }"></div>
+                                    </div>
+                                </div>
+                                <div v-else-if="job.status === 'PENDING' || job.status === 'STARTED'" class="job-progress-placeholder" style="color: #64748b; font-size: 0.875rem;">
+                                    Waiting for progress updates...
+                                </div>
                                 <div class="table-result-stats">
                                     <span v-if="'added' in (job.progress || {}) || 'added' in (job.result || {})" class="result-badge badge-success">
                                         +{{ job.progress?.added ?? job.result?.added ?? 0 }} added
@@ -1739,19 +1752,19 @@
                                     </span>
                                     <button class="job-dismiss-btn" @click.stop="dismissJob(job.id)" title="Dismiss job">x</button>
                                 </div>
-                                <!-- Progress bar and message -->
-                                <div v-if="job.progress && (job.progress.current !== undefined || job.progress.message)" class="panel-job-progress">
-                                    <div class="progress-message">{{ job.progress.message || 'Processing...' }}</div>
-                                    <div v-if="job.progress.total > 0" class="progress-bar-container">
-                                        <div class="progress-bar" :style="{width: (job.progress.percent || 0) + '%'}"></div>
+                                <!-- Progress bar and message - always visible -->
+                                <div class="panel-job-progress">
+                                    <div class="progress-message">{{ job.progress?.message || 'Processing...' }}</div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar" :style="{width: (job.progress?.percent || 0) + '%'}"></div>
                                     </div>
-                                    <div v-if="job.progress.current !== undefined && job.progress.total > 0" class="progress-counts">
-                                        {{ formatNumber(job.progress.current) }} / {{ formatNumber(job.progress.total) }}
-                                        <span v-if="job.progress.percent">({{ job.progress.percent }}%)</span>
+                                    <div class="progress-counts">
+                                        {{ formatNumber(job.progress?.current || 0) }} / {{ formatNumber(job.progress?.total || 0) }}
+                                        <span v-if="job.progress?.percent">({{ job.progress?.percent }}%)</span>
                                     </div>
                                 </div>
                                 <!-- Legacy stats display -->
-                                <div v-else-if="job.progress && Object.keys(job.progress).length > 0" class="panel-job-stats">
+                                <div class="panel-job-stats">
                                     <span v-if="job.progress.added" class="result-badge badge-success">+{{ job.progress.added }}</span>
                                     <span v-if="job.progress.skipped" class="result-badge badge-muted">{{ job.progress.skipped }} skip</span>
                                     <span v-if="job.progress.processed" class="result-badge badge-info">{{ job.progress.processed }} done</span>

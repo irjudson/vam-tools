@@ -309,11 +309,11 @@ def scan_coordinator_task(
             f"[{parent_job_id}] Chord dispatched: {num_batches} sub-tasks → finalizer"
         )
 
-        # Keep job in PROGRESS state until finalizer completes
-        # This prevents Celery's automatic SUCCESS status when coordinator returns
+        # Set job to STARTED state - workers are now processing
+        # The finalizer will update to SUCCESS when all batches complete
         _update_job_status(
             parent_job_id,
-            "PROGRESS",
+            "STARTED",
             result={
                 "status": "processing",
                 "total_files": total_files,
@@ -713,56 +713,13 @@ def scan_finalizer_task(
 def scan_recovery_task(
     catalog_id: str,
     parent_job_id: str,
-    stale_minutes: int = 30,
+    stale_minutes: int = 10,
 ) -> Dict[str, Any]:
     """
-    Recovery task to handle stale/stuck batches.
+    Legacy recovery task - delegates to generic job_recovery.
 
-    This can be run manually or scheduled to detect and retry
-    batches that have been RUNNING too long (dead workers).
-
-    Args:
-        catalog_id: UUID of the catalog
-        parent_job_id: The coordinator job ID to recover
-        stale_minutes: Minutes after which RUNNING batches are stale
-
-    Returns:
-        Recovery results
+    Kept for backward compatibility with existing API endpoints.
     """
-    logger.info(f"Running recovery for job {parent_job_id}")
+    from .job_recovery import recover_job
 
-    batch_manager = BatchManager(catalog_id, parent_job_id, "scan")
-
-    with CatalogDatabase(catalog_id) as db:
-        stale_batch_ids = batch_manager.get_stale_batches(stale_minutes, db)
-
-        if not stale_batch_ids:
-            return {
-                "status": "no_recovery_needed",
-                "stale_batches": 0,
-            }
-
-        logger.info(f"Found {len(stale_batch_ids)} stale batches to retry")
-
-        # Reset stale batches
-        for batch_id in stale_batch_ids:
-            batch_manager.reset_batch(batch_id, db)
-
-        # Re-spawn workers for reset batches
-        worker_tasks = group(
-            scan_worker_task.s(
-                catalog_id=catalog_id,
-                batch_id=batch_id,
-                parent_job_id=parent_job_id,
-                generate_previews=True,
-            )
-            for batch_id in stale_batch_ids
-        )
-
-        worker_tasks.apply_async()
-
-        return {
-            "status": "recovery_initiated",
-            "stale_batches": len(stale_batch_ids),
-            "batch_ids": stale_batch_ids,
-        }
+    return recover_job(parent_job_id, stale_minutes)

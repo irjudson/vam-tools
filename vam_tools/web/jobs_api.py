@@ -440,6 +440,98 @@ async def get_worker_health() -> Dict[str, Any]:
         }
 
 
+def _get_batch_progress(job_id: str) -> Optional[Dict[str, Any]]:
+    """Get progress from job_batches table for coordinator-pattern jobs."""
+    from sqlalchemy import text
+
+    from ..db import get_db_context
+
+    try:
+        with get_db_context() as session:
+            # Get batch counts by status with aggregated progress
+            result = session.execute(
+                text(
+                    """
+                    SELECT
+                        status,
+                        COUNT(*) as count,
+                        COALESCE(SUM(success_count), 0) as total_success,
+                        COALESCE(SUM(processed_count), 0) as total_processed,
+                        COALESCE(SUM(items_count), 0) as total_items
+                    FROM job_batches
+                    WHERE parent_job_id = :job_id
+                    GROUP BY status
+                """
+                ),
+                {"job_id": job_id},
+            )
+            rows = result.fetchall()
+
+            if not rows:
+                return None
+
+            # Aggregate batch stats
+            total_batches = 0
+            completed_batches = 0
+            running_batches = 0
+            pending_batches = 0
+            failed_batches = 0
+            total_processed = 0
+            total_success = 0
+            total_items = 0
+
+            for row in rows:
+                status, count, success, processed, items = row
+                total_batches += count
+                total_processed += processed or 0
+                total_success += success or 0
+                total_items += items or 0
+                if status == "COMPLETED":
+                    completed_batches = count
+                elif status == "RUNNING":
+                    running_batches = count
+                elif status == "PENDING":
+                    pending_batches = count
+                elif status == "FAILED":
+                    failed_batches = count
+
+            # Calculate percent complete
+            percent = 0
+            if total_items > 0:
+                percent = int((total_processed / total_items) * 100)
+            elif total_batches > 0:
+                percent = int((completed_batches / total_batches) * 100)
+
+            # Determine job status from batches
+            if completed_batches == total_batches and total_batches > 0:
+                batch_status = "SUCCESS"
+            elif failed_batches > 0 and running_batches == 0 and pending_batches == 0:
+                batch_status = "FAILURE"
+            elif running_batches > 0 or pending_batches > 0:
+                batch_status = "PROGRESS"
+            else:
+                batch_status = "UNKNOWN"
+
+            return {
+                "status": batch_status,
+                "progress": {
+                    "current": total_processed,
+                    "total": total_items,
+                    "percent": percent,
+                    "message": f"Processing: {completed_batches}/{total_batches} batches complete ({percent}%)",
+                    "batches_total": total_batches,
+                    "batches_completed": completed_batches,
+                    "batches_running": running_batches,
+                    "batches_pending": pending_batches,
+                    "batches_failed": failed_batches,
+                    "success_count": total_success,
+                },
+            }
+    except Exception as e:
+        logger.warning(f"Failed to get batch progress for job {job_id}: {e}")
+        return None
+
+
 @router.get("/{job_id}", response_model=JobStatus)
 async def get_job_status(job_id: str) -> JobStatus:
     """
@@ -452,31 +544,92 @@ async def get_job_status(job_id: str) -> JobStatus:
         curl http://localhost:8000/api/jobs/{job_id}
         ```
     """
-    try:
-        result = AsyncResult(job_id, app=celery_app)
+    from ..jobs.progress_publisher import get_last_progress
 
-        status_response = JobStatus(
-            job_id=job_id,
-            status=result.state,
+    try:
+        import sys
+
+        result = AsyncResult(job_id, app=celery_app)
+        print(
+            f"[DEBUG] Job {job_id}: Celery state = {result.state}",
+            file=sys.stderr,
+            flush=True,
         )
 
-        if result.state == "PENDING":
+        # Get progress from multiple sources (Redis, then batch table)
+        redis_progress = get_last_progress(job_id)
+        batch_progress = _get_batch_progress(job_id)
+        logger.info(
+            f"[DEBUG] Job {job_id}: batch_progress = {batch_progress}, redis_progress = {redis_progress is not None}"
+        )
+
+        # Use batch progress as primary source if available (more reliable than Redis)
+        # Redis progress may expire (1 hour TTL) but batch table persists
+        progress_source = batch_progress or redis_progress
+
+        # Determine effective status
+        # Priority: batch progress > Redis progress > Celery state
+        # For coordinator-pattern jobs, Celery state can be misleading:
+        # - Coordinator returns SUCCESS after dispatching chord (workers still running)
+        # - Coordinator may report FAILURE if it crashed, but workers may have completed
+        # - batch_progress is the source of truth for actual work completion
+        effective_status = result.state
+        if progress_source:
+            source_status = progress_source.get("status")
+            logger.info(
+                f"[DEBUG] Job {job_id}: source_status = {source_status}, effective_status before = {effective_status}"
+            )
+            # If batch progress shows job is still processing, trust that over Celery state
+            # This handles both SUCCESS (coordinator finished dispatching) and FAILURE cases
+            if source_status in ("PROGRESS", "STARTED"):
+                effective_status = source_status
+            elif source_status == "SUCCESS":
+                effective_status = "SUCCESS"
+            elif source_status == "FAILURE" and batch_progress:
+                # Only trust batch FAILURE if it's from batch_progress (not Redis)
+                effective_status = "FAILURE"
+            logger.info(
+                f"[DEBUG] Job {job_id}: effective_status after = {effective_status}"
+            )
+
+        logger.info(f"[DEBUG] Job {job_id}: Final status = {effective_status}")
+        status_response = JobStatus(
+            job_id=job_id,
+            status=effective_status,
+        )
+
+        if effective_status == "PENDING":
             status_response.progress = {"message": "Job is waiting to start..."}
-        elif result.state == "PROGRESS":
-            status_response.progress = result.info
-        elif result.state == "SUCCESS":
-            status_response.result = result.result
+        elif effective_status in ("PROGRESS", "STARTED"):
+            # Use batch or Redis progress if available
+            if progress_source and progress_source.get("progress"):
+                status_response.progress = progress_source["progress"]
+            elif result.info:
+                status_response.progress = result.info
+            else:
+                status_response.progress = {"message": "Processing..."}
+        elif effective_status == "SUCCESS":
+            # Check if we have result from progress source
+            if progress_source and progress_source.get("result"):
+                status_response.result = progress_source.get("result")
+            else:
+                status_response.result = result.result
             status_response.progress = {
                 "current": 100,
                 "total": 100,
                 "percent": 100,
                 "message": "Job completed successfully",
             }
-        elif result.state == "FAILURE":
-            status_response.error = str(result.info)
+        elif effective_status == "FAILURE":
+            status_response.error = str(result.info) if result.info else "Job failed"
         else:
-            # STARTED, RETRY, REVOKED, etc.
-            status_response.progress = {"message": f"Job is {result.state.lower()}..."}
+            # RETRY, REVOKED, etc.
+            if progress_source and progress_source.get("progress"):
+                status_response.progress = progress_source["progress"]
+            else:
+                status_response.progress = {
+                    "message": f"Job is {effective_status.lower()}..."
+                }
 
         return status_response
 
@@ -661,6 +814,8 @@ async def list_active_jobs() -> JobList:
         curl http://localhost:8000/api/jobs
         ```
     """
+    from ..jobs.progress_publisher import get_last_progress
+
     try:
         jobs: List[JobStatus] = []
 
@@ -677,27 +832,51 @@ async def list_active_jobs() -> JobList:
         # Get status for each job
         for task_id in job_ids:
             result = AsyncResult(task_id, app=celery_app)
+            redis_progress = get_last_progress(task_id)
+
+            # Determine effective status from Redis
+            effective_status = result.state
+            if redis_progress:
+                redis_status = redis_progress.get("status")
+                if (
+                    redis_status in ("PROGRESS", "STARTED")
+                    and result.state == "SUCCESS"
+                ):
+                    effective_status = redis_status
 
             job_status = JobStatus(
                 job_id=task_id,
-                status=result.state,
+                status=effective_status,
                 progress=None,
                 result=None,
                 error=None,
             )
 
-            if result.state == "PROGRESS":
-                job_status.progress = result.info
-            elif result.state == "SUCCESS":
-                job_status.result = result.result
+            if effective_status == "PENDING":
+                job_status.progress = {"message": "Job is waiting to start..."}
+            elif effective_status in ("PROGRESS", "STARTED"):
+                if redis_progress and redis_progress.get("progress"):
+                    job_status.progress = redis_progress["progress"]
+                elif result.info:
+                    job_status.progress = result.info
+                else:
+                    job_status.progress = {"message": "Processing..."}
+            elif effective_status == "SUCCESS":
+                if redis_progress and redis_progress.get("result"):
+                    job_status.result = redis_progress.get("result")
+                else:
+                    job_status.result = result.result
                 job_status.progress = {
                     "current": 100,
                     "total": 100,
                     "percent": 100,
                     "message": "Job completed successfully",
                 }
-            elif result.state == "FAILURE":
+            elif effective_status == "FAILURE":
                 job_status.error = str(result.info)
+            else:
+                if redis_progress and redis_progress.get("progress"):
+                    job_status.progress = redis_progress["progress"]
 
             jobs.append(job_status)
 

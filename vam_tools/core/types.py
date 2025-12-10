@@ -7,7 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class FileType(Enum):
@@ -143,6 +143,18 @@ class ImageMetadata(BaseModel):
     camera_make: Optional[str] = None
     camera_model: Optional[str] = None
     lens_model: Optional[str] = None
+
+    @field_validator("camera_make", "camera_model", "lens_model", mode="before")
+    @classmethod
+    def coerce_to_string(cls, v: Any) -> Optional[str]:
+        """Coerce camera/lens fields to string, filtering invalid values."""
+        if v is None:
+            return None
+        result = str(v)
+        # Filter out known invalid/placeholder values from EXIF
+        if result in ("0", "65535", "255", "40", "Unknown", "unknown", ""):
+            return None
+        return result
 
     # Camera settings
     focal_length: Optional[float] = None

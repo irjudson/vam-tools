@@ -219,9 +219,8 @@ createApp({
         },
 
         activeJobs() {
-            return this.jobs.filter(job =>
-                job.status === 'PENDING' || job.status === 'PROGRESS'
-            );
+            // Include all jobs so they don't disappear when status changes
+            return this.jobs;
         },
 
         hasActiveJobs() {
@@ -525,8 +524,16 @@ createApp({
                 const jobData = response.data;
 
                 // Get previous data BEFORE updating cache (for status transition detection)
-                const previousData = this.jobDetailsCache[jobId];
-                this.jobDetailsCache[jobId] = jobData;
+                const previousData = this.jobDetailsCache[jobId] || {};
+
+                // Merge with existing data to preserve progress during updates
+                this.jobDetailsCache[jobId] = {
+                    ...previousData,
+                    ...jobData,
+                    // Preserve progress if API returns empty/missing progress
+                    progress: jobData.progress || previousData.progress || {},
+                    result: jobData.result || previousData.result || {}
+                };
 
                 // Track progress for stuck job detection
                 if (jobData.status === 'PROGRESS' && jobData.progress) {
@@ -560,21 +567,9 @@ createApp({
                     }
                 }
 
-                // Connect WebSocket for active jobs
-                if ((jobData.status === 'PENDING' || jobData.status === 'PROGRESS') && !this.jobWebSockets[jobId]) {
-                    this.connectJobWebSocket(jobId);
-                }
+                // WebSocket disabled - using polling only
 
-                // Auto-collapse completed jobs ONLY when they transition from in-progress to completed
-                // This respects user's manual expand/collapse choices - once a job is completed,
-                // subsequent polls won't force-collapse it again
-                const wasInProgress = previousData && (previousData.status === 'PENDING' || previousData.status === 'PROGRESS');
-                const isNowComplete = jobData.status === 'SUCCESS' || jobData.status === 'FAILURE';
-                if (isNowComplete && wasInProgress) {
-                    // Job just transitioned to completed state - auto-archive it
-                    this.archivedJobs.add(jobId);
-                    this.archivedJobs = new Set(this.archivedJobs);
-                }
+                // No auto-collapse - let jobs stay visible until user manually collapses them
             } catch (error) {
                 // If job not found (404), remove it from tracked jobs
                 if (error.response && error.response.status === 404) {
@@ -604,23 +599,23 @@ createApp({
                 const update = JSON.parse(event.data);
                 console.log(`Job ${jobId} update:`, update);
 
-                // Update job details cache
+                // Preserve existing data when update doesn't have it (prevents flicker)
+                const existing = this.jobDetailsCache[jobId] || {};
+
+                // Update job details cache - merge instead of replace
                 this.jobDetailsCache[jobId] = {
-                    job_id: update.job_id,
-                    status: update.status,
-                    progress: update.progress || {},
-                    result: update.result || {}
+                    ...existing,
+                    job_id: update.job_id || existing.job_id,
+                    status: update.status || existing.status,
+                    progress: update.progress || existing.progress || {},
+                    result: update.result || existing.result || {}
                 };
 
                 // Close WebSocket if job is done
                 if (update.status === 'SUCCESS' || update.status === 'FAILURE') {
                     this.disconnectJobWebSocket(jobId);
 
-                    // Auto-collapse completed jobs
-                    this.archivedJobs.add(jobId);
-                    this.archivedJobs = new Set(this.archivedJobs);
-
-                    // Show notification
+                    // Show notification (no auto-collapse)
                     if (update.status === 'SUCCESS') {
                         this.addNotification(`Job ${jobId.substring(0, 8)} completed successfully`, 'success');
                     } else {
@@ -959,6 +954,7 @@ createApp({
         getJobStatusClass(status) {
             const statusClasses = {
                 'PENDING': 'status-pending',
+                'STARTED': 'status-progress',
                 'PROGRESS': 'status-progress',
                 'SUCCESS': 'status-success',
                 'FAILURE': 'status-failure'
@@ -969,6 +965,7 @@ createApp({
         formatJobStatus(status) {
             const statusLabels = {
                 'PENDING': 'Queued',
+                'STARTED': 'Running',
                 'PROGRESS': 'Running',
                 'SUCCESS': 'Completed',
                 'FAILURE': 'Failed'
@@ -987,7 +984,8 @@ createApp({
         },
 
         isJobArchived(jobId) {
-            return this.archivedJobs.has(jobId);
+            // Disabled auto-collapse - always return false so jobs stay expanded
+            return false;
         },
 
         toggleJobArchived(jobId) {

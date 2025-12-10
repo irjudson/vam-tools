@@ -182,9 +182,11 @@ def tagging_coordinator_task(
             f"[{parent_job_id}] Chord dispatched: {num_batches} sub-tasks → finalizer"
         )
 
+        # Set job to STARTED state - workers are now processing
+        # The finalizer will update to SUCCESS when all batches complete
         _update_job_status(
             parent_job_id,
-            "PROGRESS",
+            "STARTED",
             result={
                 "status": "processing",
                 "total_images": total_images,
