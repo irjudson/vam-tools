@@ -3966,12 +3966,12 @@ section h3 {
 }
 
 .quick-action-btn .action-icon {
-    font-size: 14px;
+    font-size: 18px;
     line-height: 1;
 }
 
 .quick-action-btn .action-label {
-    font-size: 9px;
+    font-size: 11px;
     color: var(--text-secondary, #b0b0b0);
     margin-top: 2px;
     white-space: nowrap;
