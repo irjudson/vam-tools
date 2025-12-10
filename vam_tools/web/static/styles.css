@@ -3490,7 +3490,7 @@ section h3 {
     border: 1px solid var(--border-color, #505050);
     border-bottom: none;
     cursor: pointer;
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-muted, #888);
     transition: all var(--transition-fast, 150ms ease);
 }
@@ -3628,7 +3628,7 @@ section h3 {
 
 .panel-section-header .collapse-icon {
     color: var(--text-muted, #808080);
-    font-size: 10px;
+    font-size: 11px;
     transition: transform var(--transition-fast, 150ms ease);
 }
 
@@ -3736,7 +3736,7 @@ section h3 {
     border: none;
     color: var(--text-muted, #808080);
     cursor: pointer;
-    font-size: 11px;
+    font-size: 12px;
     transition: opacity var(--transition-fast, 150ms ease);
 }
 
@@ -3750,13 +3750,13 @@ section h3 {
 
 .btn-add-catalog {
     width: 100%;
-    font-size: 11px;
+    font-size: 12px;
     padding: 4px 8px;
 }
 
 /* Worker Status in Active Jobs Header */
 .worker-status {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: normal;
     margin-left: 4px;
 }
@@ -3810,7 +3810,7 @@ section h3 {
 .kbd-hint {
     display: inline-block;
     padding: 2px 6px;
-    font-size: 10px;
+    font-size: 11px;
     font-family: monospace;
     background: var(--bg-elevated, #404040);
     border: 1px solid var(--border-color, #505050);
@@ -3855,7 +3855,7 @@ section h3 {
 
 .folder-item .folder-count {
     color: var(--text-muted, #808080);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 /* Tag List Styles */
@@ -3888,7 +3888,7 @@ section h3 {
 .tag-item .tag-count {
     margin-left: var(--spacing-xs, 4px);
     color: var(--text-muted, #808080);
-    font-size: 10px;
+    font-size: 11px;
 }
 
 .tag-item.active .tag-count {
@@ -3901,7 +3901,7 @@ section h3 {
 }
 
 .metadata-group h5 {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -4063,7 +4063,7 @@ section h3 {
 }
 
 .filter-group-compact label {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted, #808080);
     margin-bottom: 2px;
 }
@@ -4181,7 +4181,7 @@ input[type="date"].input-small {
 }
 
 .panel-job-header .status-badge {
-    font-size: 10px;
+    font-size: 11px;
     padding: 2px 6px;
 }
 
@@ -4225,7 +4225,7 @@ input[type="date"].input-small {
     display: flex;
     justify-content: space-between;
     color: var(--text-muted, #808080);
-    font-size: 11px;
+    font-size: 12px;
     margin-bottom: var(--spacing-xs, 4px);
 }
 
@@ -4236,13 +4236,13 @@ input[type="date"].input-small {
 }
 
 .panel-job-stats .result-badge {
-    font-size: 10px;
+    font-size: 11px;
     padding: 2px 6px;
 }
 
 .panel-job-error {
     color: var(--danger, #f87171);
-    font-size: 11px;
+    font-size: 12px;
     margin-top: var(--spacing-xs, 4px);
     white-space: nowrap;
     overflow: hidden;
@@ -4255,7 +4255,7 @@ input[type="date"].input-small {
 }
 
 .panel-job-progress .progress-message {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-secondary, #a0a0a0);
     margin-bottom: 4px;
     white-space: nowrap;
@@ -4279,7 +4279,7 @@ input[type="date"].input-small {
 }
 
 .panel-job-progress .progress-counts {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-muted, #808080);
 }
 
@@ -4287,7 +4287,7 @@ input[type="date"].input-small {
 .panel-section-header .badge {
     background: var(--accent-primary, #4a9eff);
     color: white;
-    font-size: 10px;
+    font-size: 11px;
     padding: 2px 6px;
     border-radius: 10px;
     margin-left: var(--spacing-xs, 4px);
@@ -4295,7 +4295,7 @@ input[type="date"].input-small {
 
 /* Header count (for Catalog name + count) */
 .panel-section-header .header-count {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 400;
     color: var(--text-muted, #808080);
     margin-left: var(--spacing-xs, 4px);
@@ -4309,7 +4309,7 @@ input[type="date"].input-small {
 }
 
 .catalog-folders .folders-header {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -4348,7 +4348,7 @@ input[type="date"].input-small {
 }
 
 .unified-search .search-mode-hint {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-muted, #808080);
     opacity: 0.6;
     transition: opacity 0.2s;
@@ -4368,7 +4368,7 @@ input[type="date"].input-small {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-secondary, #b0b0b0);
     padding-top: var(--spacing-xs, 4px);
     border-top: 1px solid var(--border-color, #3a3a3a);
