@@ -351,31 +351,17 @@
         <!-- Submit Jobs Tab -->
         <div class="panel" :class="{active: activeTab === 'submit'}">
             <div class="form-section">
-                <h2>Analyze Catalog</h2>
-                <p style="color: #999; margin-bottom: 15px;">Scan directories and extract metadata</p>
+                <h2>Re-Analyze Catalog</h2>
+                <p style="color: #999; margin-bottom: 15px;">Re-extract metadata for existing catalog images</p>
 
                 <div class="form-group">
-                    <label>Catalog Path</label>
-                    <input v-model="analyzeForm.catalog_path" type="text" placeholder="/app/catalogs/my-catalog">
-                </div>
-
-                <div class="form-group">
-                    <label>Source Directories</label>
-                    <div class="multi-input">
-                        <input v-model="newSourceDir" type="text" placeholder="/app/photos" @keyup.enter="addSourceDir">
-                        <button @click="addSourceDir">Add</button>
-                    </div>
-                    <div class="list-items">
-                        <div v-for="(dir, index) in analyzeForm.source_directories" :key="index" class="list-item">
-                            <span>{{ dir }}</span>
-                            <button class="remove-btn" @click="removeSourceDir(index)">Remove</button>
-                        </div>
-                    </div>
+                    <label>Catalog ID</label>
+                    <input v-model="analyzeForm.catalog_id" type="text" placeholder="UUID of existing catalog">
                 </div>
 
                 <div class="checkbox-group">
-                    <input type="checkbox" id="detect-dup" v-model="analyzeForm.detect_duplicates">
-                    <label for="detect-dup">Detect Duplicates</label>
+                    <input type="checkbox" id="force-reanalyze" v-model="analyzeForm.force_reanalyze">
+                    <label for="force-reanalyze">Force Re-analyze (process all images)</label>
                 </div>
 
                 <button @click="submitAnalyze" :disabled="!canSubmitAnalyze">Submit Analysis Job</button>
@@ -565,14 +551,9 @@
 
                     // Analyze form
                     analyzeForm: {
-                        catalog_path: '/app/catalogs/catalog1',
-                        source_directories: [],
-                        detect_duplicates: false,
-                        similarity_threshold: 5,
-                        workers: null,
-                        checkpoint_interval: 100
+                        catalog_id: '',
+                        force_reanalyze: false
                     },
-                    newSourceDir: '',
                     analyzeMessage: { text: '', type: '' },
 
                     // Organize form
@@ -601,7 +582,7 @@
 
             computed: {
                 canSubmitAnalyze() {
-                    return this.analyzeForm.catalog_path && this.analyzeForm.source_directories.length > 0;
+                    return this.analyzeForm.catalog_id && this.analyzeForm.catalog_id.length > 0;
                 },
                 canSubmitOrganize() {
                     return this.organizeForm.catalog_path && this.organizeForm.output_directory;
@@ -612,17 +593,6 @@
             },
 
             methods: {
-                addSourceDir() {
-                    if (this.newSourceDir.trim()) {
-                        this.analyzeForm.source_directories.push(this.newSourceDir.trim());
-                        this.newSourceDir = '';
-                    }
-                },
-
-                removeSourceDir(index) {
-                    this.analyzeForm.source_directories.splice(index, 1);
-                },
-
                 async submitAnalyze() {
                     try {
                         const response = await axios.post('/api/jobs/analyze', this.analyzeForm);

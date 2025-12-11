@@ -26,23 +26,54 @@ def process_analyze_item(
     catalog_id: str,
     work_item: str,
     db: Optional[CatalogDatabase] = None,
+    force_reanalyze: bool = False,
     **kwargs: Any,
 ) -> Dict[str, Any]:
     """
-    Process a single file for catalog analysis (metadata extraction).
+    Re-analyze a single image from the catalog (metadata extraction).
 
     Args:
         catalog_id: UUID of the catalog
-        work_item: File path to process
+        work_item: Image ID to re-analyze
         db: Optional database connection (will create one if not provided)
+        force_reanalyze: Force re-processing even if already analyzed
         **kwargs: Additional arguments (unused)
 
     Returns:
         Dict with success status and result/error
     """
-    file_path = Path(work_item)
+    image_id = work_item
 
     try:
+        # Get image source path from database
+        def _get_source_path(db_conn: CatalogDatabase) -> Optional[str]:
+            assert db_conn.session is not None
+            result = db_conn.session.execute(
+                text("SELECT source_path FROM images WHERE id = :id"),
+                {"id": image_id},
+            )
+            row = result.fetchone()
+            return row[0] if row else None
+
+        if db:
+            source_path_str = _get_source_path(db)
+        else:
+            with CatalogDatabase(catalog_id) as db_conn:
+                source_path_str = _get_source_path(db_conn)
+
+        if not source_path_str:
+            return {
+                "success": False,
+                "error": f"Image {image_id} not found in catalog",
+            }
+
+        file_path = Path(source_path_str)
+        if not file_path.exists():
+            return {
+                "success": False,
+                "error": f"Source file not found: {file_path}",
+            }
+
         # Process file (extract metadata, compute hashes)
         result = _process_file_worker(file_path)
 
@@ -54,27 +85,49 @@ def process_analyze_item(
 
         image_record, file_size = result
 
-        # Save to database
-        def _save(db_conn: CatalogDatabase) -> Dict[str, Any]:
-            # Check if already exists
-            existing = db_conn.get_image(image_record.id)
-            if existing:
-                return {
-                    "success": True,
-                    "result": "skipped_existing",
-                    "image_id": image_record.id,
-                }
-
-            # Add to catalog
+        # Update the existing record in database
+        def _update(db_conn: CatalogDatabase) -> Dict[str, Any]:
             try:
-                db_conn.add_image(image_record)
-                db_conn.save()
-                return {
-                    "success": True,
-                    "result": "added",
-                    "image_id": image_record.id,
-                    "file_size": file_size,
-                }
+                # Update existing image with fresh metadata
+                existing = db_conn.get_image(image_id)
+                if existing:
+                    # Update fields from re-analysis using proper field mappings
+                    # DB model uses: size_bytes, metadata_json (JSONB), dates (JSONB)
+                    existing.checksum = image_record.checksum
+                    existing.size_bytes = (
+                        image_record.metadata.size_bytes
+                        if image_record.metadata
+                        else None
+                    )
+                    # Update metadata as JSONB
+                    existing.metadata_json = (
+                        image_record.metadata.model_dump(mode="json")
+                        if hasattr(image_record.metadata, "model_dump")
+                        else {}
+                    )
+                    # Update dates as JSONB
+                    existing.dates = (
+                        image_record.dates.model_dump(mode="json")
+                        if hasattr(image_record.dates, "model_dump")
+                        else {}
+                    )
+                    db_conn.save()
+                    return {
+                        "success": True,
+                        "result": "updated",
+                        "image_id": image_id,
+                        "file_size": file_size,
+                    }
+                else:
+                    # Image was deleted, add it back
+                    db_conn.add_image(image_record)
+                    db_conn.save()
+                    return {
+                        "success": True,
+                        "result": "added",
+                        "image_id": image_record.id,
+                        "file_size": file_size,
+                    }
             except Exception as e:
                 if db_conn.session:
                     db_conn.session.rollback()
@@ -84,13 +137,13 @@ def process_analyze_item(
                 }
 
         if db:
-            return _save(db)
+            return _update(db)
         else:
             with CatalogDatabase(catalog_id) as db_conn:
-                return _save(db_conn)
+                return _update(db_conn)
 
     except Exception as e:
-        logger.warning(f"Failed to process {file_path}: {e}")
+        logger.warning(f"Failed to re-analyze image {image_id}: {e}")
         return {
             "success": False,
             "error": str(e),

@@ -51,13 +51,11 @@ JOB_TYPE_TO_TASK = {
 }
 
 # Job types that use the generic parallel coordinator
-# These need special handling to pass job_type and work_items_query or source_directories
+# These need special handling to pass job_type and work_items_query
 GENERIC_PARALLEL_JOB_TYPES = {
     "analyze": {
         "job_type": "analyze",
-        # analyze uses source_directories, not work_items_query
-        # source_directories will be passed from the request
-        "needs_source_directories": True,
+        "work_items_query": "SELECT id FROM images WHERE catalog_id = :catalog_id",
     },
     "auto_tag": {
         "job_type": "auto_tag",
@@ -149,8 +147,6 @@ class AnalyzeJobRequest(BaseModel):
     """Request to start an analyze job."""
 
     catalog_id: uuid.UUID
-    source_directories: List[str]
-    detect_duplicates: bool = False
     force_reanalyze: bool = False
 
 
@@ -500,22 +496,21 @@ def recover_all_stale_jobs(
 
 @router.post("/analyze", response_model=JobResponse, status_code=202)
 def start_analyze(request: AnalyzeJobRequest, db: Session = Depends(get_db)):
-    """Start a parallel analyze job (scan directories for a catalog).
+    """Start a parallel analyze job to re-analyze existing catalog images.
 
-    This uses the generic parallel coordinator to distribute file processing
-    across multiple workers for faster catalog building.
+    This uses the generic parallel coordinator to distribute image processing
+    across multiple workers. It queries all images from the catalog database
+    and re-extracts metadata/hashes for each one.
     """
-    logger.info(
-        f"Starting parallel analyze for catalog {request.catalog_id} "
-        f"with directories: {request.source_directories}"
-    )
+    logger.info(f"Starting parallel analyze for catalog {request.catalog_id}")
 
     # Submit Celery task using generic parallel coordinator
+    # Query images from database (like auto_tag and thumbnails)
     task = generic_coordinator_task.delay(
         catalog_id=str(request.catalog_id),
         job_type="analyze",
-        source_directories=request.source_directories,
-        batch_size=1000,
+        work_items_query="SELECT id FROM images WHERE catalog_id = :catalog_id",
+        batch_size=500,
         processor_kwargs={
             "force_reanalyze": request.force_reanalyze,
         },
@@ -528,11 +523,9 @@ def start_analyze(request: AnalyzeJobRequest, db: Session = Depends(get_db)):
         job_type="analyze",
         status="PENDING",
         parameters={
-            "source_directories": request.source_directories,
-            "detect_duplicates": request.detect_duplicates,
             "force_reanalyze": request.force_reanalyze,
             "parallel": True,
-            "batch_size": 1000,
+            "batch_size": 500,
         },
     )
     db.add(job)
@@ -541,7 +534,7 @@ def start_analyze(request: AnalyzeJobRequest, db: Session = Depends(get_db)):
     return JobResponse(
         job_id=task.id,
         status="pending",
-        progress={"parallel": True, "batch_size": 1000},
+        progress={"parallel": True, "batch_size": 500},
         result={},
     )
 

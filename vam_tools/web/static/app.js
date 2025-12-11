@@ -737,8 +737,6 @@ createApp({
 
                 const response = await axios.post('/api/jobs/analyze', {
                     catalog_id: catalog.id,
-                    source_directories: catalog.source_directories,
-                    detect_duplicates: this.analyzeForm.detect_duplicates,
                     force_reanalyze: this.analyzeForm.force_reanalyze
                 });
 
@@ -2175,8 +2173,7 @@ createApp({
 
             try {
                 const response = await axios.post('/api/jobs/analyze', {
-                    catalog_id: this.currentCatalog.id,
-                    source_directories: this.currentCatalog.source_directories
+                    catalog_id: this.currentCatalog.id
                 });
 
                 this.addNotification('Catalog analysis started', 'success');
