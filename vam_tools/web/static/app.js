@@ -993,6 +993,7 @@ createApp({
             if (nameLower.includes('analyze')) return '🔍';
             if (nameLower.includes('tag') || nameLower.includes('auto-tag')) return '🏷️';
             if (nameLower.includes('duplicate')) return '🔄';
+            if (nameLower.includes('description')) return '📝';
             return '⚙️';
         },
 
@@ -2190,6 +2191,36 @@ createApp({
             } catch (error) {
                 console.error('Failed to start catalog analysis:', error);
                 this.addNotification('Failed to start catalog analysis: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
+        async startGenerateDescriptions() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog first', 'error');
+                return;
+            }
+
+            try {
+                const response = await axios.post(
+                    `/api/catalogs/${this.currentCatalog.id}/generate-descriptions`,
+                    null,
+                    { params: { model: 'llava', mode: 'undescribed_only' } }
+                );
+
+                this.addNotification('Description generation started (runs serially with Ollama)', 'success');
+
+                if (response.data.job_id) {
+                    this.allJobs.unshift(response.data.job_id);
+                    this.jobMetadata[response.data.job_id] = {
+                        name: `Generate Descriptions: ${this.currentCatalog.name}`,
+                        started: new Date().toISOString()
+                    };
+                    this.persistJobs();
+                    this.loadJobDetails(response.data.job_id);
+                }
+            } catch (error) {
+                console.error('Failed to start description generation:', error);
+                this.addNotification('Failed to start description generation: ' + (error.response?.data?.detail || error.message), 'error');
             }
         },
 

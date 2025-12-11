@@ -46,6 +46,7 @@ from .parallel_thumbnails import (
     thumbnail_finalizer_task,
     thumbnail_worker_task,
 )
+from .serial_descriptions import generate_descriptions_task
 from .tasks import (  # generate_thumbnails_task, # Commented out for debugging; organize_catalog_task, # Commented out for debugging
     analyze_catalog_task,
     scan_catalog_task,
@@ -83,6 +84,8 @@ __all__ = [
     "duplicates_compare_worker_task",
     "duplicates_comparison_phase_task",
     "duplicates_finalizer_task",
+    # Serial description generation (Ollama)
+    "generate_descriptions_task",
     # Coordinator utilities
     "BatchManager",
     "BatchResult",

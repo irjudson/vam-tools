@@ -1484,6 +1484,10 @@
                                 <span class="action-icon">📊</span>
                                 <span class="action-label">Analyze</span>
                             </button>
+                            <button class="quick-action-btn" @click="startGenerateDescriptions" :disabled="!currentCatalog" title="Generate AI descriptions with Ollama (slow, serial)">
+                                <span class="action-icon">📝</span>
+                                <span class="action-label">Describe</span>
+                            </button>
                         </div>
                     </div>
                 </div>

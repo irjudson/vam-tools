@@ -123,6 +123,7 @@ class Image(Base):
     #   "quality_scored": bool,      # Quality analysis complete
     #   "embedding_generated": bool, # CLIP embedding generated
     #   "tags_applied": bool,        # Auto-tagging complete
+    #   "description_generated": bool, # Ollama description generated
     #   "ready_for_analysis": bool,  # All required fields for analysis tasks
     # }
     processing_flags = Column(JSONB, nullable=False, default={}, server_default="{}")
@@ -133,6 +134,9 @@ class Image(Base):
 
     # Semantic search
     clip_embedding = Column(Vector(768))  # CLIP embedding for semantic search
+
+    # AI-generated description from Ollama vision model
+    description = Column(Text)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

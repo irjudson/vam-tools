@@ -20,7 +20,6 @@ Example:
         >>> tags = tagger.tag_image("/path/to/image.jpg")
 """
 
-import base64
 import json
 import logging
 import os
@@ -106,12 +105,15 @@ class OpenCLIPBackend(TaggerBackend):
     of tags. Fast and efficient for batch processing.
     """
 
-    # Available model configurations (name, pretrained weights)
+    # Available model configurations: (architecture, pretrained weights, embedding_dim)
     MODELS = {
-        "ViT-B-32": ("ViT-B-32", "laion2b_s34b_b79k"),  # Fast, good quality
-        "ViT-L-14": ("ViT-L-14", "laion2b_s32b_b82k"),  # Slower, better quality
-        "ViT-H-14": ("ViT-H-14", "laion2b_s32b_b79k"),  # Highest quality
+        "ViT-B-32": ("ViT-B-32", "laion2b_s34b_b79k", 512),  # Fast, good quality
+        "ViT-L-14": ("ViT-L-14", "laion2b_s32b_b82k", 768),  # Slower, better quality
+        "ViT-H-14": ("ViT-H-14", "laion2b_s32b_b79k", 1024),  # Highest quality
     }
+
+    # Target embedding dimension for database storage
+    TARGET_EMBEDDING_DIM = 768
 
     def __init__(
         self,
@@ -156,6 +158,12 @@ class OpenCLIPBackend(TaggerBackend):
         except ImportError:
             pass
         return "cpu"
+
+    @property
+    def embedding_dim(self) -> int:
+        """Return the native embedding dimension for the current model."""
+        _, _, dim = self.MODELS.get(self.model_name, self.MODELS["ViT-B-32"])
+        return dim
 
     # RAW formats that need special handling
     RAW_FORMATS = {
@@ -237,7 +245,7 @@ class OpenCLIPBackend(TaggerBackend):
         try:
             import open_clip
 
-            model_arch, pretrained = self.MODELS.get(
+            model_arch, pretrained, _dim = self.MODELS.get(
                 self.model_name, self.MODELS["ViT-B-32"]
             )
 
@@ -392,17 +400,19 @@ class OpenCLIPBackend(TaggerBackend):
         return results
 
     def get_embedding(self, image_path: Union[str, Path]) -> List[float]:
-        """Get raw CLIP embedding for an image.
+        """Get CLIP embedding for an image, projected to target dimension.
 
-        This is the same embedding used internally for classification,
-        just exposed for semantic search storage.
+        The native embedding dimension varies by model (512 for ViT-B-32,
+        768 for ViT-L-14, 1024 for ViT-H-14). This method projects all
+        embeddings to TARGET_EMBEDDING_DIM (768) for database storage.
 
         Args:
             image_path: Path to image file
 
         Returns:
-            768-dimensional embedding as list of floats
+            768-dimensional embedding as list of floats (projected if needed)
         """
+        import numpy as np
         import torch
 
         self._load_model()
@@ -430,7 +440,18 @@ class OpenCLIPBackend(TaggerBackend):
                 dim=-1, keepdim=True
             )
 
-        return image_embedding.cpu().numpy().flatten().tolist()
+        embedding = image_embedding.cpu().numpy().flatten()
+
+        # Project to target dimension for database storage
+        target_dim = self.TARGET_EMBEDDING_DIM
+        if len(embedding) < target_dim:
+            # Pad with zeros for smaller models (e.g., ViT-B-32: 512 -> 768)
+            embedding = np.pad(embedding, (0, target_dim - len(embedding)))
+        elif len(embedding) > target_dim:
+            # Truncate for larger models (e.g., ViT-H-14: 1024 -> 768)
+            embedding = embedding[:target_dim]
+
+        return embedding.tolist()
 
     def is_available(self) -> bool:
         """Check if OpenCLIP is available."""
@@ -451,6 +472,27 @@ class OllamaBackend(TaggerBackend):
 
     # Supported vision models
     VISION_MODELS = ["llava", "llava:13b", "llava:34b", "qwen3-vl", "llava-llama3"]
+
+    # Maximum dimension for images sent to Ollama (resize larger images)
+    MAX_IMAGE_DIMENSION = 1024
+
+    # RAW formats that need special handling
+    RAW_FORMATS = {
+        ".arw",
+        ".cr2",
+        ".cr3",
+        ".nef",
+        ".dng",
+        ".orf",
+        ".rw2",
+        ".pef",
+        ".srw",
+        ".raf",
+        ".raw",
+    }
+
+    # HEIC/HEIF formats
+    HEIC_FORMATS = {".heic", ".heif"}
 
     def __init__(
         self,
@@ -480,10 +522,146 @@ class OllamaBackend(TaggerBackend):
                 ) from e
         return self._client
 
-    def _image_to_base64(self, image_path: Path) -> str:
-        """Convert image to base64 string."""
-        with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
+    def _load_image(self, path: Path) -> Optional[Image.Image]:
+        """Load an image, with RAW and HEIC format support.
+
+        Args:
+            path: Path to the image file
+
+        Returns:
+            PIL Image in RGB mode, or None if loading failed
+        """
+        from io import BytesIO
+
+        suffix = path.suffix.lower()
+
+        # Handle RAW files
+        if suffix in self.RAW_FORMATS:
+            # Try rawpy first
+            try:
+                import rawpy
+
+                with rawpy.imread(str(path)) as raw:
+                    rgb = raw.postprocess(half_size=True, use_camera_wb=True)
+                    return Image.fromarray(rgb)
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.debug(f"rawpy failed for {path}: {e}")
+
+            # Try extracting embedded preview with exiftool
+            try:
+                import subprocess
+
+                result = subprocess.run(
+                    ["exiftool", "-b", "-PreviewImage", str(path)],
+                    capture_output=True,
+                    timeout=30,
+                )
+                if result.returncode == 0 and result.stdout:
+                    return Image.open(BytesIO(result.stdout)).convert("RGB")
+
+                # Fallback to JpgFromRaw
+                result = subprocess.run(
+                    ["exiftool", "-b", "-JpgFromRaw", str(path)],
+                    capture_output=True,
+                    timeout=30,
+                )
+                if result.returncode == 0 and result.stdout:
+                    return Image.open(BytesIO(result.stdout)).convert("RGB")
+            except Exception as e:
+                logger.debug(f"exiftool preview extraction failed for {path}: {e}")
+
+            return None
+
+        # Handle HEIC/HEIF files
+        if suffix in self.HEIC_FORMATS:
+            try:
+                # Try pillow-heif
+                import pillow_heif
+
+                heif_file = pillow_heif.read_heif(str(path))
+                return Image.frombytes(
+                    heif_file.mode, heif_file.size, heif_file.data, "raw"
+                ).convert("RGB")
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.debug(f"pillow-heif failed for {path}: {e}")
+
+            # Try pyheif
+            try:
+                import pyheif
+
+                heif_file = pyheif.read(str(path))
+                return Image.frombytes(
+                    heif_file.mode, heif_file.size, heif_file.data, "raw"
+                ).convert("RGB")
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.debug(f"pyheif failed for {path}: {e}")
+
+            # Try extracting preview with exiftool
+            try:
+                import subprocess
+
+                result = subprocess.run(
+                    ["exiftool", "-b", "-PreviewImage", str(path)],
+                    capture_output=True,
+                    timeout=30,
+                )
+                if result.returncode == 0 and result.stdout:
+                    return Image.open(BytesIO(result.stdout)).convert("RGB")
+            except Exception as e:
+                logger.debug(f"exiftool preview extraction failed for {path}: {e}")
+
+            return None
+
+        # Standard image formats
+        try:
+            return Image.open(path).convert("RGB")
+        except Exception as e:
+            logger.debug(f"PIL failed to open {path}: {e}")
+            return None
+
+    def _prepare_image_bytes(self, image_path: Path) -> Optional[bytes]:
+        """Load, resize, and convert image to JPEG bytes for Ollama.
+
+        This handles:
+        - RAW formats (.arw, .cr2, .nef, etc.)
+        - HEIC/HEIF formats
+        - Large images (resized to MAX_IMAGE_DIMENSION)
+        - Converting to JPEG for Ollama compatibility
+
+        Args:
+            image_path: Path to the image file
+
+        Returns:
+            JPEG bytes suitable for Ollama, or None if loading failed
+        """
+        from io import BytesIO
+
+        # Load image (handles RAW, HEIC, and standard formats)
+        image = self._load_image(image_path)
+        if image is None:
+            logger.warning(f"Could not load image: {image_path}")
+            return None
+
+        # Resize if too large
+        max_dim = max(image.size)
+        if max_dim > self.MAX_IMAGE_DIMENSION:
+            ratio = self.MAX_IMAGE_DIMENSION / max_dim
+            new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+            logger.debug(
+                f"Resized {image_path.name} from {max_dim}px to {max(new_size)}px"
+            )
+
+        # Convert to JPEG bytes
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=85)
+        return buffer.getvalue()
 
     def tag_image(
         self,
@@ -509,9 +687,11 @@ Example response format:
 Respond with ONLY the JSON object, no other text."""
 
         try:
-            # Read image as bytes
-            with open(image_path, "rb") as f:
-                image_bytes = f.read()
+            # Load, resize, and convert image to JPEG for Ollama
+            image_bytes = self._prepare_image_bytes(image_path)
+            if image_bytes is None:
+                logger.warning(f"Could not prepare image for Ollama: {image_path}")
+                return []
 
             response = client.chat(
                 model=self.model,
@@ -609,8 +789,11 @@ Respond with ONLY the JSON object, no other text."""
 Be concise but thorough."""
 
         try:
-            with open(image_path, "rb") as f:
-                image_bytes = f.read()
+            # Load, resize, and convert image to JPEG for Ollama
+            image_bytes = self._prepare_image_bytes(image_path)
+            if image_bytes is None:
+                logger.warning(f"Could not prepare image for Ollama: {image_path}")
+                return ""
 
             response = client.chat(
                 model=self.model,
@@ -819,16 +1002,16 @@ class ImageTagger:
         return self._tag_names.copy()
 
     def get_embedding(self, image_path: Union[str, Path]) -> List[float]:
-        """Get CLIP embedding for an image.
+        """Get CLIP embedding for an image, projected to 768 dimensions.
 
-        This is the same embedding used internally for classification,
-        just exposed for semantic search storage.
+        The native embedding dimension varies by model, but embeddings are
+        projected to 768 dimensions for database storage compatibility.
 
         Args:
             image_path: Path to image file
 
         Returns:
-            768-dimensional embedding as list of floats
+            768-dimensional embedding as list of floats (projected if needed)
 
         Raises:
             AttributeError: If backend doesn't support embeddings (e.g., Ollama)
@@ -955,7 +1138,7 @@ class CombinedTagger:
             if combined_conf >= threshold:
                 # Look up category from taxonomy
                 tag_def = self.taxonomy.get_tag_by_name(tag_name)
-                category = tag_def.category if tag_def else "unknown"
+                category = tag_def.category.value if tag_def else "unknown"
 
                 results.append(
                     TagResult(
@@ -1077,15 +1260,16 @@ class CombinedTagger:
         return combined_results
 
     def get_embedding(self, image_path: Union[str, Path]) -> List[float]:
-        """Get CLIP embedding for an image.
+        """Get CLIP embedding for an image, projected to 768 dimensions.
 
-        Uses the OpenCLIP backend to compute the embedding.
+        Uses the OpenCLIP backend to compute the embedding. The embedding is
+        projected to 768 dimensions for database storage compatibility.
 
         Args:
             image_path: Path to image file
 
         Returns:
-            768-dimensional embedding as list of floats
+            768-dimensional embedding as list of floats (projected if needed)
         """
         return self._openclip.get_embedding(Path(image_path))
 

@@ -106,29 +106,58 @@ class TestOllamaBackend:
         assert "llava" in OllamaBackend.VISION_MODELS
         assert "llava:13b" in OllamaBackend.VISION_MODELS
 
-    def test_image_to_base64(self, tmp_path: Path) -> None:
-        """Test image to base64 conversion."""
-        # Create a small test file
-        test_file = tmp_path / "test.txt"
-        test_file.write_bytes(b"test content")
+    def test_prepare_image_bytes(self, tmp_path: Path) -> None:
+        """Test image preparation with resizing."""
+        from PIL import Image
+
+        # Create a small test image
+        test_image = tmp_path / "test.jpg"
+        img = Image.new("RGB", (100, 100), color="red")
+        img.save(test_image, format="JPEG")
 
         backend = OllamaBackend()
-        result = backend._image_to_base64(test_file)
+        result = backend._prepare_image_bytes(test_image)
 
-        assert isinstance(result, str)
-        # Base64 encoded "test content"
-        import base64
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+        # Verify it's valid JPEG
+        from io import BytesIO
 
-        assert base64.b64decode(result) == b"test content"
+        loaded = Image.open(BytesIO(result))
+        assert loaded.format == "JPEG"
+
+    def test_prepare_image_bytes_resizes_large_images(self, tmp_path: Path) -> None:
+        """Test that large images are resized."""
+        from PIL import Image
+
+        # Create a large test image (2000x1500)
+        test_image = tmp_path / "large.jpg"
+        img = Image.new("RGB", (2000, 1500), color="blue")
+        img.save(test_image, format="JPEG")
+
+        backend = OllamaBackend()
+        result = backend._prepare_image_bytes(test_image)
+
+        # Load the result and check dimensions
+        from io import BytesIO
+
+        loaded = Image.open(BytesIO(result))
+        # Should be resized to max 1024
+        assert max(loaded.size) == 1024
+        assert loaded.size == (1024, 768)  # Maintains aspect ratio
 
     @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
     def test_tag_image_success(
-        self, mock_get_client: MagicMock, tmp_path: Path
+        self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
     ) -> None:
         """Test successful image tagging with Ollama."""
         # Create a mock image file
         test_image = tmp_path / "test.jpg"
         test_image.write_bytes(b"fake image data")
+
+        # Mock the image preparation
+        mock_prepare.return_value = b"prepared jpeg bytes"
 
         # Mock the client response
         mock_client = MagicMock()
@@ -147,12 +176,15 @@ class TestOllamaBackend:
         assert ("outdoor", 0.8) in results
 
     @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
     def test_tag_image_json_in_code_block(
-        self, mock_get_client: MagicMock, tmp_path: Path
+        self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
     ) -> None:
         """Test parsing JSON from code block response."""
         test_image = tmp_path / "test.jpg"
         test_image.write_bytes(b"fake image data")
+
+        mock_prepare.return_value = b"prepared jpeg bytes"
 
         mock_client = MagicMock()
         mock_client.chat.return_value = {
@@ -167,12 +199,15 @@ class TestOllamaBackend:
         assert results[0][0] == "dogs"
 
     @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
     def test_tag_image_invalid_json(
-        self, mock_get_client: MagicMock, tmp_path: Path
+        self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
     ) -> None:
         """Test handling of invalid JSON response."""
         test_image = tmp_path / "test.jpg"
         test_image.write_bytes(b"fake image data")
+
+        mock_prepare.return_value = b"prepared jpeg bytes"
 
         mock_client = MagicMock()
         mock_client.chat.return_value = {
@@ -187,8 +222,13 @@ class TestOllamaBackend:
         assert results == []
 
     @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
-    def test_tag_batch(self, mock_get_client: MagicMock, tmp_path: Path) -> None:
+    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
+    def test_tag_batch(
+        self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
+    ) -> None:
         """Test batch tagging with Ollama."""
+        mock_prepare.return_value = b"prepared jpeg bytes"
+
         # Create test images
         images = []
         for i in range(3):
@@ -237,10 +277,15 @@ class TestOllamaBackend:
         assert backend.is_available() is False
 
     @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
-    def test_describe_image(self, mock_get_client: MagicMock, tmp_path: Path) -> None:
+    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
+    def test_describe_image(
+        self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
+    ) -> None:
         """Test image description."""
         test_image = tmp_path / "test.jpg"
         test_image.write_bytes(b"fake image data")
+
+        mock_prepare.return_value = b"prepared jpeg bytes"
 
         mock_client = MagicMock()
         mock_client.chat.return_value = {

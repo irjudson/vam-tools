@@ -1540,6 +1540,105 @@ def start_auto_tagging(
     }
 
 
+@router.post("/{catalog_id}/generate-descriptions")
+def start_description_generation(
+    catalog_id: uuid.UUID,
+    model: str = Query(
+        "llava", description="Ollama vision model to use (llava, qwen3-vl, etc.)"
+    ),
+    mode: str = Query(
+        "undescribed_only",
+        description="Processing mode: 'undescribed_only' (skip already described) or 'all'",
+    ),
+    limit: int = Query(
+        None, ge=1, description="Maximum images to process (None = all)"
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    Start AI description generation for catalog images using Ollama.
+
+    This creates a background Celery task that:
+    1. Uses Ollama vision models (LLaVA) to analyze images
+    2. Generates natural language descriptions of image content
+    3. Stores descriptions in the database for each image
+
+    IMPORTANT: This task runs serially (one image at a time) on a dedicated
+    queue because Ollama cannot handle concurrent requests without resource
+    contention. For large catalogs, use the limit parameter to process in
+    chunks.
+
+    Modes:
+    - undescribed_only: Only process images without descriptions (default, faster)
+    - all: Regenerate descriptions for all images
+
+    Args:
+        model: Ollama vision model name (default: llava)
+        mode: 'undescribed_only' to skip described images, 'all' to regenerate
+        limit: Maximum images to process (for chunked processing)
+
+    Returns:
+        Job information with task ID to track progress.
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    # Validate mode
+    if mode not in ("undescribed_only", "all"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid mode. Use 'undescribed_only' or 'all'",
+        )
+
+    # Import Celery task
+    from ...db.models import Job
+    from ...jobs.serial_descriptions import generate_descriptions_task
+
+    # Generate job ID upfront (used as both DB id and Celery task id)
+    job_id = str(uuid.uuid4())
+
+    # Create job record
+    job = Job(
+        id=job_id,
+        catalog_id=catalog_id,
+        job_type="generate_descriptions",
+        status="pending",
+        parameters={
+            "model": model,
+            "mode": mode,
+            "limit": limit,
+        },
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # Start Celery task with same ID on the dedicated ollama queue
+    task = generate_descriptions_task.apply_async(
+        kwargs={
+            "catalog_id": str(catalog_id),
+            "model": model,
+            "mode": mode,
+            "limit": limit,
+        },
+        task_id=job_id,
+    )
+
+    logger.info(
+        f"Started description generation job {job.id} for catalog {catalog_id} "
+        f"(model={model}, mode={mode}, limit={limit})"
+    )
+
+    return {
+        "job_id": str(job.id),
+        "task_id": task.id,
+        "status": "pending",
+        "message": f"Description generation started for catalog {catalog.name} with {model} model",
+    }
+
+
 @router.get("/{catalog_id}/duplicates")
 def list_duplicate_groups(
     catalog_id: uuid.UUID,

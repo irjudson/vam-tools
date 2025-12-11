@@ -351,6 +351,11 @@ def process_auto_tag_item(
             stored_count = 0
             for tag in tags:
                 try:
+                    # Get category as string (handle enum or string)
+                    category = getattr(tag, "category", None)
+                    if category is not None and hasattr(category, "value"):
+                        category = category.value  # Convert enum to string
+
                     # Get or create tag
                     result = db_conn.session.execute(
                         text(
@@ -364,7 +369,7 @@ def process_auto_tag_item(
                         {
                             "catalog_id": catalog_id,
                             "name": tag.tag_name,
-                            "category": getattr(tag, "category", None),
+                            "category": category,
                         },
                     )
                     tag_id = result.scalar()
@@ -402,6 +407,9 @@ def process_auto_tag_item(
                     logger.warning(
                         f"Failed to store tag {tag.tag_name} for {image_id}: {e}"
                     )
+                    # Rollback to clear the failed transaction state
+                    if db_conn.session:
+                        db_conn.session.rollback()
 
             db_conn.session.commit()
             return stored_count
