@@ -8,6 +8,8 @@ Includes the Parallel Job Coordinator pattern for distributing large jobs
 across multiple workers with restartable batches.
 """
 
+# Import item_processors to register them with the coordinator
+from . import item_processors  # noqa: F401
 from .celery_app import app as celery_app
 from .coordinator import BatchManager, BatchResult, JobProgress, publish_job_progress
 from .parallel_bursts import (
@@ -21,6 +23,12 @@ from .parallel_duplicates import (
     duplicates_coordinator_task,
     duplicates_finalizer_task,
     duplicates_hash_worker_task,
+)
+from .parallel_jobs import (
+    generic_coordinator_task,
+    generic_finalizer_task,
+    generic_worker_task,
+    start_parallel_job,
 )
 from .parallel_scan import (
     scan_coordinator_task,
@@ -47,6 +55,11 @@ __all__ = [
     "celery_app",
     "analyze_catalog_task",
     "scan_catalog_task",
+    # Generic parallel job framework
+    "generic_coordinator_task",
+    "generic_worker_task",
+    "generic_finalizer_task",
+    "start_parallel_job",
     # Parallel scan tasks
     "scan_coordinator_task",
     "scan_worker_task",

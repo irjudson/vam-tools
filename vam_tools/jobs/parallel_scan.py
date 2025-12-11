@@ -591,7 +591,13 @@ def scan_finalizer_task(
                 },
             )
             row = result.fetchone()
-            discovery_stats = json.loads(row[0]) if row else {}
+            # Handle both JSONB (returns dict) and TEXT (returns string) column types
+            if row:
+                discovery_stats = (
+                    row[0] if isinstance(row[0], dict) else json.loads(row[0])
+                )
+            else:
+                discovery_stats = {}
 
             # Update catalog config with completion
             db.execute(

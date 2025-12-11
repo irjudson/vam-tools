@@ -42,15 +42,16 @@ app.conf.update(
     task_track_started=True,
     task_time_limit=3600 * 48,  # 48 hours max per task (for large catalogs)
     task_soft_time_limit=3600 * 47,  # 47 hours soft limit
-    # Retry settings for transient failures
-    task_acks_late=True,  # Acknowledge after task completes (enables retry on worker crash)
-    task_reject_on_worker_lost=True,  # Reject and requeue if worker crashes
+    # Task acknowledgment - acknowledge immediately to prevent zombie redeliveries
+    # With parallel batch pattern, we track progress in DB so lost tasks can be recovered
+    task_acks_late=False,  # Acknowledge immediately when task starts
+    task_reject_on_worker_lost=False,  # Don't requeue - we handle recovery in job_recovery.py
     # Result backend settings
     result_expires=3600 * 24,  # Keep results for 24 hours
     result_extended=True,  # Store more task metadata
     # Worker settings
     worker_prefetch_multiplier=1,  # Take one task at a time
-    worker_max_tasks_per_child=10,  # Restart worker after 10 tasks (prevent memory leaks)
+    worker_max_tasks_per_child=100,  # Restart less often - we track state in DB
 )
 
 

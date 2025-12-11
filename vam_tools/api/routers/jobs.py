@@ -14,6 +14,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     HTTPException,
+    Request,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -28,10 +29,9 @@ from ...db.schemas import JobListResponse
 from ...jobs.job_recovery import job_recovery_check_task, job_recovery_task
 from ...jobs.parallel_bursts import burst_coordinator_task
 from ...jobs.parallel_duplicates import duplicates_coordinator_task
+from ...jobs.parallel_jobs import generic_coordinator_task
 from ...jobs.parallel_scan import scan_coordinator_task, scan_recovery_task
-from ...jobs.parallel_tagging import tagging_coordinator_task
-from ...jobs.parallel_thumbnails import thumbnail_coordinator_task
-from ...jobs.tasks import analyze_catalog_task, organize_catalog_task
+from ...jobs.tasks import organize_catalog_task
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +42,31 @@ router = APIRouter()
 JOB_TYPE_TO_TASK = {
     "scan": scan_coordinator_task,  # Now uses coordinator pattern
     "scan_parallel": scan_coordinator_task,  # Legacy alias
-    "analyze": analyze_catalog_task,
+    "analyze": generic_coordinator_task,  # Now uses generic parallel coordinator
     "detect_duplicates": duplicates_coordinator_task,  # Now uses coordinator pattern
-    "auto_tag": tagging_coordinator_task,  # Now uses coordinator pattern
+    "auto_tag": generic_coordinator_task,  # Now uses generic parallel coordinator
     "detect_bursts": burst_coordinator_task,  # Now uses coordinator pattern
-    "generate_thumbnails": thumbnail_coordinator_task,  # Now uses coordinator pattern
+    "generate_thumbnails": generic_coordinator_task,  # Now uses generic parallel coordinator
     "organize": organize_catalog_task,  # TODO: Parallelize in future
+}
+
+# Job types that use the generic parallel coordinator
+# These need special handling to pass job_type and work_items_query or source_directories
+GENERIC_PARALLEL_JOB_TYPES = {
+    "analyze": {
+        "job_type": "analyze",
+        # analyze uses source_directories, not work_items_query
+        # source_directories will be passed from the request
+        "needs_source_directories": True,
+    },
+    "auto_tag": {
+        "job_type": "auto_tag",
+        "work_items_query": "SELECT id FROM images WHERE catalog_id = :catalog_id",
+    },
+    "generate_thumbnails": {
+        "job_type": "thumbnails",
+        "work_items_query": "SELECT id FROM images WHERE catalog_id = :catalog_id",
+    },
 }
 
 # Thread pool for blocking Celery operations (small pool to limit concurrent blocking calls)
@@ -135,6 +154,13 @@ class AnalyzeJobRequest(BaseModel):
     force_reanalyze: bool = False
 
 
+class GenericJobRequest(BaseModel):
+    """Generic request to start a job by type."""
+
+    job_type: str
+    catalog_id: uuid.UUID
+
+
 class JobResponse(BaseModel):
     """Job status response."""
 
@@ -142,6 +168,69 @@ class JobResponse(BaseModel):
     status: str
     progress: Dict[str, Any] = {}
     result: Dict[str, Any] = {}
+
+
+@router.post("/start", response_model=JobResponse, status_code=202)
+def start_job(request: GenericJobRequest, db: Session = Depends(get_db)):
+    """Start a job by type.
+
+    Supported job types:
+    - generate_thumbnails: Generate thumbnails for all images (parallel)
+    - detect_duplicates: Detect duplicate images (parallel)
+    - auto_tag: Auto-tag images using AI (parallel)
+    - detect_bursts: Detect burst photo sequences (parallel)
+    """
+    job_type = request.job_type
+    catalog_id = str(request.catalog_id)
+
+    # Look up the task for this job type
+    task_func = JOB_TYPE_TO_TASK.get(job_type)
+    if not task_func:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown job type: {job_type}. Supported types: {list(JOB_TYPE_TO_TASK.keys())}",
+        )
+
+    logger.info(f"Starting {job_type} job for catalog {catalog_id}")
+
+    # Check if this is a generic parallel job type
+    parallel_config = GENERIC_PARALLEL_JOB_TYPES.get(job_type)
+
+    if parallel_config:
+        # Use generic parallel coordinator
+        task = generic_coordinator_task.delay(
+            catalog_id=catalog_id,
+            job_type=parallel_config["job_type"],
+            work_items_query=parallel_config["work_items_query"],
+            batch_size=500,
+        )
+        parameters = {
+            "catalog_id": catalog_id,
+            "parallel": True,
+            "job_type": parallel_config["job_type"],
+        }
+    else:
+        # Submit Celery task directly
+        task = task_func.delay(catalog_id=catalog_id)
+        parameters = {"catalog_id": catalog_id}
+
+    # Save job to database
+    job = Job(
+        id=task.id,
+        catalog_id=request.catalog_id,
+        job_type=job_type,
+        status="PENDING",
+        parameters=parameters,
+    )
+    db.add(job)
+    db.commit()
+
+    return JobResponse(
+        job_id=task.id,
+        status="pending",
+        progress={"parallel": parallel_config is not None},
+        result={},
+    )
 
 
 @router.post("/scan", response_model=JobResponse, status_code=202)
@@ -411,15 +500,25 @@ def recover_all_stale_jobs(
 
 @router.post("/analyze", response_model=JobResponse, status_code=202)
 def start_analyze(request: AnalyzeJobRequest, db: Session = Depends(get_db)):
-    """Start an analyze job (scan directories for a catalog)."""
-    logger.info(f"Starting analyze for catalog {request.catalog_id}")
+    """Start a parallel analyze job (scan directories for a catalog).
 
-    # Submit Celery task
-    task = analyze_catalog_task.delay(
+    This uses the generic parallel coordinator to distribute file processing
+    across multiple workers for faster catalog building.
+    """
+    logger.info(
+        f"Starting parallel analyze for catalog {request.catalog_id} "
+        f"with directories: {request.source_directories}"
+    )
+
+    # Submit Celery task using generic parallel coordinator
+    task = generic_coordinator_task.delay(
         catalog_id=str(request.catalog_id),
+        job_type="analyze",
         source_directories=request.source_directories,
-        detect_duplicates=request.detect_duplicates,
-        force_reanalyze=request.force_reanalyze,
+        batch_size=1000,
+        processor_kwargs={
+            "force_reanalyze": request.force_reanalyze,
+        },
     )
 
     # Save job to database
@@ -432,6 +531,8 @@ def start_analyze(request: AnalyzeJobRequest, db: Session = Depends(get_db)):
             "source_directories": request.source_directories,
             "detect_duplicates": request.detect_duplicates,
             "force_reanalyze": request.force_reanalyze,
+            "parallel": True,
+            "batch_size": 1000,
         },
     )
     db.add(job)
@@ -440,7 +541,7 @@ def start_analyze(request: AnalyzeJobRequest, db: Session = Depends(get_db)):
     return JobResponse(
         job_id=task.id,
         status="pending",
-        progress={},
+        progress={"parallel": True, "batch_size": 1000},
         result={},
     )
 
@@ -926,6 +1027,7 @@ def revoke_job(
     force: bool = False,
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
+    request: Request = None,
 ):
     """Revoke/cancel a job, or force delete it from the database.
 
@@ -937,7 +1039,21 @@ def revoke_job(
         force: If True, completely delete the job from the database instead of marking as REVOKED
     """
     action = "force deleting" if force else "revoking"
-    logger.info(f"{action.capitalize()} job {job_id} (terminate={terminate})")
+
+    # Log detailed request info for debugging job revocation sources
+    client_ip = "unknown"
+    user_agent = "unknown"
+    referer = "none"
+    if request:
+        client_ip = request.client.host if request.client else "unknown"
+        user_agent = request.headers.get("user-agent", "unknown")
+        referer = request.headers.get("referer", "none")
+
+    logger.warning(
+        f"JOB REVOKE REQUEST: {action} job {job_id} | "
+        f"terminate={terminate} force={force} | "
+        f"client={client_ip} | user-agent={user_agent[:80]} | referer={referer}"
+    )
 
     try:
         job = db.query(Job).filter(Job.id == job_id).first()

@@ -689,6 +689,14 @@ createApp({
         },
 
         async revokeJob(jobId, terminate = false) {
+            // Require confirmation for terminate=true (kills running tasks)
+            if (terminate) {
+                const jobName = this.jobMetadata[jobId]?.name || jobId.substring(0, 8);
+                if (!confirm(`Are you sure you want to forcefully terminate job "${jobName}"?\n\nThis will kill all running tasks immediately.`)) {
+                    return;
+                }
+            }
+
             try {
                 await axios.delete(`/api/jobs/${jobId}`, {
                     params: { terminate }
@@ -2167,7 +2175,8 @@ createApp({
 
             try {
                 const response = await axios.post('/api/jobs/analyze', {
-                    catalog_id: this.currentCatalog.id
+                    catalog_id: this.currentCatalog.id,
+                    source_directories: this.currentCatalog.source_directories
                 });
 
                 this.addNotification('Catalog analysis started', 'success');

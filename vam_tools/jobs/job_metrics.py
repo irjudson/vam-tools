@@ -111,8 +111,12 @@ class JobMetricsTracker:
             for row in result:
                 key = row[0].replace("job_timing_", "")
                 try:
-                    self._timing_cache[key] = float(json.loads(row[1]))
-                except (json.JSONDecodeError, ValueError):
+                    # Handle both JSONB (returns dict/value) and TEXT (returns string)
+                    value = row[1]
+                    if isinstance(value, str):
+                        value = json.loads(value)
+                    self._timing_cache[key] = float(value)
+                except (json.JSONDecodeError, ValueError, TypeError):
                     pass
 
             logger.debug(f"Loaded {len(self._timing_cache)} cached timing metrics")

@@ -9,7 +9,7 @@ Falls back gracefully to CPU if GPU is not available.
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 import numpy as np
 from PIL import Image
@@ -20,6 +20,155 @@ if TYPE_CHECKING:
     import torch
 
 logger = logging.getLogger(__name__)
+
+# RAW file extensions that need special handling with rawpy
+RAW_EXTENSIONS: Set[str] = {
+    ".arw",  # Sony
+    ".cr2",  # Canon
+    ".cr3",  # Canon (newer)
+    ".nef",  # Nikon
+    ".dng",  # Adobe Digital Negative
+    ".orf",  # Olympus
+    ".rw2",  # Panasonic
+    ".pef",  # Pentax
+    ".sr2",  # Sony
+    ".raf",  # Fujifilm
+    ".raw",  # Generic RAW
+}
+
+# HEIC/HEIF file extensions
+HEIC_EXTENSIONS: Set[str] = {
+    ".heic",
+    ".heif",
+}
+
+# Register HEIF opener if available
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+    HEIF_SUPPORT = True
+except ImportError:
+    HEIF_SUPPORT = False
+    logger.debug("pillow-heif not installed, HEIC support may be limited")
+
+
+# Video file extensions that need frame extraction
+VIDEO_EXTENSIONS: Set[str] = {
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mkv",
+    ".wmv",
+    ".flv",
+    ".webm",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+    ".3gp",
+    ".mts",
+    ".m2ts",
+}
+
+
+def _extract_video_frame(video_path: Path) -> Optional[Image.Image]:
+    """
+    Extract the first frame from a video file using ffmpeg.
+
+    Args:
+        video_path: Path to the video file
+
+    Returns:
+        PIL Image object of the first frame, or None if extraction fails
+    """
+    import subprocess
+    import tempfile
+
+    try:
+        # Create temporary file for extracted frame
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+
+        # Extract first frame using ffmpeg
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",  # Overwrite output file
+                "-i",
+                str(video_path),
+                "-vframes",
+                "1",
+                "-q:v",
+                "2",
+                "-f",
+                "image2",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+
+        if result.returncode == 0 and tmp_path.exists():
+            img = Image.open(tmp_path)
+            frame = img.copy()
+            img.close()
+            tmp_path.unlink()
+            return frame
+        else:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            logger.warning(
+                f"ffmpeg extraction failed for {video_path}: "
+                f"{result.stderr.decode()[:200]}"
+            )
+            return None
+
+    except Exception as e:
+        logger.warning(f"Video frame extraction failed for {video_path}: {e}")
+        return None
+
+
+def _load_image_any_format(img_path: Path) -> Optional[Image.Image]:
+    """
+    Load an image from any supported format (including RAW, HEIC, and video).
+
+    Args:
+        img_path: Path to the image/video file
+
+    Returns:
+        PIL Image object, or None if loading fails
+    """
+    suffix = img_path.suffix.lower()
+
+    # Handle video files - extract first frame
+    if suffix in VIDEO_EXTENSIONS:
+        return _extract_video_frame(img_path)
+
+    # Handle RAW files with rawpy
+    if suffix in RAW_EXTENSIONS:
+        try:
+            import rawpy
+
+            with rawpy.imread(str(img_path)) as raw:
+                # Use half_size for faster processing (good for hashing)
+                rgb = raw.postprocess(half_size=True, use_camera_wb=True)
+                return Image.fromarray(rgb)
+        except ImportError:
+            logger.debug(f"rawpy not available for {img_path}")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to load RAW file {img_path}: {e}")
+            return None
+
+    # Handle HEIC/HEIF files (pillow-heif registers opener automatically)
+    # Standard PIL open should work if pillow-heif is installed
+
+    # Standard PIL loading for other formats
+    try:
+        return Image.open(img_path)
+    except Exception as e:
+        logger.warning(f"Failed to load {img_path}: {e}")
+        return None
 
 
 class GPUHashProcessor:
@@ -99,7 +248,17 @@ class GPUHashProcessor:
         batch_tensors = []
         for img_path in image_paths:
             try:
-                img = Image.open(img_path)
+                # Use universal loader for RAW, HEIC, video, and standard formats
+                img = _load_image_any_format(img_path)
+                if img is None:
+                    # Add zero tensor as placeholder for failed loads
+                    batch_tensors.append(
+                        self.torch.zeros(
+                            1, target_size, target_size, device=self.device
+                        )
+                    )
+                    continue
+
                 if img.mode == "RGBA":
                     # Convert RGBA to RGB
                     background = Image.new("RGB", img.size, (255, 255, 255))
@@ -111,7 +270,7 @@ class GPUHashProcessor:
                 tensor = preprocess(img)
                 batch_tensors.append(tensor)
             except Exception as e:
-                logger.warning(f"Failed to load {img_path}: {e}")
+                logger.warning(f"Failed to process {img_path}: {e}")
                 # Add zero tensor as placeholder
                 batch_tensors.append(
                     self.torch.zeros(1, target_size, target_size, device=self.device)

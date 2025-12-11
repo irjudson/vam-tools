@@ -26,7 +26,7 @@ import logging
 import math
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, TypeVar
+from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 from sqlalchemy import text
 
@@ -556,3 +556,37 @@ def publish_job_progress(
             "percent": progress.percent_complete,
         },
     )
+
+
+# Registry of item processors for generic parallel worker
+# Maps job_type -> callable(catalog_id, work_item, **kwargs) -> Dict[str, Any]
+ITEM_PROCESSORS: Dict[str, Any] = {}
+
+
+def register_item_processor(
+    job_type: str,
+) -> Callable[[Callable[..., Dict[str, Any]]], Callable[..., Dict[str, Any]]]:
+    """
+    Decorator to register an item processor for a job type.
+
+    Usage:
+        @register_item_processor("thumbnails")
+        def process_thumbnail(catalog_id: str, work_item: Any, **kwargs) -> Dict[str, Any]:
+            # Process single item
+            return {"success": True, "result": {...}}
+    """
+
+    def decorator(
+        func: Callable[..., Dict[str, Any]],
+    ) -> Callable[..., Dict[str, Any]]:
+        ITEM_PROCESSORS[job_type] = func
+        return func
+
+    return decorator
+
+
+def get_item_processor(job_type: str) -> Callable[..., Dict[str, Any]]:
+    """Get the item processor for a job type."""
+    if job_type not in ITEM_PROCESSORS:
+        raise ValueError(f"No item processor registered for job type: {job_type}")
+    return ITEM_PROCESSORS[job_type]

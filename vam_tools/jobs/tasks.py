@@ -1240,7 +1240,8 @@ def _get_checkpoint(db: CatalogDatabase, catalog_id: str, job_id: str) -> Option
     if row:
         import json
 
-        return json.loads(row[0])
+        # Handle both JSONB (returns dict) and TEXT (returns string) column types
+        return row[0] if isinstance(row[0], dict) else json.loads(row[0])
     return None
 
 
