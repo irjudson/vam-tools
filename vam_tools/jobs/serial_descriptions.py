@@ -7,6 +7,12 @@ resource contention, this task processes images one at a time.
 
 The task runs on a dedicated queue with concurrency=1 to ensure only one
 Ollama request is processed at a time across all workers.
+
+Failure Monitoring:
+    The task monitors consecutive failures and will pause (enter PAUSED state)
+    after hitting a configurable threshold. This allows the operator to restart
+    Ollama before resuming the job. Resume by calling the task again with the
+    same parameters - it will continue from where it left off (undescribed images).
 """
 
 from __future__ import annotations
@@ -25,6 +31,13 @@ from .progress_publisher import publish_completion, publish_progress
 from .tasks import ProgressTask
 
 logger = logging.getLogger(__name__)
+
+# Configuration for failure monitoring
+CONSECUTIVE_FAILURE_THRESHOLD = 5  # Pause after this many consecutive failures
+FAILURE_PAUSE_MESSAGE = (
+    "Job paused due to {count} consecutive Ollama failures. "
+    "Please restart Ollama (docker restart ollama) and run the job again to resume."
+)
 
 
 def _update_job_status(
@@ -156,6 +169,7 @@ def generate_descriptions_task(
         described = 0
         failed = 0
         skipped = 0
+        consecutive_failures = 0  # Track consecutive Ollama failures
 
         for idx, (image_id, source_path) in enumerate(image_data):
             try:
@@ -163,6 +177,7 @@ def generate_descriptions_task(
                 if not source_file.exists():
                     logger.warning(f"[{job_id}] Source file not found: {source_path}")
                     skipped += 1
+                    # File not found doesn't count as Ollama failure
                     continue
 
                 # Generate description
@@ -171,30 +186,63 @@ def generate_descriptions_task(
                 if not description:
                     logger.warning(f"[{job_id}] Empty description for {image_id}")
                     failed += 1
-                    continue
-
-                # Save description to database
-                with CatalogDatabase(catalog_id) as db:
-                    assert db.session is not None
-                    db.session.execute(
-                        text(
+                    consecutive_failures += 1
+                else:
+                    # Save description to database
+                    with CatalogDatabase(catalog_id) as db:
+                        assert db.session is not None
+                        db.session.execute(
+                            text(
+                                """
+                                UPDATE images
+                                SET description = :description,
+                                    processing_flags = processing_flags || '{"description_generated": true}'::jsonb,
+                                    updated_at = NOW()
+                                WHERE id = :image_id
                             """
-                            UPDATE images
-                            SET description = :description,
-                                processing_flags = processing_flags || '{"description_generated": true}'::jsonb,
-                                updated_at = NOW()
-                            WHERE id = :image_id
-                        """
-                        ),
-                        {"description": description, "image_id": image_id},
-                    )
-                    db.session.commit()
+                            ),
+                            {"description": description, "image_id": image_id},
+                        )
+                        db.session.commit()
 
-                described += 1
+                    described += 1
+                    consecutive_failures = 0  # Reset on success
 
             except Exception as e:
                 logger.warning(f"[{job_id}] Failed to describe {image_id}: {e}")
                 failed += 1
+                consecutive_failures += 1
+
+            # Check if we've hit the consecutive failure threshold
+            if consecutive_failures >= CONSECUTIVE_FAILURE_THRESHOLD:
+                pause_message = FAILURE_PAUSE_MESSAGE.format(count=consecutive_failures)
+                logger.error(f"[{job_id}] {pause_message}")
+
+                # Update job status to PAUSED
+                pause_result = {
+                    "success": False,
+                    "paused": True,
+                    "total": total_images,
+                    "processed": idx + 1,
+                    "described": described,
+                    "failed": failed,
+                    "skipped": skipped,
+                    "consecutive_failures": consecutive_failures,
+                    "message": pause_message,
+                }
+                _update_job_status(job_id, "PAUSED", result=pause_result)
+                publish_progress(
+                    job_id=job_id,
+                    state="PAUSED",
+                    current=idx + 1,
+                    total=total_images,
+                    message=pause_message,
+                    extra=pause_result,
+                )
+
+                # Return early - job will be resumed when user restarts Ollama
+                # and triggers a new job (which will pick up undescribed images)
+                return pause_result
 
             # Update progress
             progress = idx + 1
@@ -207,6 +255,7 @@ def generate_descriptions_task(
                     "described": described,
                     "failed": failed,
                     "skipped": skipped,
+                    "consecutive_failures": consecutive_failures,
                 },
             )
 
@@ -221,6 +270,7 @@ def generate_descriptions_task(
                     "described": described,
                     "failed": failed,
                     "skipped": skipped,
+                    "consecutive_failures": consecutive_failures,
                 },
             )
 
