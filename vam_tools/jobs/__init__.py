@@ -11,7 +11,14 @@ across multiple workers with restartable batches.
 # Import item_processors to register them with the coordinator
 from . import item_processors  # noqa: F401
 from .celery_app import app as celery_app
-from .coordinator import BatchManager, BatchResult, JobProgress, publish_job_progress
+from .coordinator import (
+    CONSECUTIVE_FAILURE_THRESHOLD,
+    BatchManager,
+    BatchResult,
+    JobProgress,
+    cancel_and_requeue_job,
+    publish_job_progress,
+)
 from .parallel_bursts import (
     burst_coordinator_task,
     burst_finalizer_task,
@@ -91,4 +98,6 @@ __all__ = [
     "BatchResult",
     "JobProgress",
     "publish_job_progress",
+    "cancel_and_requeue_job",
+    "CONSECUTIVE_FAILURE_THRESHOLD",
 ]

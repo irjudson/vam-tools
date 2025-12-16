@@ -112,14 +112,31 @@ class TestJobStatusEndpoint:
 
     @patch("vam_tools.api.routers.jobs.AsyncResult")
     def test_get_job_status_success(self, mock_async_result, client, db_session):
-        """Test get_job_status with a successful task."""
+        """Test get_job_status with a successful task.
+
+        Note: The API now returns standardized status values:
+        - "completed" instead of "SUCCESS"
+        - "running" instead of "PROGRESS"
+        - "failed" instead of "FAILURE"
+        - "killed" instead of "REVOKED"
+        - "queued" instead of "PENDING"
+        """
         # Create job in database first with unique ID for parallel test isolation
         job_id = unique_job_id("success")
-        self._create_test_job(db_session, job_id, "PENDING")
+        # Job needs SUCCESS status with completed result to map to "completed"
+        job = Job(
+            id=job_id,
+            job_type="scan",
+            status="SUCCESS",
+            parameters={},
+            result={"status": "completed", "files_processed": 100},
+        )
+        db_session.add(job)
+        db_session.commit()
 
         mock_task = Mock()
         mock_task.state = "SUCCESS"
-        mock_task.result = {"files_processed": 100}
+        mock_task.result = {"status": "completed", "files_processed": 100}
         mock_async_result.return_value = mock_task
 
         response = client.get(f"/api/jobs/{job_id}")
@@ -127,7 +144,8 @@ class TestJobStatusEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["job_id"] == job_id
-        assert data["status"] == "SUCCESS"
+        assert data["status"] == "completed"  # Standardized status
+        assert data["celery_status"] == "SUCCESS"  # Raw Celery status
         assert data["result"]["files_processed"] == 100
 
     @patch("vam_tools.api.routers.jobs.AsyncResult")
@@ -135,7 +153,15 @@ class TestJobStatusEndpoint:
         """Test get_job_status with an in-progress task."""
         # Create job in database first with unique ID for parallel test isolation
         job_id = unique_job_id("progress")
-        self._create_test_job(db_session, job_id, "PENDING")
+        # Job in PROGRESS state maps to "running"
+        job = Job(
+            id=job_id,
+            job_type="scan",
+            status="PROGRESS",
+            parameters={},
+        )
+        db_session.add(job)
+        db_session.commit()
 
         mock_task = Mock()
         mock_task.state = "PROGRESS"
@@ -146,15 +172,24 @@ class TestJobStatusEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "PROGRESS"
-        assert data["progress"]["current"] == 50
+        assert data["status"] == "running"  # Standardized status
+        assert data["celery_status"] == "PROGRESS"  # Raw Celery status
 
     @patch("vam_tools.api.routers.jobs.AsyncResult")
     def test_get_job_status_failure(self, mock_async_result, client, db_session):
         """Test get_job_status with a failed task."""
         # Create job in database first with unique ID for parallel test isolation
         job_id = unique_job_id("failure")
-        self._create_test_job(db_session, job_id, "PENDING")
+        # Job in FAILURE state maps to "failed"
+        job = Job(
+            id=job_id,
+            job_type="scan",
+            status="FAILURE",
+            parameters={},
+            error="Task failed due to error",
+        )
+        db_session.add(job)
+        db_session.commit()
 
         mock_task = Mock()
         mock_task.state = "FAILURE"
@@ -165,8 +200,9 @@ class TestJobStatusEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "FAILURE"
-        assert "Task failed" in data["result"]["error"]
+        assert data["status"] == "failed"  # Standardized status
+        assert data["celery_status"] == "FAILURE"  # Raw Celery status
+        assert data["error"] == "Task failed due to error"
 
     @patch("vam_tools.api.routers.jobs.AsyncResult")
     def test_get_job_status_malformed_exception_info(
@@ -179,8 +215,9 @@ class TestJobStatusEndpoint:
         The endpoint should return a FAILURE status instead of a 500 error.
         """
         # Create job in database first with unique ID for parallel test isolation
+        # Use FAILURE status since malformed exception info means the task failed
         job_id = unique_job_id("malformed")
-        self._create_test_job(db_session, job_id, "PENDING")
+        self._create_test_job(db_session, job_id, "FAILURE")
 
         mock_task = Mock()
         mock_task.id = job_id
@@ -206,5 +243,5 @@ class TestJobStatusEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["job_id"] == job_id
-        assert data["status"] == "FAILURE"
-        assert "error" in data["result"]
+        assert data["status"] == "failed"  # Standardized status (mapped from FAILURE)
+        assert data["celery_status"] == "FAILURE"  # Raw Celery status for debugging

@@ -590,3 +590,112 @@ def get_item_processor(job_type: str) -> Callable[..., Dict[str, Any]]:
     if job_type not in ITEM_PROCESSORS:
         raise ValueError(f"No item processor registered for job type: {job_type}")
     return ITEM_PROCESSORS[job_type]
+
+
+# Configuration for auto-recovery across all parallel jobs
+CONSECUTIVE_FAILURE_THRESHOLD = (
+    3  # Cancel and requeue after this many consecutive failures
+)
+REQUEUE_DELAY_SECONDS = 30  # Wait before starting continuation job
+
+
+def cancel_and_requeue_job(
+    parent_job_id: str,
+    catalog_id: str,
+    job_type: str,
+    task_name: str,
+    task_kwargs: Dict[str, Any],
+    reason: str,
+    processed_so_far: int,
+) -> str:
+    """
+    Cancel the current job and queue a continuation job.
+
+    This is the shared auto-recovery mechanism for all parallel jobs.
+    When a job encounters consecutive failures (GPU OOM, service crashes, etc.),
+    it cancels itself and queues a new job that will pick up where it left off.
+
+    Works because all parallel jobs query for "unprocessed" items, so restarting
+    naturally continues from where it stopped.
+
+    Args:
+        parent_job_id: The current job's Celery task ID
+        catalog_id: The catalog UUID
+        job_type: Type of job for the Job record (e.g., "auto_tag", "scan")
+        task_name: Celery task name to queue (e.g., "tagging_coordinator")
+        task_kwargs: Keyword arguments for the continuation task
+        reason: Human-readable reason for cancellation
+        processed_so_far: Number of items successfully processed before cancel
+
+    Returns:
+        The new continuation job ID
+    """
+    import uuid as uuid_module
+    from datetime import datetime
+
+    from ..db import get_db_context
+    from ..db.models import Job
+    from .celery_app import app
+    from .progress_publisher import publish_completion
+
+    # Mark current job as cancelled with continuation info
+    cancel_result = {
+        "status": "cancelled_for_continuation",
+        "reason": reason,
+        "processed_before_cancel": processed_so_far,
+        "message": f"Job cancelled after {reason}. Continuation job queued.",
+    }
+
+    try:
+        with get_db_context() as session:
+            job = session.query(Job).filter(Job.id == parent_job_id).first()
+            if job:
+                job.status = "CANCELLED"
+                job.result = cancel_result
+                session.commit()
+    except Exception as e:
+        logger.warning(f"Failed to update job status for {parent_job_id}: {e}")
+
+    publish_completion(parent_job_id, "CANCELLED", result=cancel_result)
+
+    logger.info(
+        f"[{parent_job_id}] Cancelled job and queueing continuation after: {reason}"
+    )
+
+    # Create new job record
+    new_job_id = str(uuid_module.uuid4())
+    try:
+        with get_db_context() as session:
+            new_job = Job(
+                id=new_job_id,
+                catalog_id=catalog_id,
+                job_type=job_type,
+                status="PENDING",
+                parameters={
+                    **task_kwargs,
+                    "continuation_of": parent_job_id,
+                },
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            session.add(new_job)
+            session.commit()
+    except Exception as e:
+        logger.error(f"Failed to create continuation job record: {e}")
+
+    # Queue the continuation task with delay
+    task = app.tasks.get(task_name)
+    if task:
+        task.apply_async(
+            kwargs=task_kwargs,
+            task_id=new_job_id,
+            countdown=REQUEUE_DELAY_SECONDS,
+        )
+        logger.info(
+            f"[{parent_job_id}] Queued continuation job {new_job_id} "
+            f"(starts in {REQUEUE_DELAY_SECONDS}s)"
+        )
+    else:
+        logger.error(f"Task {task_name} not found, cannot queue continuation")
+
+    return new_job_id

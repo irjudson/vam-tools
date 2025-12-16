@@ -7,9 +7,9 @@ including HEIC, RAW, and common video formats.
 
 import logging
 from pathlib import Path
-from typing import Optional, Set, Tuple
+from typing import Optional, Set, Tuple, Union
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ except ImportError:
     logger.debug("pillow-heif not installed, HEIC thumbnails will not be supported")
 
 
-def load_raw_image(raw_path: Path) -> Optional[Image.Image]:
+def load_raw_image(raw_path: Path) -> Tuple[Optional[Image.Image], Optional[str]]:
     """
     Load a RAW image file using rawpy.
 
@@ -64,18 +64,24 @@ def load_raw_image(raw_path: Path) -> Optional[Image.Image]:
         raw_path: Path to the RAW file
 
     Returns:
-        PIL Image object, or None if loading fails
+        Tuple of (PIL Image object, error message) - Image is None if loading fails,
+        error message describes the failure reason
     """
+    rawpy_error: Optional[str] = None
+    dcraw_error: Optional[str] = None
+
     try:
         import rawpy
 
         with rawpy.imread(str(raw_path)) as raw:
             # Use half_size for faster processing (good enough for thumbnails)
             rgb = raw.postprocess(half_size=True, use_camera_wb=True)
-            return Image.fromarray(rgb)
+            return Image.fromarray(rgb), None
     except ImportError:
+        rawpy_error = "rawpy not installed"
         logger.debug("rawpy not installed, trying dcraw fallback")
     except Exception as e:
+        rawpy_error = str(e)
         logger.debug(f"rawpy failed for {raw_path}: {e}, trying dcraw fallback")
 
     # Fallback: try dcraw
@@ -100,16 +106,27 @@ def load_raw_image(raw_path: Path) -> Optional[Image.Image]:
             frame = img.copy()
             img.close()
             tmp_path.unlink()
-            return frame
+            return frame, None
         else:
             if tmp_path.exists():
                 tmp_path.unlink()
-            logger.debug(f"dcraw failed for {raw_path}: {result.stderr.decode()}")
-            return None
+            dcraw_error = result.stderr.decode() if result.stderr else "dcraw failed"
+            logger.debug(f"dcraw failed for {raw_path}: {dcraw_error}")
 
+    except FileNotFoundError:
+        dcraw_error = "dcraw not installed"
+        logger.debug(f"dcraw not installed for {raw_path}")
     except Exception as e:
+        dcraw_error = str(e)
         logger.debug(f"dcraw fallback failed for {raw_path}: {e}")
-        return None
+
+    # Both methods failed - return combined error message
+    error_parts = []
+    if rawpy_error:
+        error_parts.append(f"rawpy: {rawpy_error}")
+    if dcraw_error:
+        error_parts.append(f"dcraw: {dcraw_error}")
+    return None, "; ".join(error_parts) if error_parts else "Unknown error"
 
 
 def generate_thumbnail(
@@ -149,12 +166,9 @@ def generate_thumbnail(
 
         # Handle RAW files specially
         if suffix in RAW_EXTENSIONS:
-            img = load_raw_image(source_path)
+            img, raw_error = load_raw_image(source_path)
             if img is None:
-                logger.error(
-                    f"Failed to load RAW file {source_path}: "
-                    "Install rawpy or dcraw for RAW support"
-                )
+                logger.error(f"Failed to load RAW file {source_path}: {raw_error}")
                 return False
 
         # Handle video files
@@ -179,6 +193,10 @@ def generate_thumbnail(
             except Exception as e:
                 logger.error(f"Failed to open image {source_path}: {e}")
                 return False
+
+        # Apply EXIF orientation before any processing
+        # This ensures images are rotated according to camera metadata
+        img = ImageOps.exif_transpose(img)
 
         # Convert to RGB if needed (handles RGBA, grayscale, etc.)
         if img.mode not in ("RGB", "L"):

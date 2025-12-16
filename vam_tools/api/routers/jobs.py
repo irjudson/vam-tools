@@ -37,6 +37,104 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+# =============================================================================
+# Status Helper Functions
+# =============================================================================
+# These functions implement the standardized 5-status system:
+# - queued: Job waiting to start
+# - running: Job actively processing
+# - completed: Job finished successfully
+# - failed: Job encountered errors
+# - killed: Job was terminated (user or system)
+
+
+def get_effective_status(job: "Job") -> str:
+    """Map Celery status + result.status to one of 5 standard values.
+
+    Returns: "queued", "running", "completed", "failed", or "killed"
+    """
+    celery_status = job.status
+    result = job.result or {}
+    result_status = result.get("status")
+
+    # Celery PENDING = job hasn't started yet
+    if celery_status == "PENDING":
+        return "queued"
+
+    # Celery STARTED = coordinator is running
+    if celery_status == "STARTED":
+        return "running"
+
+    # Celery PROGRESS = job is actively processing
+    if celery_status == "PROGRESS":
+        return "running"
+
+    # Celery SUCCESS with dispatched/processing = workers still running
+    if celery_status == "SUCCESS" and result_status in ("dispatched", "processing"):
+        return "running"
+
+    # Celery SUCCESS with completed = job done
+    if celery_status == "SUCCESS" and result_status in (
+        "completed",
+        "completed_with_errors",
+    ):
+        return "completed"
+
+    # Celery SUCCESS with requeued = continuation job, original is done
+    if celery_status == "SUCCESS" and result_status == "requeued":
+        return "completed"
+
+    # Celery FAILURE = job failed
+    if celery_status == "FAILURE":
+        return "failed"
+
+    # Celery REVOKED = job was killed
+    if celery_status == "REVOKED":
+        return "killed"
+
+    # Celery TERMINATED = job was killed via signal (e.g., SIGKILL)
+    if celery_status == "TERMINATED":
+        return "killed"
+
+    # STALE jobs are considered failed
+    if celery_status == "STALE":
+        return "failed"
+
+    # Default fallback for unknown states
+    if celery_status == "SUCCESS":
+        return "completed"
+
+    return "running"  # Safe default for in-progress states
+
+
+def get_kill_info(job: "Job") -> Optional[Dict[str, Any]]:
+    """Extract kill attribution from job result."""
+    result = job.result or {}
+    if result.get("killed_by") or job.status in ("REVOKED", "TERMINATED"):
+        # Determine killer based on status if not explicitly set
+        default_killed_by = "system" if job.status == "TERMINATED" else "user"
+        return {
+            "killed_by": result.get("killed_by", default_killed_by),
+            "killed_at": result.get("killed_at"),
+            "killed_reason": result.get("killed_reason", job.error),
+        }
+    return None
+
+
+def get_failure_info(job: "Job") -> Optional[Dict[str, Any]]:
+    """Extract failure details from job."""
+    result = job.result or {}
+    if job.error or result.get("error"):
+        return {
+            "error": job.error or result.get("error"),
+            "error_code": result.get("error_code"),
+            "failed_at": result.get("failed_at"),
+            "failed_phase": result.get("failed_phase"),
+        }
+    return None
+
+
 # Map job types to their Celery tasks for restart functionality
 # All job types use the parallel coordinator pattern automatically
 JOB_TYPE_TO_TASK = {
@@ -87,7 +185,7 @@ def _run_with_timeout(func, timeout: float = CELERY_TIMEOUT, default=None):
         return default
 
 
-@router.get("/", response_model=List[JobListResponse])
+@router.get("/")
 def list_jobs(
     limit: int = 100,
     offset: int = 0,
@@ -97,31 +195,70 @@ def list_jobs(
 ):
     """List all jobs with pagination and optional status filtering.
 
+    Returns standardized status values: queued, running, completed, failed, killed
+
     Args:
         limit: Maximum number of jobs to return (default: 100)
         offset: Number of jobs to skip (default: 0)
-        status: Comma-separated list of statuses to include (e.g., "PENDING,PROGRESS")
-        exclude_status: Comma-separated list of statuses to exclude (e.g., "SUCCESS,FAILURE,REVOKED")
+        status: Comma-separated list of effective statuses to filter
+                (e.g., "queued,running" or "completed,failed")
+        exclude_status: Comma-separated list of effective statuses to exclude
+                (e.g., "completed,failed,killed")
 
     Examples:
-        - Active jobs only: ?exclude_status=SUCCESS,FAILURE,REVOKED
-        - Completed jobs only: ?status=SUCCESS,FAILURE
-        - Failed jobs: ?status=FAILURE
+        - Active jobs only: ?status=queued,running
+        - Completed jobs only: ?status=completed
+        - Failed jobs: ?status=failed
+        - Exclude finished: ?exclude_status=completed,failed,killed
     """
-    query = db.query(Job)
+    # Get all jobs first (we'll filter by effective status after)
+    jobs = db.query(Job).order_by(Job.created_at.desc()).all()
 
-    # Filter by status if provided
-    if status:
-        status_list = [s.strip().upper() for s in status.split(",")]
-        query = query.filter(Job.status.in_(status_list))
+    # Build response with effective status
+    result = []
+    for job in jobs:
+        effective = get_effective_status(job)
 
-    # Exclude statuses if provided
-    if exclude_status:
-        exclude_list = [s.strip().upper() for s in exclude_status.split(",")]
-        query = query.filter(~Job.status.in_(exclude_list))
+        # Apply status filter if provided
+        if status:
+            status_list = [s.strip().lower() for s in status.split(",")]
+            if effective not in status_list:
+                continue
 
-    jobs = query.order_by(Job.created_at.desc()).limit(limit).offset(offset).all()
-    return jobs
+        # Apply exclude filter if provided
+        if exclude_status:
+            exclude_list = [s.strip().lower() for s in exclude_status.split(",")]
+            if effective in exclude_list:
+                continue
+
+        job_data = {
+            "id": job.id,
+            "job_id": job.id,
+            "catalog_id": str(job.catalog_id) if job.catalog_id else None,
+            "job_type": job.job_type,
+            "status": effective,  # Standardized status
+            "celery_status": job.status,  # Raw Celery status for debugging
+            "parameters": job.parameters,
+            "result": job.result,
+            "error": job.error,
+            "created_at": job.created_at,
+            "updated_at": job.updated_at,
+        }
+
+        # Add context-specific info
+        if effective == "failed":
+            failure_info = get_failure_info(job)
+            if failure_info:
+                job_data.update(failure_info)
+        elif effective == "killed":
+            kill_info = get_kill_info(job)
+            if kill_info:
+                job_data.update(kill_info)
+
+        result.append(job_data)
+
+    # Apply pagination after filtering
+    return result[offset : offset + limit]
 
 
 class ScanJobRequest(BaseModel):
@@ -721,13 +858,21 @@ def _get_batch_progress(job_id: str) -> Optional[Dict[str, Any]]:
             else:
                 batch_status = "UNKNOWN"
 
+            # Build progress message that shows activity even when processed_count is stale
+            if running_batches > 0:
+                message = f"Processing: {completed_batches}/{total_batches} batches complete, {running_batches} running"
+            elif pending_batches > 0:
+                message = f"Processing: {completed_batches}/{total_batches} batches complete, {pending_batches} queued"
+            else:
+                message = f"Processing: {completed_batches}/{total_batches} batches complete ({percent}%)"
+
             return {
                 "status": batch_status,
                 "progress": {
                     "current": total_processed,
                     "total": total_items,
                     "percent": percent,
-                    "message": f"Processing: {completed_batches}/{total_batches} batches complete ({percent}%)",
+                    "message": message,
                     "batches_total": total_batches,
                     "batches_completed": completed_batches,
                     "batches_running": running_batches,
@@ -742,11 +887,13 @@ def _get_batch_progress(job_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-@router.get("/{job_id}", response_model=JobResponse)
+@router.get("/{job_id}")
 def get_job_status(job_id: str, db: Session = Depends(get_db)):
     """Get job status and progress.
 
-    This endpoint now prefers batch progress over database state for parallel jobs.
+    Returns standardized status values: queued, running, completed, failed, killed
+
+    This endpoint prefers batch progress over database state for parallel jobs.
     The job_batches table is the source of truth for coordinator-pattern jobs.
     """
     # First, check database for job (fast, non-blocking)
@@ -756,134 +903,69 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Job not found")
 
     # For parallel jobs, ALWAYS check batch progress first (source of truth)
-    # This handles cases where:
-    # - Coordinator returned SUCCESS after dispatching but workers still running
-    # - Job marked FAILURE from a previous crash but workers may have completed
-    # - Redis progress expired but batch table has current state
     is_parallel_job = job.parameters and job.parameters.get("parallel", False)
 
+    progress_data = {}
+    batch_status = None
     if is_parallel_job:
         batch_progress = _get_batch_progress(job_id)
         if batch_progress:
-            batch_status = batch_progress["status"]
             progress_data = batch_progress["progress"]
+            batch_status = batch_progress["status"]
 
-            # If batches show work is still ongoing, report PROGRESS
-            if batch_status == "PROGRESS":
-                return JobResponse(
-                    job_id=job_id,
-                    status="PROGRESS",
-                    progress=progress_data,
-                    result={},
-                )
-            # If all batches completed successfully
-            elif batch_status == "SUCCESS":
-                return JobResponse(
-                    job_id=job_id,
-                    status="SUCCESS",
-                    progress=progress_data,
-                    result=job.result or {"status": "completed"},
-                )
-            # If batches show failure (all done, some failed)
-            elif batch_status == "FAILURE":
-                return JobResponse(
-                    job_id=job_id,
-                    status="FAILURE",
-                    progress=progress_data,
-                    result=job.result or {"error": job.error} if job.error else {},
-                )
-            # If job was revoked/cancelled
-            elif batch_status == "REVOKED":
-                return JobResponse(
-                    job_id=job_id,
-                    status="REVOKED",
-                    progress=progress_data,
-                    result=job.result or {"status": "cancelled"},
-                )
-            # Unknown state - fall through to database state
+    # Get effective status - prefer batch status for parallel jobs
+    if batch_status:
+        # Map batch-derived status to standardized status
+        # Batch statuses: PROGRESS, SUCCESS, FAILURE, REVOKED, UNKNOWN
+        batch_status_map = {
+            "PROGRESS": "running",
+            "SUCCESS": "completed",
+            "FAILURE": "failed",
+            "REVOKED": "killed",
+        }
+        effective_status = batch_status_map.get(batch_status, get_effective_status(job))
+    else:
+        effective_status = get_effective_status(job)
 
-    # For non-parallel jobs or when batch progress unavailable,
-    # use database/Celery state
-    if job.status in ("SUCCESS", "FAILURE", "REVOKED"):
-        return JobResponse(
-            job_id=job_id,
-            status=job.status,
-            progress={},
-            result=job.result or ({"error": job.error} if job.error else {}),
-        )
+    # Build base response
+    response = {
+        "job_id": job_id,
+        "status": effective_status,  # Standardized: queued, running, completed, failed, killed
+        "celery_status": job.status,  # Raw Celery status for debugging
+        "job_type": job.job_type,
+        "catalog_id": str(job.catalog_id) if job.catalog_id else None,
+        "progress": progress_data,
+        "result": job.result or {},
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+    }
 
-    # For active jobs (PENDING, PROGRESS), try to get live status from Celery with timeout
-    celery_state = _get_celery_task_state(job_id)
+    # Add context-specific info based on status
+    if effective_status == "failed":
+        failure_info = get_failure_info(job)
+        if failure_info:
+            response.update(failure_info)
+    elif effective_status == "killed":
+        kill_info = get_kill_info(job)
+        if kill_info:
+            response.update(kill_info)
 
-    # If Celery is unavailable or timed out, return database state
-    if celery_state is None:
-        logger.debug(f"Celery unavailable for job {job_id}, using database state")
-        return JobResponse(
-            job_id=job_id,
-            status=job.status,
-            progress={},
-            result=job.result or {},
-        )
-
-    # Build response from Celery state
-    response = JobResponse(
-        job_id=job_id,
-        status=celery_state,
-        progress={},
-        result={},
-    )
-
-    # Get progress/result based on Celery state
-    if celery_state == "PROGRESS":
-        task_info = _get_celery_task_info(job_id)
-        response.progress = task_info or {}
-        # Update job status in database
-        if job.status != "PROGRESS":
-            job.status = "PROGRESS"
-            db.commit()
-    elif celery_state == "SUCCESS":
-        task_result = _get_celery_task_result(job_id)
-        response.result = task_result or {}
-
-        # For parallel scan jobs, the coordinator returns "dispatched" status
-        # but workers are still processing. Don't mark as SUCCESS until finalizer completes.
-        is_parallel_job = job.parameters and job.parameters.get("parallel", False)
-        is_dispatched = (
-            isinstance(task_result, dict) and task_result.get("status") == "dispatched"
-        )
-
-        if is_parallel_job and is_dispatched:
-            # Coordinator finished dispatching, but workers are still running
-            # Keep job in PROGRESS state (set by coordinator's _update_job_status)
-            response.status = "PROGRESS"
-            response.progress = {
-                "phase": "processing",
-                "message": task_result.get("message", "Processing..."),
-                "total_files": task_result.get("total_files", 0),
-                "num_batches": task_result.get("num_batches", 0),
-            }
-            # Ensure database reflects PROGRESS
-            if job.status != "PROGRESS":
-                job.status = "PROGRESS"
-                db.commit()
-        elif job.status != "SUCCESS":
-            # Normal job completion
-            job.status = "SUCCESS"
-            job.result = response.result
-            db.commit()
-            logger.info(f"Saved job {job_id} result to database")
-    elif celery_state == "FAILURE":
-        task_info = _get_celery_task_info(job_id)
-        response.result = {"error": str(task_info)}
-
-        # Save error to database
-        if job.status != "FAILURE":
-            job.status = "FAILURE"
-            job.error = str(task_info)
-            # Try to get statistics from failure info if available
-            if isinstance(task_info, dict) and "statistics" in task_info:
-                job.result = task_info.get("statistics")
-            db.commit()
+    # For active jobs, try to get live progress from Celery
+    if effective_status == "running" and not progress_data:
+        celery_state = _get_celery_task_state(job_id)
+        if celery_state == "PROGRESS":
+            task_info = _get_celery_task_info(job_id)
+            response["progress"] = task_info or {}
+        elif celery_state == "SUCCESS":
+            # Coordinator finished, check result for progress info
+            task_result = _get_celery_task_result(job_id)
+            if isinstance(task_result, dict):
+                response["progress"] = {
+                    "phase": "processing",
+                    "message": task_result.get("message", "Processing..."),
+                    "total_files": task_result.get("total_files", 0),
+                    "num_batches": task_result.get("num_batches", 0),
+                }
 
     return response
 
@@ -1079,9 +1161,18 @@ def revoke_job(
 
             return {"status": "deleted", "job_id": job_id}
         else:
-            # Soft delete: mark as REVOKED in database immediately (non-blocking)
+            # Soft delete: mark as REVOKED with kill attribution
             job.status = "REVOKED"
             job.error = "Job was manually cancelled"
+
+            # Store kill attribution in result
+            job.result = {
+                **(job.result or {}),
+                "status": "killed",
+                "killed_by": "user",
+                "killed_at": datetime.utcnow().isoformat(),
+                "killed_reason": "User requested cancellation",
+            }
             db.commit()
 
             # Schedule Celery revoke in background (fire-and-forget)
@@ -1095,7 +1186,12 @@ def revoke_job(
                     default=None,
                 )
 
-            return {"status": "revoked", "job_id": job_id}
+            return {
+                "status": "killed",
+                "job_id": job_id,
+                "killed_by": "user",
+                "killed_reason": "User requested cancellation",
+            }
     except HTTPException:
         raise
     except Exception as e:

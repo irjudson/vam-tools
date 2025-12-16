@@ -24,6 +24,8 @@ RUN apt-get update && apt-get install -y \
     libtiff-dev \
     libwebp-dev \
     libheif-dev \
+    # RAW image processing fallback (for older RAW formats not supported by rawpy)
+    dcraw \
     # Video processing
     ffmpeg \
     # Build tools

@@ -21,7 +21,13 @@ from ..db import CatalogDB as CatalogDatabase
 from ..db.models import Job
 from ..shared.thumbnail_utils import generate_thumbnail
 from .celery_app import app
-from .coordinator import BatchManager, BatchResult, publish_job_progress
+from .coordinator import (
+    CONSECUTIVE_FAILURE_THRESHOLD,
+    BatchManager,
+    BatchResult,
+    cancel_and_requeue_job,
+    publish_job_progress,
+)
 from .progress_publisher import publish_completion, publish_progress
 from .tasks import ProgressTask
 
@@ -149,6 +155,10 @@ def thumbnail_coordinator_task(
         finalizer = thumbnail_finalizer_task.s(
             catalog_id=catalog_id,
             parent_job_id=parent_job_id,
+            sizes=sizes,
+            quality=quality,
+            force=force,
+            batch_size=batch_size,
         )
 
         chord(worker_tasks)(finalizer)
@@ -296,8 +306,16 @@ def thumbnail_finalizer_task(
     worker_results: List[Dict[str, Any]],
     catalog_id: str,
     parent_job_id: str,
+    sizes: Optional[List[int]] = None,
+    quality: int = 85,
+    force: bool = False,
+    batch_size: int = 500,
 ) -> Dict[str, Any]:
-    """Finalizer that aggregates thumbnail generation results."""
+    """Finalizer that aggregates thumbnail generation results.
+
+    If there are too many failed batches, automatically queues a continuation
+    job to process remaining images without thumbnails.
+    """
     finalizer_id = self.request.id or "unknown"
     logger.info(f"[{finalizer_id}] Starting finalizer for job {parent_job_id}")
 
@@ -320,6 +338,37 @@ def thumbnail_finalizer_task(
             if wr.get("status") == "completed"
         )
         failed_batches = sum(1 for wr in worker_results if wr.get("status") == "failed")
+
+        # If there were too many failed batches, auto-requeue to continue
+        if failed_batches >= CONSECUTIVE_FAILURE_THRESHOLD:
+            logger.warning(
+                f"[{finalizer_id}] {failed_batches} batches failed, auto-requeuing continuation"
+            )
+
+            cancel_and_requeue_job(
+                parent_job_id=parent_job_id,
+                catalog_id=catalog_id,
+                job_type="thumbnails",
+                task_name="thumbnail_coordinator",
+                task_kwargs={
+                    "catalog_id": catalog_id,
+                    "sizes": sizes or [256, 512],
+                    "quality": quality,
+                    "force": False,  # Don't regenerate, only missing
+                    "batch_size": batch_size,
+                },
+                reason=f"{failed_batches} batch failures",
+                processed_so_far=total_success,
+            )
+
+            return {
+                "status": "requeued",
+                "catalog_id": catalog_id,
+                "thumbnails_generated": total_success,
+                "errors": total_errors,
+                "failed_batches": failed_batches,
+                "message": f"Job requeued due to {failed_batches} batch failures",
+            }
 
         final_result = {
             "status": "completed" if failed_batches == 0 else "completed_with_errors",

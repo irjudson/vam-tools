@@ -11,6 +11,11 @@ Note: While the coordinator pattern enables parallel processing, tagging
 benefits most from batch processing on a single GPU worker due to model
 loading overhead. With multiple GPU workers, batches can be processed
 in parallel. With a single worker, batches run sequentially.
+
+Auto-Recovery: If a worker encounters consecutive failures (e.g., GPU OOM,
+Ollama crashes), it will cancel the current job and automatically requeue
+a new one to continue from where it left off (since tag_mode="untagged_only"
+naturally resumes).
 """
 
 from __future__ import annotations
@@ -26,7 +31,13 @@ from sqlalchemy import text
 from ..db import CatalogDB as CatalogDatabase
 from ..db.models import Job
 from .celery_app import app
-from .coordinator import BatchManager, BatchResult, publish_job_progress
+from .coordinator import (
+    CONSECUTIVE_FAILURE_THRESHOLD,
+    BatchManager,
+    BatchResult,
+    cancel_and_requeue_job,
+    publish_job_progress,
+)
 from .progress_publisher import publish_completion, publish_progress
 from .tasks import ProgressTask, _store_image_tags
 
@@ -174,6 +185,11 @@ def tagging_coordinator_task(
         finalizer = tagging_finalizer_task.s(
             catalog_id=catalog_id,
             parent_job_id=parent_job_id,
+            backend=backend,
+            model=model,
+            threshold=threshold,
+            max_tags=max_tags,
+            batch_size=batch_size,
         )
 
         chord(worker_tasks)(finalizer)
@@ -355,6 +371,10 @@ def tagging_worker_task(
                 phase="processing",
             )
 
+        # Release GPU resources after processing batch
+        tagger.cleanup()
+        logger.info(f"[{worker_id}] GPU resources released")
+
         logger.info(
             f"[{worker_id}] Batch {batch_number + 1} complete: {result.success_count} tagged, {result.error_count} errors"
         )
@@ -369,6 +389,17 @@ def tagging_worker_task(
 
     except Exception as e:
         logger.error(f"[{worker_id}] Worker failed: {e}", exc_info=True)
+
+        # Release GPU resources even on failure
+        try:
+            if "tagger" in locals():
+                tagger.cleanup()
+                logger.info(f"[{worker_id}] GPU resources released after failure")
+        except Exception as cleanup_err:
+            logger.warning(
+                f"[{worker_id}] Failed to cleanup GPU resources: {cleanup_err}"
+            )
+
         try:
             batch_manager.fail_batch(batch_id, str(e))
         except Exception:
@@ -382,8 +413,17 @@ def tagging_finalizer_task(
     worker_results: List[Dict[str, Any]],
     catalog_id: str,
     parent_job_id: str,
+    backend: str = "openclip",
+    model: Optional[str] = None,
+    threshold: float = 0.25,
+    max_tags: int = 10,
+    batch_size: int = 500,
 ) -> Dict[str, Any]:
-    """Finalizer that aggregates tagging results."""
+    """Finalizer that aggregates tagging results.
+
+    If there are failed batches, automatically queues a continuation job
+    to process remaining untagged images.
+    """
     finalizer_id = self.request.id or "unknown"
     logger.info(f"[{finalizer_id}] Starting finalizer for job {parent_job_id}")
 
@@ -406,6 +446,40 @@ def tagging_finalizer_task(
             if wr.get("status") == "completed"
         )
         failed_batches = sum(1 for wr in worker_results if wr.get("status") == "failed")
+
+        # If there were failed batches, auto-requeue to continue
+        if failed_batches >= CONSECUTIVE_FAILURE_THRESHOLD:
+            logger.warning(
+                f"[{finalizer_id}] {failed_batches} batches failed, auto-requeuing continuation"
+            )
+
+            # Requeue with the shared helper
+            cancel_and_requeue_job(
+                parent_job_id=parent_job_id,
+                catalog_id=catalog_id,
+                job_type="auto_tag",
+                task_name="tagging_coordinator",
+                task_kwargs={
+                    "catalog_id": catalog_id,
+                    "backend": backend,
+                    "model": model,
+                    "threshold": threshold,
+                    "max_tags": max_tags,
+                    "batch_size": batch_size,
+                    "tag_mode": "untagged_only",  # Always resume with untagged
+                },
+                reason=f"{failed_batches} batch failures",
+                processed_so_far=total_tagged,
+            )
+
+            return {
+                "status": "requeued",
+                "catalog_id": catalog_id,
+                "images_tagged": total_tagged,
+                "errors": total_errors,
+                "failed_batches": failed_batches,
+                "message": f"Job requeued due to {failed_batches} batch failures",
+            }
 
         final_result = {
             "status": "completed" if failed_batches == 0 else "completed_with_errors",

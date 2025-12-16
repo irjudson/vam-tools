@@ -267,6 +267,43 @@ class OpenCLIPBackend(TaggerBackend):
                 "OpenCLIP not installed. Install with: pip install open-clip-torch"
             ) from e
 
+    def cleanup(self) -> None:
+        """Release GPU resources and clean up model.
+
+        Call this after finishing a batch of work to free GPU memory
+        for other processes.
+        """
+        import gc
+
+        if self._model is not None:
+            # Delete model and associated data
+            del self._model
+            del self._preprocess
+            del self._tokenizer
+            if self._text_embeddings is not None:
+                del self._text_embeddings
+
+            self._model = None
+            self._preprocess = None
+            self._tokenizer = None
+            self._text_embeddings = None
+            self._tag_names = None
+
+            # Clear CUDA cache if using GPU
+            if self._device == "cuda":
+                try:
+                    import torch
+
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    logger.info("GPU memory freed")
+                except Exception as e:
+                    logger.warning(f"Failed to clear CUDA cache: {e}")
+
+            # Force garbage collection
+            gc.collect()
+            logger.info("OpenCLIP resources released")
+
     def _encode_tags(self, tag_names: List[str]) -> None:
         """Pre-encode tag names as text embeddings."""
         import torch
@@ -1037,6 +1074,15 @@ class ImageTagger:
             raise ValueError("describe_image only available with Ollama backend")
         return self._backend.describe_image(Path(image_path))
 
+    def cleanup(self) -> None:
+        """Release GPU resources.
+
+        Call this after finishing processing to free GPU memory for other tasks.
+        Only has an effect with OpenCLIP backend; Ollama uses external server.
+        """
+        if hasattr(self._backend, "cleanup"):
+            self._backend.cleanup()
+
 
 class CombinedTagger:
     """Combined tagger that runs both OpenCLIP and Ollama backends.
@@ -1272,6 +1318,14 @@ class CombinedTagger:
             768-dimensional embedding as list of floats (projected if needed)
         """
         return self._openclip.get_embedding(Path(image_path))
+
+    def cleanup(self) -> None:
+        """Release GPU resources from OpenCLIP backend.
+
+        Call this after finishing processing to free GPU memory for other tasks.
+        Ollama backend uses external server, so no cleanup needed for it.
+        """
+        self._openclip.cleanup()
 
 
 def check_backends_available() -> Dict[str, Any]:

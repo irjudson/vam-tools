@@ -34,7 +34,13 @@ from ..db.models import Job
 from ..shared.media_utils import get_file_type
 from ..shared.thumbnail_utils import generate_thumbnail, get_thumbnail_path
 from .celery_app import app
-from .coordinator import BatchManager, BatchResult, publish_job_progress
+from .coordinator import (
+    CONSECUTIVE_FAILURE_THRESHOLD,
+    BatchManager,
+    BatchResult,
+    cancel_and_requeue_job,
+    publish_job_progress,
+)
 from .progress_publisher import publish_completion, publish_progress
 from .scan_stats import ScanStatistics
 from .tasks import ProgressTask
@@ -300,6 +306,9 @@ def scan_coordinator_task(
         finalizer = scan_finalizer_task.s(
             catalog_id=catalog_id,
             parent_job_id=parent_job_id,
+            source_directories=source_directories,
+            generate_previews=generate_previews,
+            batch_size=batch_size,
         )
 
         # Execute the chord (sub-tasks in parallel, then finalizer)
@@ -541,6 +550,9 @@ def scan_finalizer_task(
     worker_results: List[Dict[str, Any]],
     catalog_id: str,
     parent_job_id: str,
+    source_directories: Optional[List[str]] = None,
+    generate_previews: bool = True,
+    batch_size: int = 1000,
 ) -> Dict[str, Any]:
     """
     Finalizer task that aggregates results after all workers complete.
@@ -551,11 +563,15 @@ def scan_finalizer_task(
     3. Updates catalog state
     4. Publishes completion to Redis
     5. Cleans up batch records
+    6. Auto-requeues if too many batches failed
 
     Args:
         worker_results: List of results from all worker tasks
         catalog_id: UUID of the catalog
         parent_job_id: Coordinator's task ID
+        source_directories: Original source directories for requeue
+        generate_previews: Whether workers generate thumbnails
+        batch_size: Number of files per batch
 
     Returns:
         Final aggregated results
@@ -657,6 +673,37 @@ def scan_finalizer_task(
             elif wr.get("status") == "failed":
                 failed_batches += 1
             # skipped batches are ignored
+
+        # If there were too many failed batches, auto-requeue to continue
+        if failed_batches >= CONSECUTIVE_FAILURE_THRESHOLD and source_directories:
+            logger.warning(
+                f"[{finalizer_id}] {failed_batches} batches failed, auto-requeuing continuation"
+            )
+
+            cancel_and_requeue_job(
+                parent_job_id=parent_job_id,
+                catalog_id=catalog_id,
+                job_type="scan",
+                task_name="scan_coordinator",
+                task_kwargs={
+                    "catalog_id": catalog_id,
+                    "source_directories": source_directories,
+                    "force_rescan": False,  # Don't clear, continue from where we left off
+                    "generate_previews": generate_previews,
+                    "batch_size": batch_size,
+                },
+                reason=f"{failed_batches} batch failures",
+                processed_so_far=total_success,
+            )
+
+            return {
+                "status": "requeued",
+                "catalog_id": catalog_id,
+                "files_added": total_success,
+                "errors": total_errors,
+                "failed_batches": failed_batches,
+                "message": f"Job requeued due to {failed_batches} batch failures",
+            }
 
         # Build final result
         final_result = {

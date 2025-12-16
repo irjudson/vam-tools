@@ -24,7 +24,7 @@ import logging
 import math
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from celery import chord, group
 from sqlalchemy import text
@@ -32,7 +32,13 @@ from sqlalchemy import text
 from ..db import CatalogDB as CatalogDatabase
 from ..db.models import Job
 from .celery_app import app
-from .coordinator import BatchManager, BatchResult, publish_job_progress
+from .coordinator import (
+    CONSECUTIVE_FAILURE_THRESHOLD,
+    BatchManager,
+    BatchResult,
+    cancel_and_requeue_job,
+    publish_job_progress,
+)
 from .progress_publisher import publish_completion, publish_progress
 from .tasks import ProgressTask
 
@@ -117,7 +123,7 @@ def duplicates_coordinator_task(
                     {"catalog_id": catalog_id},
                 )
             else:
-                # Only get images without perceptual hashes
+                # Only get images without perceptual hashes (dhash column)
                 assert db.session is not None
                 result = db.session.execute(
                     text(
@@ -125,7 +131,7 @@ def duplicates_coordinator_task(
                         SELECT id, source_path FROM images
                         WHERE catalog_id = :catalog_id
                         AND file_type = 'image'
-                        AND (perceptual_hash IS NULL OR perceptual_hash = '')
+                        AND (dhash IS NULL OR dhash = '')
                     """
                     ),
                     {"catalog_id": catalog_id},
@@ -267,7 +273,7 @@ def duplicates_hash_worker_task(
     parent_job_id: str,
 ) -> Dict[str, Any]:
     """Worker task that computes perceptual hashes for a batch of images."""
-    from ..analysis.perceptual_hash import dhash
+    from ..analysis.perceptual_hash import ahash, dhash, whash
 
     worker_id = self.request.id or "unknown"
     logger.info(f"[{worker_id}] Starting hash worker for batch {batch_id}")
@@ -308,27 +314,37 @@ def duplicates_hash_worker_task(
                         )
                         continue
 
-                    # Compute perceptual hash
-                    phash = dhash(path)
+                    # Compute all three perceptual hashes for maximum accuracy
+                    # dhash: gradient-based, good for edits
+                    # ahash: mean-based, fast, good for exact duplicates
+                    # whash: wavelet-based, most robust to transformations
+                    dhash_val = dhash(path)
+                    ahash_val = ahash(path)
+                    whash_val = whash(path)
 
-                    if phash:
-                        # Save hash to database
+                    if dhash_val or ahash_val or whash_val:
+                        # Save all hashes to database
                         assert db.session is not None
                         db.session.execute(
                             text(
                                 """
                                 UPDATE images
-                                SET perceptual_hash = :hash
+                                SET dhash = :dhash, ahash = :ahash, whash = :whash
                                 WHERE id = :image_id
                             """
                             ),
-                            {"image_id": image_id, "hash": phash},
+                            {
+                                "image_id": image_id,
+                                "dhash": dhash_val,
+                                "ahash": ahash_val,
+                                "whash": whash_val,
+                            },
                         )
                         result.success_count += 1
                     else:
                         result.error_count += 1
                         result.errors.append(
-                            {"image_id": image_id, "error": "Failed to compute hash"}
+                            {"image_id": image_id, "error": "Failed to compute hashes"}
                         )
 
                     result.processed_count += 1
@@ -415,12 +431,11 @@ def duplicates_comparison_phase_task(
             result = db.session.execute(
                 text(
                     """
-                    SELECT id, perceptual_hash, checksum, source_path, quality_score
+                    SELECT id, dhash, ahash, whash, checksum, source_path, quality_score
                     FROM images
                     WHERE catalog_id = :catalog_id
                     AND file_type = 'image'
-                    AND perceptual_hash IS NOT NULL
-                    AND perceptual_hash != ''
+                    AND (dhash IS NOT NULL OR ahash IS NOT NULL OR whash IS NOT NULL)
                 """
                 ),
                 {"catalog_id": catalog_id},
@@ -431,10 +446,12 @@ def duplicates_comparison_phase_task(
                 images.append(
                     {
                         "id": str(row[0]),
-                        "perceptual_hash": row[1],
-                        "checksum": row[2],
-                        "source_path": row[3],
-                        "quality_score": row[4] or 0.0,
+                        "dhash": row[1],
+                        "ahash": row[2],
+                        "whash": row[3],
+                        "checksum": row[4],
+                        "source_path": row[5],
+                        "quality_score": row[6] or 0.0,
                     }
                 )
 
@@ -497,6 +514,7 @@ def duplicates_comparison_phase_task(
             catalog_id=catalog_id,
             parent_job_id=parent_job_id,
             total_images=num_images,
+            similarity_threshold=similarity_threshold,
         )
 
         chord(group(comparison_tasks))(finalizer)
@@ -579,20 +597,40 @@ def duplicates_compare_worker_task(
                     )
                     continue
 
-                # Check perceptual similarity
-                if img_i["perceptual_hash"] and img_j["perceptual_hash"]:
-                    distance = _hamming_distance(
-                        img_i["perceptual_hash"], img_j["perceptual_hash"]
+                # Check perceptual similarity using all three hash types
+                # Consider similar if ANY hash matches (any match = potential duplicate)
+                dhash_similar = False
+                ahash_similar = False
+                whash_similar = False
+                best_distance = 999
+
+                if img_i["dhash"] and img_j["dhash"]:
+                    dhash_distance = _hamming_distance(img_i["dhash"], img_j["dhash"])
+                    dhash_similar = dhash_distance <= similarity_threshold
+                    best_distance = min(best_distance, dhash_distance)
+
+                if img_i["ahash"] and img_j["ahash"]:
+                    ahash_distance = _hamming_distance(img_i["ahash"], img_j["ahash"])
+                    ahash_similar = ahash_distance <= similarity_threshold
+                    best_distance = min(best_distance, ahash_distance)
+
+                # whash uses a slightly tighter threshold (more robust = stricter)
+                whash_threshold = max(1, similarity_threshold - 1)
+                if img_i["whash"] and img_j["whash"]:
+                    whash_distance = _hamming_distance(img_i["whash"], img_j["whash"])
+                    whash_similar = whash_distance <= whash_threshold
+                    best_distance = min(best_distance, whash_distance)
+
+                # Consider similar if any hash matches
+                if dhash_similar or ahash_similar or whash_similar:
+                    duplicate_pairs.append(
+                        {
+                            "image_1": img_i["id"],
+                            "image_2": img_j["id"],
+                            "type": "similar",
+                            "distance": best_distance,
+                        }
                     )
-                    if distance <= similarity_threshold:
-                        duplicate_pairs.append(
-                            {
-                                "image_1": img_i["id"],
-                                "image_2": img_j["id"],
-                                "type": "similar",
-                                "distance": distance,
-                            }
-                        )
 
         logger.info(
             f"[{worker_id}] Blocks ({block_i}, {block_j}): found {len(duplicate_pairs)} pairs"
@@ -623,8 +661,13 @@ def duplicates_finalizer_task(
     catalog_id: str,
     parent_job_id: str,
     total_images: int,
+    similarity_threshold: int = 5,
 ) -> Dict[str, Any]:
-    """Finalizer that builds and saves duplicate groups from comparison pairs."""
+    """Finalizer that builds and saves duplicate groups from comparison pairs.
+
+    If there are too many failed comparisons, automatically queues a continuation
+    job to retry the duplicate detection.
+    """
     finalizer_id = self.request.id or "unknown"
     logger.info(f"[{finalizer_id}] Starting finalizer for job {parent_job_id}")
 
@@ -675,55 +718,83 @@ def duplicates_finalizer_task(
                         row = query_result.fetchone()
                         image_quality[img_id] = row[0] if row and row[0] else 0.0
 
-        # Save groups to database
+        # Save groups to database using correct schema
+        # duplicate_groups: id (SERIAL), catalog_id, primary_image_id, similarity_type, confidence, reviewed
+        # duplicate_members: group_id, image_id, similarity_score
         total_duplicates = 0
+
+        # Build a mapping of image pairs to their best distance for similarity scores
+        pair_distances: Dict[tuple, int] = {}
+        for pair in all_pairs:
+            key = tuple(sorted([pair["image_1"], pair["image_2"]]))
+            dist = pair.get("distance", 0)
+            if key not in pair_distances or dist < pair_distances[key]:
+                pair_distances[key] = dist
+
         with CatalogDatabase(catalog_id) as db:
             for group_images in groups:
                 if len(group_images) < 2:
                     continue
 
-                group_id = str(uuid.uuid4())
-
                 # Select primary (highest quality)
                 primary_id = max(group_images, key=lambda x: image_quality.get(x, 0))
 
-                # Insert group
+                # Determine similarity type based on best distance in the group
+                group_distances = []
+                for i, img1 in enumerate(group_images):
+                    for img2 in group_images[i + 1 :]:
+                        key = tuple(sorted([img1, img2]))
+                        if key in pair_distances:
+                            group_distances.append(pair_distances[key])
+
+                best_distance = min(group_distances) if group_distances else 0
+                # exact = distance 0, similar = distance > 0
+                similarity_type = "exact" if best_distance == 0 else "perceptual"
+                # Confidence: 100 for exact, scale down for higher distances
+                confidence = max(0, 100 - best_distance * 10)
+
+                # Insert group and get the auto-generated ID
                 assert db.session is not None
-                db.session.execute(
+                result = db.session.execute(
                     text(
                         """
                         INSERT INTO duplicate_groups (
-                            id, catalog_id, primary_image_id, image_count, created_at
+                            catalog_id, primary_image_id, similarity_type, confidence, reviewed, created_at
                         ) VALUES (
-                            :id, :catalog_id, :primary_id, :count, NOW()
+                            :catalog_id, :primary_id, :similarity_type, :confidence, false, NOW()
                         )
+                        RETURNING id
                     """
                     ),
                     {
-                        "id": group_id,
                         "catalog_id": catalog_id,
                         "primary_id": primary_id,
-                        "count": len(group_images),
+                        "similarity_type": similarity_type,
+                        "confidence": confidence,
                     },
                 )
+                group_id = result.scalar()
 
-                # Update images with group membership
+                # Insert group members into duplicate_members table
                 for img_id in group_images:
-                    is_primary = img_id == primary_id
+                    # Calculate similarity score for this member
+                    key = tuple(sorted([primary_id, img_id]))
+                    member_distance = pair_distances.get(key, 0)
+                    # Convert distance to similarity score (0-100)
+                    similarity_score = max(0, 100 - member_distance * 10)
+
                     assert db.session is not None
                     db.session.execute(
                         text(
                             """
-                            UPDATE images
-                            SET duplicate_group_id = :group_id,
-                                is_duplicate_primary = :is_primary
-                            WHERE id = :image_id
+                            INSERT INTO duplicate_members (group_id, image_id, similarity_score)
+                            VALUES (:group_id, :image_id, :similarity_score)
                         """
                         ),
                         {
                             "group_id": group_id,
                             "image_id": img_id,
-                            "is_primary": is_primary,
+                            "similarity_score": similarity_score,
                         },
                     )
 
@@ -737,6 +808,37 @@ def duplicates_finalizer_task(
         failed_comparisons = sum(
             1 for r in comparison_results if r.get("status") == "failed"
         )
+
+        # If there were too many failed comparisons, auto-requeue to continue
+        if failed_comparisons >= CONSECUTIVE_FAILURE_THRESHOLD:
+            logger.warning(
+                f"[{finalizer_id}] {failed_comparisons} comparisons failed, auto-requeuing continuation"
+            )
+
+            cancel_and_requeue_job(
+                parent_job_id=parent_job_id,
+                catalog_id=catalog_id,
+                job_type="duplicates",
+                task_name="duplicates_coordinator",
+                task_kwargs={
+                    "catalog_id": catalog_id,
+                    "similarity_threshold": similarity_threshold,
+                    "recompute_hashes": False,  # Don't recompute, hashes are saved
+                    "batch_size": 1000,  # default batch size
+                },
+                reason=f"{failed_comparisons} comparison failures",
+                processed_so_far=len(groups),
+            )
+
+            return {
+                "status": "requeued",
+                "catalog_id": catalog_id,
+                "total_images": total_images,
+                "duplicate_groups": len(groups),
+                "total_duplicates": total_duplicates,
+                "failed_comparisons": failed_comparisons,
+                "message": f"Job requeued due to {failed_comparisons} comparison failures",
+            }
 
         final_result = {
             "status": (

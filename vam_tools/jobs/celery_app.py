@@ -14,9 +14,8 @@ logger = logging.getLogger(__name__)
 # Create Celery app
 app = Celery("vam_tools")
 
-# Load configuration
-config = get_celery_config()
-app.config_from_object(config)
+# Load configuration from dict
+app.conf.update(get_celery_config())
 
 # Explicitly import tasks to avoid circular dependency issues
 from .tasks import analyze_catalog_task, generate_thumbnails_task, organize_catalog_task

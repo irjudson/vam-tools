@@ -302,7 +302,7 @@
                         :key="image.id"
                         class="thumbnail"
                         :class="{'selected': isImageSelected(image.id)}"
-                        @click="openLightbox(index)"
+                        @click="openEditMode(index)"
                     >
                         <img
                             :src="getThumbnailUrl(image)"
@@ -345,6 +345,182 @@
                     <button @click="loadImages(false)" class="btn-secondary">
                         Load More ({{ formatNumber(imagesTotal - images.length) }} remaining)
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Mode View -->
+        <div v-if="currentView === 'edit'" class="edit-mode-container">
+            <!-- Edit Mode Toolbar -->
+            <div class="edit-toolbar">
+                <div class="edit-toolbar-left">
+                    <button @click="closeEditMode" class="btn-icon" title="Back to Library (Esc)">
+                        <span>&larr;</span> Back
+                    </button>
+                    <button @click="editPrevImage" :disabled="lightboxImageIndex === 0" class="btn-icon" title="Previous (Left Arrow)">
+                        <span>&larr;</span>
+                    </button>
+                    <button @click="editNextImage" :disabled="lightboxImageIndex >= images.length - 1" class="btn-icon" title="Next (Right Arrow)">
+                        <span>&rarr;</span>
+                    </button>
+                </div>
+                <div class="edit-toolbar-center">
+                    <span class="edit-filename" v-if="editMode.image">{{ editMode.image.source_path.split('/').pop() }}</span>
+                </div>
+                <div class="edit-toolbar-right">
+                    <button @click="saveEdits" :disabled="!editMode.hasChanges || editMode.loading" class="btn-primary btn-small" title="Save (Ctrl+S)">
+                        {{ editMode.loading ? 'Saving...' : 'Save' }}
+                    </button>
+                </div>
+            </div>
+
+            <div class="edit-content">
+                <!-- Main Image Area -->
+                <div class="edit-image-area"
+                     @wheel.prevent="handleEditModeWheel"
+                     @mousedown="startPan"
+                     @dblclick="editMode.zoom === 'fit' ? setZoom('100') : setZoom('fit')">
+                    <div v-if="editMode.loading" class="edit-loading">
+                        <div class="spinner"></div>
+                    </div>
+                    <img v-else
+                         :src="getEditModeImageUrl()"
+                         :style="getEditModeImageStyle()"
+                         class="edit-image"
+                         :class="{ 'zoom-fit': editMode.zoom === 'fit', 'pannable': editMode.zoomLevel > 1 }"
+                         alt="Edit view" />
+                </div>
+
+                <!-- Right Info Panel -->
+                <div class="edit-info-panel">
+                    <!-- File Info Section -->
+                    <div class="edit-panel-section">
+                        <h4>File Info</h4>
+                        <div v-if="editMode.image" class="edit-info-list">
+                            <div class="edit-info-row">
+                                <span class="edit-info-label">Filename</span>
+                                <span class="edit-info-value">{{ editMode.image.source_path.split('/').pop() }}</span>
+                            </div>
+                            <div class="edit-info-row">
+                                <span class="edit-info-label">Size</span>
+                                <span class="edit-info-value">{{ formatFileSize(editMode.image.size_bytes) }}</span>
+                            </div>
+                            <div class="edit-info-row" v-if="editMode.image.metadata_json?.width">
+                                <span class="edit-info-label">Dimensions</span>
+                                <span class="edit-info-value">{{ editMode.image.metadata_json.width }} x {{ editMode.image.metadata_json.height }}</span>
+                            </div>
+                            <div class="edit-info-row">
+                                <span class="edit-info-label">Type</span>
+                                <span class="edit-info-value">{{ editMode.image.file_type }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Histogram Section -->
+                    <div class="edit-panel-section">
+                        <h4>Histogram</h4>
+                        <div v-if="editMode.histogramLoading" class="histogram-loading">
+                            <div class="spinner-small"></div>
+                            <span>Loading...</span>
+                        </div>
+                        <div v-else-if="editMode.histogramError" class="text-muted" style="font-size: 11px; line-height: 1.4;">
+                            {{ editMode.histogramError }}
+                        </div>
+                        <div v-else-if="editMode.histogram" class="histogram-container">
+                            <canvas ref="histogramCanvas" width="200" height="80" class="histogram-canvas"></canvas>
+                        </div>
+                        <div v-else class="text-muted">No histogram data</div>
+                    </div>
+
+                    <!-- Metadata Section -->
+                    <div class="edit-panel-section">
+                        <h4>Metadata</h4>
+                        <div v-if="editMode.image && editMode.image.metadata_json" class="edit-info-list">
+                            <div class="edit-info-row" v-if="editMode.image.metadata_json.camera_make">
+                                <span class="edit-info-label">Camera</span>
+                                <span class="edit-info-value">{{ editMode.image.metadata_json.camera_make }} {{ editMode.image.metadata_json.camera_model }}</span>
+                            </div>
+                            <div class="edit-info-row" v-if="editMode.image.metadata_json.lens_model">
+                                <span class="edit-info-label">Lens</span>
+                                <span class="edit-info-value">{{ editMode.image.metadata_json.lens_model }}</span>
+                            </div>
+                            <div class="edit-info-row" v-if="editMode.image.metadata_json.focal_length">
+                                <span class="edit-info-label">Focal Length</span>
+                                <span class="edit-info-value">{{ editMode.image.metadata_json.focal_length }}mm</span>
+                            </div>
+                            <div class="edit-info-row" v-if="editMode.image.metadata_json.aperture">
+                                <span class="edit-info-label">Aperture</span>
+                                <span class="edit-info-value">f/{{ editMode.image.metadata_json.aperture }}</span>
+                            </div>
+                            <div class="edit-info-row" v-if="editMode.image.metadata_json.shutter_speed">
+                                <span class="edit-info-label">Shutter</span>
+                                <span class="edit-info-value">{{ editMode.image.metadata_json.shutter_speed }}</span>
+                            </div>
+                            <div class="edit-info-row" v-if="editMode.image.metadata_json.iso">
+                                <span class="edit-info-label">ISO</span>
+                                <span class="edit-info-value">{{ editMode.image.metadata_json.iso }}</span>
+                            </div>
+                            <div class="edit-info-row" v-if="editMode.image.dates?.best">
+                                <span class="edit-info-label">Date Taken</span>
+                                <span class="edit-info-value">{{ formatDate(editMode.image.dates.best) }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Transforms Section -->
+                    <div class="edit-panel-section">
+                        <h4>Transforms</h4>
+                        <div class="transform-controls">
+                            <div class="transform-row">
+                                <button @click="rotateImage(-90)" class="btn-transform" title="Rotate Left (Shift+R)">
+                                    <span>&#x21BA;</span> -90
+                                </button>
+                                <button @click="rotateImage(90)" class="btn-transform" title="Rotate Right (R)">
+                                    <span>&#x21BB;</span> +90
+                                </button>
+                            </div>
+                            <div class="transform-row">
+                                <button @click="flipImageH" class="btn-transform" :class="{ active: editMode.transforms.flip_h }" title="Flip Horizontal (H)">
+                                    <span>&#x2194;</span> Flip H
+                                </button>
+                                <button @click="flipImageV" class="btn-transform" :class="{ active: editMode.transforms.flip_v }" title="Flip Vertical (V)">
+                                    <span>&#x2195;</span> Flip V
+                                </button>
+                            </div>
+                            <div class="transform-status" v-if="editMode.transforms.rotation !== 0 || editMode.transforms.flip_h || editMode.transforms.flip_v">
+                                <span v-if="editMode.transforms.rotation !== 0">{{ editMode.transforms.rotation }}deg</span>
+                                <span v-if="editMode.transforms.flip_h">FlipH</span>
+                                <span v-if="editMode.transforms.flip_v">FlipV</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Actions Section -->
+                    <div class="edit-panel-section">
+                        <h4>Actions</h4>
+                        <div class="edit-actions">
+                            <button @click="resetEdits" :disabled="!editMode.hasChanges && !editMode.transforms.rotation && !editMode.transforms.flip_h && !editMode.transforms.flip_v" class="btn-secondary btn-small btn-full">
+                                Reset Edits
+                            </button>
+                            <button @click="exportXMP" class="btn-secondary btn-small btn-full" title="Export as XMP sidecar for Darktable">
+                                Export XMP
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Edit Mode Footer -->
+            <div class="edit-footer">
+                <div class="zoom-controls">
+                    <button @click="zoomOut" class="btn-icon btn-small" title="Zoom Out (-)">-</button>
+                    <span class="zoom-level">{{ Math.round(editMode.zoomLevel * 100) }}%</span>
+                    <button @click="zoomIn" class="btn-icon btn-small" title="Zoom In (+)">+</button>
+                    <button @click="setZoom('fit')" class="btn-small" :class="{ active: editMode.zoom === 'fit' }" title="Fit to screen (0)">Fit</button>
+                    <button @click="setZoom('100')" class="btn-small" :class="{ active: editMode.zoom === '100' }" title="Actual size (1)">1:1</button>
+                </div>
+                <div class="edit-nav-info">
+                    {{ lightboxImageIndex + 1 }} / {{ images.length }}
                 </div>
             </div>
         </div>
@@ -1459,35 +1635,24 @@
                         <span class="collapse-icon">{{ sections.quickActions ? '▼' : '▶' }}</span>
                     </div>
                     <div class="panel-section-content" v-show="sections.quickActions">
-                        <div class="quick-actions">
-                            <button class="quick-action-btn" @click="startScan" :disabled="!currentCatalog" title="Scan directories for new files">
-                                <span class="action-icon">📂</span>
-                                <span class="action-label">Scan</span>
-                            </button>
-                            <button class="quick-action-btn" @click="startAutoTag" :disabled="!currentCatalog" title="Auto-tag images with AI">
-                                <span class="action-icon">🏷️</span>
-                                <span class="action-label">Tag</span>
-                            </button>
-                            <button class="quick-action-btn" @click="startFindDuplicates" :disabled="!currentCatalog" title="Find duplicate files">
-                                <span class="action-icon">🔍</span>
-                                <span class="action-label">Dupes</span>
-                            </button>
-                            <button class="quick-action-btn" @click="startBurstDetection" :disabled="!currentCatalog" title="Detect burst photo sequences">
-                                <span class="action-icon">📸</span>
-                                <span class="action-label">Bursts</span>
-                            </button>
-                            <button class="quick-action-btn" @click="startGenerateThumbnails" :disabled="!currentCatalog" title="Generate missing thumbnails">
-                                <span class="action-icon">🖼️</span>
-                                <span class="action-label">Thumbs</span>
-                            </button>
-                            <button class="quick-action-btn" @click="startAnalyzeCatalog" :disabled="!currentCatalog" title="Analyze catalog (extract EXIF, embeddings)">
-                                <span class="action-icon">📊</span>
-                                <span class="action-label">Analyze</span>
-                            </button>
-                            <button class="quick-action-btn" @click="startGenerateDescriptions" :disabled="!currentCatalog" title="Generate AI descriptions with Ollama (slow, serial)">
-                                <span class="action-icon">📝</span>
-                                <span class="action-label">Describe</span>
-                            </button>
+                        <div class="action-tree">
+                            <div v-for="action in quickActions" :key="action.id"
+                                 class="action-tree-item"
+                                 :class="{ expanded: expandedAction === action.id, disabled: !currentCatalog }">
+                                <div class="action-tree-header" @click="toggleAction(action.id)">
+                                    <span class="action-tree-icon">{{ action.icon }}</span>
+                                    <span class="action-tree-label">{{ action.label }}</span>
+                                    <span class="action-tree-chevron">{{ expandedAction === action.id ? '▼' : '▶' }}</span>
+                                </div>
+                                <div class="action-tree-content" v-show="expandedAction === action.id">
+                                    <p class="action-tree-description">{{ action.description }}</p>
+                                    <button class="action-tree-run-btn"
+                                            @click.stop="runAction(action)"
+                                            :disabled="!currentCatalog">
+                                        Run
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1511,7 +1676,10 @@
                                     <span :class="['status-badge', getJobStatusClass(job.status)]">
                                         {{ formatJobStatus(job.status) }}
                                     </span>
-                                    <button class="job-dismiss-btn" @click.stop="dismissJob(job.id)" title="Dismiss job">x</button>
+                                    <div class="job-actions">
+                                        <button class="job-action-btn job-cancel-btn" @click.stop="cancelJob(job.id)" title="Cancel job (graceful)">Cancel</button>
+                                        <button class="job-action-btn job-kill-btn" @click.stop="killJob(job.id)" title="Kill job (force terminate)">Kill</button>
+                                    </div>
                                 </div>
                                 <!-- Progress bar and message - always visible -->
                                 <div class="panel-job-progress">
@@ -1554,7 +1722,7 @@
                                         <span :class="['status-badge', getJobStatusClass(job.status)]">
                                             {{ formatJobStatus(job.status) }}
                                         </span>
-                                        <button class="job-delete-btn" @click.stop="deleteJob(job.id)" title="Delete job from history">x</button>
+                                        <button class="job-action-btn job-delete-btn" @click.stop="deleteJob(job.id)" title="Delete job from history">Delete</button>
                                     </div>
                                     <div class="panel-job-meta">
                                         <span class="job-date">{{ formatDate(job.started) }}</span>

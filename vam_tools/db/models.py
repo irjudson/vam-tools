@@ -104,6 +104,7 @@ class Image(Base):
     # Perceptual hashes for duplicate detection
     dhash = Column(Text)
     ahash = Column(Text)
+    whash = Column(Text)  # Wavelet hash - most robust to transformations
 
     # Geohash columns for spatial queries (populated for images with GPS)
     geohash_4 = Column(String(4))  # ~39km precision (country view)
@@ -137,6 +138,15 @@ class Image(Base):
 
     # AI-generated description from Ollama vision model
     description = Column(Text)
+
+    # Non-destructive edit data (transforms, crop, adjustments)
+    # Structure: {
+    #   "version": 1,
+    #   "transforms": {"rotation": 0, "flip_h": false, "flip_v": false},
+    #   "crop": null,  # Future: {x, y, width, height}
+    #   "adjustments": null,  # Future: {exposure, contrast, saturation}
+    # }
+    edit_data = Column(JSONB, nullable=True, default=None)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

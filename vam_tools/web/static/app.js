@@ -188,6 +188,80 @@ createApp({
             bursts: [],
             currentBurst: null,
             showBurstModal: false,
+
+            // Edit Mode
+            editMode: {
+                imageId: null,
+                image: null,
+                zoom: 'fit',
+                zoomLevel: 1,
+                panX: 0,
+                panY: 0,
+                transforms: {
+                    rotation: 0,
+                    flip_h: false,
+                    flip_v: false
+                },
+                hasChanges: false,
+                loading: false,
+                histogram: null,
+                histogramLoading: false,
+                histogramError: null
+            },
+
+            // Quick Actions Tree
+            expandedAction: null,
+            quickActions: [
+                {
+                    id: 'scan',
+                    icon: '📂',
+                    label: 'Scan Directories',
+                    description: 'Scan configured source directories for new image and video files. Adds new files to the catalog and extracts basic metadata.',
+                    handler: 'startScan'
+                },
+                {
+                    id: 'thumbnails',
+                    icon: '🖼️',
+                    label: 'Generate Thumbnails',
+                    description: 'Generate missing thumbnails for all images in the catalog. Thumbnails are created at 200x200px for fast browsing.',
+                    handler: 'startGenerateThumbnails'
+                },
+                {
+                    id: 'analyze',
+                    icon: '📊',
+                    label: 'Analyze Catalog',
+                    description: 'Extract EXIF metadata, generate perceptual hashes, and create CLIP embeddings for similarity search. Required before duplicate detection.',
+                    handler: 'startAnalyzeCatalog'
+                },
+                {
+                    id: 'tag',
+                    icon: '🏷️',
+                    label: 'Auto-Tag Images',
+                    description: 'Use AI (OpenCLIP or Ollama) to automatically generate descriptive tags for images. Tags enable powerful filtering and search.',
+                    handler: 'startAutoTag'
+                },
+                {
+                    id: 'describe',
+                    icon: '📝',
+                    label: 'Generate Descriptions',
+                    description: 'Use Ollama vision models to generate natural language descriptions for images. Slow (~3s/image) but enables semantic search.',
+                    handler: 'startGenerateDescriptions'
+                },
+                {
+                    id: 'duplicates',
+                    icon: '🔍',
+                    label: 'Find Duplicates',
+                    description: 'Detect duplicate and near-duplicate images using perceptual hashing. Requires Analyze step first. Groups similar images for review.',
+                    handler: 'startFindDuplicates'
+                },
+                {
+                    id: 'bursts',
+                    icon: '📸',
+                    label: 'Detect Bursts',
+                    description: 'Find burst photo sequences (rapid consecutive shots). Helps identify sets where you can keep the best and archive the rest.',
+                    handler: 'startBurstDetection'
+                }
+            ],
         };
     },
 
@@ -220,9 +294,9 @@ createApp({
         },
 
         activeJobs() {
-            // Only truly active jobs (PENDING or PROGRESS)
+            // Only truly active jobs (queued or running)
             return this.jobs.filter(job =>
-                job.status === 'PENDING' || job.status === 'PROGRESS'
+                job.status === 'queued' || job.status === 'running'
             );
         },
 
@@ -231,9 +305,9 @@ createApp({
         },
 
         completedJobs() {
-            // Terminal states: SUCCESS, FAILURE, REVOKED
+            // Terminal states: completed, failed, killed
             return this.jobs.filter(job =>
-                job.status === 'SUCCESS' || job.status === 'FAILURE' || job.status === 'REVOKED'
+                job.status === 'completed' || job.status === 'failed' || job.status === 'killed'
             );
         },
 
@@ -282,6 +356,18 @@ createApp({
         // Panel toggle for collapsible sections
         toggleSection(section) {
             this.sections[section] = !this.sections[section];
+        },
+
+        // Toggle quick action expansion
+        toggleAction(actionId) {
+            this.expandedAction = this.expandedAction === actionId ? null : actionId;
+        },
+
+        // Run a quick action by handler name
+        runAction(action) {
+            if (this[action.handler]) {
+                this[action.handler]();
+            }
         },
 
         // Keyboard shortcut handler for panel toggles
@@ -562,9 +648,9 @@ createApp({
                             // Progress hasn't changed, check if stuck
                             const timeSinceUpdate = now - tracking.lastUpdateTime;
                             if (timeSinceUpdate > this.STUCK_JOB_TIMEOUT) {
-                                console.warn(`Job ${jobId} appears stuck (no progress for ${Math.round(timeSinceUpdate/1000/60)} minutes), auto-revoking`);
-                                this.addNotification(`Job ${this.jobMetadata[jobId]?.name || jobId} stuck - auto-canceling`, 'warning');
-                                await this.revokeJob(jobId, true); // Force terminate
+                                console.warn(`Job ${jobId} appears stuck (no progress for ${Math.round(timeSinceUpdate/1000/60)} minutes), auto-killing`);
+                                this.addNotification(`Job ${this.jobMetadata[jobId]?.name || jobId} stuck - auto-killing`, 'warning');
+                                await this.forceKillJobInternal(jobId); // Force terminate without confirmation
                                 return;
                             }
                         }
@@ -616,12 +702,14 @@ createApp({
                 };
 
                 // Close WebSocket if job is done
-                if (update.status === 'SUCCESS' || update.status === 'FAILURE') {
+                if (update.status === 'completed' || update.status === 'failed' || update.status === 'killed') {
                     this.disconnectJobWebSocket(jobId);
 
                     // Show notification (no auto-collapse)
-                    if (update.status === 'SUCCESS') {
+                    if (update.status === 'completed') {
                         this.addNotification(`Job ${jobId.substring(0, 8)} completed successfully`, 'success');
+                    } else if (update.status === 'killed') {
+                        this.addNotification(`Job ${jobId.substring(0, 8)} was killed`, 'warning');
                     } else {
                         this.addNotification(`Job ${jobId.substring(0, 8)} failed`, 'error');
                     }
@@ -674,41 +762,24 @@ createApp({
             console.log(`Removed job ${jobId} from tracked jobs`);
         },
 
-        async dismissJob(jobId) {
-            // Revoke job on server (non-terminating) and remove from UI
+        async cancelJob(jobId) {
+            // Cancel job gracefully - marks as REVOKED in DB, doesn't force terminate workers
+            const jobName = this.jobMetadata[jobId]?.name || jobId.substring(0, 8);
+            if (!confirm(`Cancel job "${jobName}"?\n\nThis will stop queued work but allow running tasks to finish.`)) {
+                return;
+            }
+
             try {
                 await axios.delete(`/api/jobs/${jobId}`, {
                     params: { terminate: false }
-                });
-            } catch (error) {
-                // Ignore errors - job may already be gone
-                console.log(`Could not revoke job ${jobId}:`, error.message);
-            }
-            // Always remove from UI
-            this.removeJob(jobId);
-        },
-
-        async revokeJob(jobId, terminate = false) {
-            // Require confirmation for terminate=true (kills running tasks)
-            if (terminate) {
-                const jobName = this.jobMetadata[jobId]?.name || jobId.substring(0, 8);
-                if (!confirm(`Are you sure you want to forcefully terminate job "${jobName}"?\n\nThis will kill all running tasks immediately.`)) {
-                    return;
-                }
-            }
-
-            try {
-                await axios.delete(`/api/jobs/${jobId}`, {
-                    params: { terminate }
                 });
 
                 // Remove from tracked jobs
                 this.removeJob(jobId);
 
-                const jobName = this.jobMetadata[jobId]?.name || jobId.substring(0, 8);
-                this.addNotification(`Job ${jobName} canceled`, 'info');
+                this.addNotification(`Job ${jobName} cancelled`, 'info');
             } catch (error) {
-                console.error(`Failed to revoke job ${jobId}:`, error);
+                console.error(`Failed to cancel job ${jobId}:`, error);
                 this.addNotification('Failed to cancel job', 'error');
             }
         },
@@ -904,7 +975,7 @@ createApp({
                     const response = await axios.get(`/api/jobs/${jobId}`);
                     const status = response.data.status;
 
-                    if (status === 'SUCCESS' || status === 'success') {
+                    if (status === 'completed') {
                         clearInterval(checkInterval);
 
                         // Continue to next step based on job type
@@ -927,7 +998,7 @@ createApp({
                                 }
                             });
                         }
-                    } else if (status === 'FAILURE' || status === 'failure') {
+                    } else if (status === 'failed' || status === 'killed') {
                         clearInterval(checkInterval);
                         this.addNotification('Pipeline stopped: previous job failed', 'error');
                     }
@@ -966,22 +1037,22 @@ createApp({
 
         getJobStatusClass(status) {
             const statusClasses = {
-                'PENDING': 'status-pending',
-                'STARTED': 'status-progress',
-                'PROGRESS': 'status-progress',
-                'SUCCESS': 'status-success',
-                'FAILURE': 'status-failure'
+                'queued': 'status-pending',
+                'running': 'status-progress',
+                'completed': 'status-success',
+                'failed': 'status-failure',
+                'killed': 'status-killed'
             };
             return statusClasses[status] || 'status-unknown';
         },
 
         formatJobStatus(status) {
             const statusLabels = {
-                'PENDING': 'Queued',
-                'STARTED': 'Running',
-                'PROGRESS': 'Running',
-                'SUCCESS': 'Completed',
-                'FAILURE': 'Failed'
+                'queued': 'Queued',
+                'running': 'Running',
+                'completed': 'Completed',
+                'failed': 'Failed',
+                'killed': 'Killed'
             };
             return statusLabels[status] || status;
         },
@@ -1027,14 +1098,24 @@ createApp({
         },
 
         // Job control methods
-        async cancelJob(jobId) {
-            // Cancel job (soft revoke - marks as REVOKED in DB)
-            await this.revokeJob(jobId, false);
+        async forceKillJobInternal(jobId) {
+            // Internal method - force kill without confirmation (used for stuck job auto-cleanup)
+            const jobName = this.jobMetadata[jobId]?.name || jobId.substring(0, 8);
+            try {
+                await axios.delete(`/api/jobs/${jobId}`, {
+                    params: { terminate: true, force: true }
+                });
+                this.removeJob(jobId);
+                this.addNotification(`Job ${jobName} killed`, 'warning');
+            } catch (error) {
+                console.error(`Failed to force kill job ${jobId}:`, error);
+            }
         },
 
         async killJob(jobId) {
-            // Kill job (terminate + force delete from DB)
-            if (!confirm('Force kill this job? This will terminate it and remove it from the database.')) {
+            // Kill job (terminate + force delete from DB) - with confirmation
+            const jobName = this.jobMetadata[jobId]?.name || jobId.substring(0, 8);
+            if (!confirm(`Kill job "${jobName}"?\n\nThis will terminate all running tasks immediately and remove the job from history.`)) {
                 return;
             }
 
@@ -1046,8 +1127,7 @@ createApp({
                 // Remove from tracked jobs
                 this.removeJob(jobId);
 
-                const jobName = this.jobMetadata[jobId]?.name || jobId.substring(0, 8);
-                this.addNotification(`Job ${jobName} killed and removed`, 'success');
+                this.addNotification(`Job ${jobName} killed`, 'success');
             } catch (error) {
                 console.error(`Failed to kill job ${jobId}:`, error);
                 this.addNotification('Failed to kill job', 'error');
@@ -1431,7 +1511,15 @@ createApp({
 
         getThumbnailUrl(image) {
             if (!this.currentCatalog) return '';
-            return `/api/catalogs/${this.currentCatalog.id}/images/${image.id}/thumbnail?size=${this.thumbnailSize}`;
+            let url = `/api/catalogs/${this.currentCatalog.id}/images/${image.id}/thumbnail?size=${this.thumbnailSize}`;
+
+            // Add cache-busting parameter if image has been edited
+            // This ensures browser fetches the new transformed thumbnail
+            if (image.updated_at) {
+                url += `&v=${new Date(image.updated_at).getTime()}`;
+            }
+
+            return url;
         },
 
         toggleImageSelection(imageId) {
@@ -2230,6 +2318,429 @@ createApp({
             return burst;
         },
 
+        // =====================================================================
+        // Edit Mode Methods
+        // =====================================================================
+
+        async openEditMode(imageIndex) {
+            const image = this.images[imageIndex];
+            if (!image || !this.currentCatalog) return;
+
+            // Store the index for prev/next navigation
+            this.lightboxImageIndex = imageIndex;
+
+            // Reset edit mode state
+            this.editMode.imageId = image.id;
+            this.editMode.image = image;
+            this.editMode.zoom = 'fit';
+            this.editMode.zoomLevel = 1;
+            this.editMode.panX = 0;
+            this.editMode.panY = 0;
+            this.editMode.hasChanges = false;
+            this.editMode.loading = true;
+            this.editMode.histogram = null;
+
+            // Switch to edit view
+            this.currentView = 'edit';
+
+            // Load existing edit data from server
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/images/${image.id}/edit`
+                );
+                this.editMode.transforms = response.data.transforms || {
+                    rotation: 0,
+                    flip_h: false,
+                    flip_v: false
+                };
+            } catch (error) {
+                console.error('Failed to load edit data:', error);
+                this.editMode.transforms = {
+                    rotation: 0,
+                    flip_h: false,
+                    flip_v: false
+                };
+            }
+
+            this.editMode.loading = false;
+
+            // Load histogram in background
+            this.loadHistogram();
+
+            // Add keyboard listener
+            this._boundEditModeKeydown = this.handleEditModeKeydown.bind(this);
+            document.addEventListener('keydown', this._boundEditModeKeydown);
+        },
+
+        closeEditMode() {
+            // Check for unsaved changes
+            if (this.editMode.hasChanges) {
+                if (!confirm('You have unsaved changes. Discard them?')) {
+                    return;
+                }
+            }
+
+            // Remove keyboard listener
+            if (this._boundEditModeKeydown) {
+                document.removeEventListener('keydown', this._boundEditModeKeydown);
+                this._boundEditModeKeydown = null;
+            }
+
+            // Reset state and go back to browse
+            this.editMode.imageId = null;
+            this.editMode.image = null;
+            this.currentView = 'browse';
+        },
+
+        async loadHistogram() {
+            if (!this.currentCatalog || !this.editMode.imageId) {
+                console.log('[Histogram] No catalog or imageId');
+                return;
+            }
+
+            console.log('[Histogram] Loading histogram for image:', this.editMode.imageId);
+            this.editMode.histogramLoading = true;
+            this.editMode.histogramError = null;
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/images/${this.editMode.imageId}/histogram`
+                );
+                console.log('[Histogram] Data loaded:', response.data);
+                this.editMode.histogram = response.data;
+                // Render histogram after DOM updates
+                this.$nextTick(() => {
+                    console.log('[Histogram] Rendering...');
+                    this.renderHistogram();
+                });
+            } catch (error) {
+                console.error('[Histogram] Failed to load:', error);
+                this.editMode.histogram = null;
+                // Extract error message from response
+                if (error.response?.data?.detail) {
+                    this.editMode.histogramError = error.response.data.detail;
+                } else {
+                    this.editMode.histogramError = 'Failed to load histogram';
+                }
+            }
+            this.editMode.histogramLoading = false;
+        },
+
+        getEditModeImageUrl() {
+            if (!this.currentCatalog || !this.editMode.imageId) return '';
+            return `/api/catalogs/${this.currentCatalog.id}/images/${this.editMode.imageId}/full`;
+        },
+
+        getEditModeImageStyle() {
+            const style = {};
+            const transforms = [];
+
+            // Apply zoom
+            if (this.editMode.zoomLevel !== 1) {
+                transforms.push(`scale(${this.editMode.zoomLevel})`);
+            }
+
+            // Apply pan
+            if (this.editMode.panX !== 0 || this.editMode.panY !== 0) {
+                transforms.push(`translate(${this.editMode.panX}px, ${this.editMode.panY}px)`);
+            }
+
+            // Apply rotation (preview only, not saved to server yet)
+            if (this.editMode.transforms.rotation !== 0) {
+                transforms.push(`rotate(${this.editMode.transforms.rotation}deg)`);
+            }
+
+            // Apply flips
+            const scaleX = this.editMode.transforms.flip_h ? -1 : 1;
+            const scaleY = this.editMode.transforms.flip_v ? -1 : 1;
+            if (scaleX !== 1 || scaleY !== 1) {
+                transforms.push(`scale(${scaleX}, ${scaleY})`);
+            }
+
+            if (transforms.length > 0) {
+                style.transform = transforms.join(' ');
+            }
+
+            return style;
+        },
+
+        // Transform controls
+        rotateImage(degrees) {
+            this.editMode.transforms.rotation = (this.editMode.transforms.rotation + degrees + 360) % 360;
+            this.editMode.hasChanges = true;
+        },
+
+        flipImageH() {
+            this.editMode.transforms.flip_h = !this.editMode.transforms.flip_h;
+            this.editMode.hasChanges = true;
+        },
+
+        flipImageV() {
+            this.editMode.transforms.flip_v = !this.editMode.transforms.flip_v;
+            this.editMode.hasChanges = true;
+        },
+
+        // Zoom controls
+        setZoom(level) {
+            if (level === 'fit') {
+                this.editMode.zoom = 'fit';
+                this.editMode.zoomLevel = 1;
+                this.editMode.panX = 0;
+                this.editMode.panY = 0;
+            } else if (level === '100') {
+                this.editMode.zoom = '100';
+                this.editMode.zoomLevel = 1;
+            } else {
+                this.editMode.zoomLevel = parseFloat(level) || 1;
+                this.editMode.zoom = 'custom';
+            }
+        },
+
+        zoomIn() {
+            this.editMode.zoomLevel = Math.min(this.editMode.zoomLevel * 1.25, 8);
+            this.editMode.zoom = 'custom';
+        },
+
+        zoomOut() {
+            this.editMode.zoomLevel = Math.max(this.editMode.zoomLevel / 1.25, 0.1);
+            this.editMode.zoom = 'custom';
+        },
+
+        handleEditModeWheel(event) {
+            event.preventDefault();
+            if (event.deltaY < 0) {
+                this.zoomIn();
+            } else {
+                this.zoomOut();
+            }
+        },
+
+        // Pan controls
+        startPan(event) {
+            if (this.editMode.zoomLevel <= 1) return;
+
+            this._isPanning = true;
+            this._panStartX = event.clientX - this.editMode.panX;
+            this._panStartY = event.clientY - this.editMode.panY;
+
+            document.addEventListener('mousemove', this._handlePanMove = (e) => {
+                if (!this._isPanning) return;
+                this.editMode.panX = e.clientX - this._panStartX;
+                this.editMode.panY = e.clientY - this._panStartY;
+            });
+
+            document.addEventListener('mouseup', this._handlePanEnd = () => {
+                this._isPanning = false;
+                document.removeEventListener('mousemove', this._handlePanMove);
+                document.removeEventListener('mouseup', this._handlePanEnd);
+            });
+        },
+
+        // Save and reset
+        async saveEdits() {
+            if (!this.currentCatalog || !this.editMode.imageId) return;
+
+            this.editMode.loading = true;
+            try {
+                await axios.put(
+                    `/api/catalogs/${this.currentCatalog.id}/images/${this.editMode.imageId}/edit`,
+                    {
+                        version: 1,
+                        transforms: this.editMode.transforms
+                    }
+                );
+                this.editMode.hasChanges = false;
+
+                // Update the image in our local array to trigger thumbnail refresh
+                // Find and update the image's updated_at timestamp
+                const imageIndex = this.images.findIndex(img => img.id === this.editMode.imageId);
+                if (imageIndex !== -1) {
+                    // Update updated_at to current time to bust cache
+                    this.images[imageIndex].updated_at = new Date().toISOString();
+                }
+
+                this.addNotification('Edits saved', 'success');
+            } catch (error) {
+                console.error('Failed to save edits:', error);
+                this.addNotification('Failed to save edits', 'error');
+            }
+            this.editMode.loading = false;
+        },
+
+        async resetEdits() {
+            if (!confirm('Reset all edits to original?')) return;
+
+            if (!this.currentCatalog || !this.editMode.imageId) return;
+
+            this.editMode.loading = true;
+            try {
+                await axios.delete(
+                    `/api/catalogs/${this.currentCatalog.id}/images/${this.editMode.imageId}/edit`
+                );
+                this.editMode.transforms = {
+                    rotation: 0,
+                    flip_h: false,
+                    flip_v: false
+                };
+                this.editMode.hasChanges = false;
+
+                // Update the image in our local array to trigger thumbnail refresh
+                const imageIndex = this.images.findIndex(img => img.id === this.editMode.imageId);
+                if (imageIndex !== -1) {
+                    // Update updated_at to current time to bust cache
+                    this.images[imageIndex].updated_at = new Date().toISOString();
+                }
+
+                this.addNotification('Edits reset', 'success');
+            } catch (error) {
+                console.error('Failed to reset edits:', error);
+                this.addNotification('Failed to reset edits', 'error');
+            }
+            this.editMode.loading = false;
+        },
+
+        async exportXMP() {
+            if (!this.currentCatalog || !this.editMode.imageId) return;
+
+            try {
+                const response = await axios.post(
+                    `/api/catalogs/${this.currentCatalog.id}/images/${this.editMode.imageId}/export-xmp`
+                );
+                this.addNotification(`XMP exported to ${response.data.xmp_path}`, 'success');
+            } catch (error) {
+                console.error('Failed to export XMP:', error);
+                this.addNotification('Failed to export XMP: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
+        // Navigation in edit mode
+        editNextImage() {
+            if (this.lightboxImageIndex < this.images.length - 1) {
+                // Save current changes if any
+                if (this.editMode.hasChanges) {
+                    this.saveEdits();
+                }
+                this.openEditMode(this.lightboxImageIndex + 1);
+            }
+        },
+
+        editPrevImage() {
+            if (this.lightboxImageIndex > 0) {
+                // Save current changes if any
+                if (this.editMode.hasChanges) {
+                    this.saveEdits();
+                }
+                this.openEditMode(this.lightboxImageIndex - 1);
+            }
+        },
+
+        // Histogram rendering
+        renderHistogram() {
+            console.log('[Histogram] renderHistogram called');
+            console.log('[Histogram] Has data:', !!this.editMode.histogram);
+            console.log('[Histogram] Has canvas:', !!this.$refs.histogramCanvas);
+
+            if (!this.editMode.histogram || !this.$refs.histogramCanvas) {
+                console.log('[Histogram] Missing data or canvas, skipping render');
+                return;
+            }
+
+            const canvas = this.$refs.histogramCanvas;
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            console.log('[Histogram] Canvas dimensions:', width, height);
+
+            // Clear canvas
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+
+            // Find max value for normalization
+            const maxVal = Math.max(
+                ...this.editMode.histogram.red,
+                ...this.editMode.histogram.green,
+                ...this.editMode.histogram.blue
+            );
+
+            console.log('[Histogram] Max value:', maxVal);
+
+            if (maxVal === 0) {
+                console.log('[Histogram] Max value is 0, skipping render');
+                return;
+            }
+
+            // Draw histograms with transparency
+            const drawChannel = (data, color) => {
+                ctx.fillStyle = color;
+                const binWidth = width / 256;
+                for (let i = 0; i < 256; i++) {
+                    const barHeight = (data[i] / maxVal) * height;
+                    ctx.fillRect(i * binWidth, height - barHeight, binWidth, barHeight);
+                }
+            };
+
+            // Draw in order: blue, green, red (for better blending)
+            ctx.globalAlpha = 0.5;
+            drawChannel(this.editMode.histogram.blue, '#4444ff');
+            drawChannel(this.editMode.histogram.green, '#44ff44');
+            drawChannel(this.editMode.histogram.red, '#ff4444');
+            ctx.globalAlpha = 1.0;
+
+            console.log('[Histogram] Rendering complete');
+        },
+
+        handleEditModeKeydown(event) {
+            if (this.currentView !== 'edit') return;
+
+            switch (event.key) {
+                case 'Escape':
+                    this.closeEditMode();
+                    break;
+                case 'ArrowLeft':
+                    this.editPrevImage();
+                    break;
+                case 'ArrowRight':
+                    this.editNextImage();
+                    break;
+                case '+':
+                case '=':
+                    this.zoomIn();
+                    break;
+                case '-':
+                    this.zoomOut();
+                    break;
+                case '0':
+                    this.setZoom('fit');
+                    break;
+                case '1':
+                    this.setZoom('100');
+                    break;
+                case 'r':
+                case 'R':
+                    if (event.shiftKey) {
+                        this.rotateImage(-90);
+                    } else {
+                        this.rotateImage(90);
+                    }
+                    break;
+                case 'h':
+                case 'H':
+                    this.flipImageH();
+                    break;
+                case 'v':
+                case 'V':
+                    this.flipImageV();
+                    break;
+                case 's':
+                case 'S':
+                    if (event.ctrlKey || event.metaKey) {
+                        event.preventDefault();
+                        this.saveEdits();
+                    }
+                    break;
+            }
+        },
+
         // Job Streaming
         showJobStream(jobId) {
             const job = this.jobs.find(j => j.id === jobId);
@@ -2282,7 +2793,7 @@ createApp({
                     });
 
                     // Close stream if job complete
-                    if (data.status === 'SUCCESS' || data.status === 'FAILURE') {
+                    if (data.status === 'completed' || data.status === 'failed' || data.status === 'killed') {
                         this.streamConnectionStatus = 'completed';
                         this.streamConnectionStatusText = '● Completed';
                         setTimeout(() => {

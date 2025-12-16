@@ -8,10 +8,13 @@ import uuid
 from datetime import datetime
 from math import cos, radians
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List, Union
 
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
+from PIL import Image, ImageOps
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -20,9 +23,12 @@ from ...db.catalog_schema import create_schema, delete_catalog_data, schema_exis
 from ...db.models import Catalog
 from ...db.schemas import CatalogCreate, CatalogResponse
 from ...shared.thumbnail_utils import (
+    HEIC_EXTENSIONS,
+    RAW_EXTENSIONS,
     THUMBNAIL_SIZES,
     generate_thumbnail,
     get_thumbnail_path,
+    load_raw_image,
 )
 
 logger = logging.getLogger(__name__)
@@ -319,7 +325,8 @@ def list_catalog_images(
             dates,
             metadata,
             thumbnail_path,
-            created_at
+            created_at,
+            updated_at
         FROM images
         WHERE {where_clause}
         ORDER BY {order_by}
@@ -344,6 +351,9 @@ def list_catalog_images(
             "thumbnail_path": row_dict["thumbnail_path"],
             "created_at": (
                 row_dict["created_at"].isoformat() if row_dict["created_at"] else None
+            ),
+            "updated_at": (
+                row_dict["updated_at"].isoformat() if row_dict["updated_at"] else None
             ),
         }
         images.append(image_data)
@@ -909,9 +919,9 @@ def get_image_thumbnail(
     if not catalog:
         raise HTTPException(status_code=404, detail="Catalog not found")
 
-    # Get image record
+    # Get image record with edit_data
     query = text(
-        "SELECT source_path FROM images WHERE id = :image_id AND catalog_id = :catalog_id"
+        "SELECT source_path, edit_data FROM images WHERE id = :image_id AND catalog_id = :catalog_id"
     )
     result = db.execute(
         query, {"image_id": image_id, "catalog_id": str(catalog_id)}
@@ -921,35 +931,99 @@ def get_image_thumbnail(
         raise HTTPException(status_code=404, detail="Image not found")
 
     source_path = Path(result[0])
+    edit_data = result[1]
 
     # Check if source file exists
     if not source_path.exists():
         raise HTTPException(status_code=404, detail="Source file not found")
 
-    # Get or create thumbnail for the requested size
-    thumbnails_dir = Path(f"/app/catalogs/{catalog_id}/thumbnails")
-    thumbnail_path = get_thumbnail_path(
-        image_id=image_id, thumbnails_dir=thumbnails_dir, size=size
-    )
+    # Check if image has transforms
+    has_transforms = False
+    rotation = 0
+    flip_h = False
+    flip_v = False
 
-    # Generate thumbnail if it doesn't exist
-    if not thumbnail_path.exists():
-        thumb_size = THUMBNAIL_SIZES[size]
-        success = generate_thumbnail(
-            source_path=source_path,
-            output_path=thumbnail_path,
-            size=thumb_size,
-            quality=quality,
+    if edit_data:
+        transforms = edit_data.get("transforms", {})
+        rotation = transforms.get("rotation", 0)
+        flip_h = transforms.get("flip_h", False)
+        flip_v = transforms.get("flip_v", False)
+        has_transforms = rotation != 0 or flip_h or flip_v
+
+    # If no transforms, use cached thumbnail
+    if not has_transforms:
+        thumbnails_dir = Path(f"/app/catalogs/{catalog_id}/thumbnails")
+        thumbnail_path = get_thumbnail_path(
+            image_id=image_id, thumbnails_dir=thumbnails_dir, size=size
         )
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to generate thumbnail")
 
-    # Return the thumbnail file
-    return FileResponse(
-        thumbnail_path,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=31536000"},  # Cache for 1 year
-    )
+        # Generate thumbnail if it doesn't exist
+        if not thumbnail_path.exists():
+            thumb_size = THUMBNAIL_SIZES[size]
+            success = generate_thumbnail(
+                source_path=source_path,
+                output_path=thumbnail_path,
+                size=thumb_size,
+                quality=quality,
+            )
+            if not success:
+                raise HTTPException(
+                    status_code=500, detail="Failed to generate thumbnail"
+                )
+
+        # Return the cached thumbnail file
+        return FileResponse(
+            thumbnail_path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=31536000"},  # Cache for 1 year
+        )
+
+    # Image has transforms - generate transformed thumbnail on-the-fly
+    try:
+        thumb_size = THUMBNAIL_SIZES[size]
+
+        # Load image using helper that supports all formats (JPEG, PNG, HEIC, RAW)
+        # Use half-size for RAW files (faster and sufficient for thumbnails)
+        img = load_image_any_format(source_path, full_size=False)
+
+        # Apply EXIF orientation FIRST (respects camera metadata)
+        img = ImageOps.exif_transpose(img)
+
+        # Convert to RGB if needed
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        # Apply transforms BEFORE thumbnailing for better quality
+        # Apply rotation (PIL rotates counter-clockwise, so negate for clockwise)
+        if rotation != 0:
+            img = img.rotate(-rotation, expand=True)
+
+        # Apply flips
+        if flip_h:
+            img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        if flip_v:
+            img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+
+        # Now create thumbnail (thumb_size is already a tuple)
+        img.thumbnail(thumb_size, Image.Resampling.LANCZOS)
+
+        # Save to buffer
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=quality)
+        buffer.seek(0)
+
+        return StreamingResponse(
+            buffer,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=300",  # Cache for 5 minutes (transforms may change)
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error generating transformed thumbnail for {source_path}: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to generate transformed thumbnail"
+        )
 
 
 # =============================================================================
@@ -1379,9 +1453,9 @@ def start_duplicate_detection(
     if not catalog:
         raise HTTPException(status_code=404, detail="Catalog not found")
 
-    # Import Celery task
+    # Import Celery task - use parallel coordinator for better performance
     from ...db.models import Job
-    from ...jobs.tasks import detect_duplicates_task
+    from ...jobs.parallel_duplicates import duplicates_coordinator_task
 
     # Generate job ID upfront (used as both DB id and Celery task id)
     job_id = str(uuid.uuid4())
@@ -1397,8 +1471,8 @@ def start_duplicate_detection(
     db.commit()
     db.refresh(job)
 
-    # Start Celery task with same ID
-    task = detect_duplicates_task.apply_async(
+    # Start Celery task with same ID - uses parallel coordinator pattern
+    task = duplicates_coordinator_task.apply_async(
         kwargs={
             "catalog_id": str(catalog_id),
             "similarity_threshold": similarity_threshold,
@@ -2558,3 +2632,516 @@ def get_burst(
         ),
         "images": members,
     }
+
+
+# ============================================================================
+# Edit Mode Endpoints
+# ============================================================================
+
+
+def load_image_any_format(source_path: Path, full_size: bool = False) -> Image.Image:
+    """
+    Load an image from any supported format (JPEG, PNG, HEIC, RAW, etc.).
+
+    Args:
+        source_path: Path to the image file
+        full_size: For RAW files, use full resolution (slower) vs half size (faster)
+
+    Returns:
+        PIL Image object
+
+    Raises:
+        HTTPException: If the file cannot be loaded
+    """
+    suffix = source_path.suffix.lower()
+
+    # Handle RAW files
+    if suffix in RAW_EXTENSIONS:
+        try:
+            import rawpy
+
+            with rawpy.imread(str(source_path)) as raw:
+                # Use full size for histograms/viewing, half size for thumbnails
+                if full_size:
+                    rgb = raw.postprocess(use_camera_wb=True, no_auto_bright=False)
+                else:
+                    rgb = raw.postprocess(half_size=True, use_camera_wb=True)
+                return Image.fromarray(rgb)
+        except ImportError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"RAW file support not available. Install rawpy to view {suffix} files.",
+            )
+        except Exception as e:
+            logger.error(f"Error loading RAW file {source_path}: {e}")
+            raise HTTPException(
+                status_code=422, detail=f"Cannot load RAW file: {str(e)}"
+            )
+
+    # Handle HEIC files (pillow_heif should be registered globally)
+    elif suffix in HEIC_EXTENSIONS:
+        try:
+            img = Image.open(source_path)
+            # Make a copy to ensure we don't hold file handles
+            img_copy = img.copy()
+            img.close()
+            return img_copy
+        except Exception as e:
+            logger.error(f"Error loading HEIC file {source_path}: {e}")
+            raise HTTPException(
+                status_code=422,
+                detail=f"Cannot load HEIC file. Install pillow-heif for HEIC support.",
+            )
+
+    # Handle standard formats (JPEG, PNG, etc.)
+    else:
+        try:
+            img = Image.open(source_path)
+            img_copy = img.copy()
+            img.close()
+            return img_copy
+        except Exception as e:
+            logger.error(f"Error loading image {source_path}: {e}")
+            raise HTTPException(
+                status_code=422, detail=f"Cannot load image file: {str(e)}"
+            )
+
+
+class EditData(BaseModel):
+    """Edit data for non-destructive transforms."""
+
+    version: int = 1
+    transforms: Dict[str, Any] = {"rotation": 0, "flip_h": False, "flip_v": False}
+
+
+class HistogramResponse(BaseModel):
+    """RGB histogram data."""
+
+    red: List[int]
+    green: List[int]
+    blue: List[int]
+    luminance: List[int]
+
+
+@router.get("/{catalog_id}/images/{image_id}/histogram")
+def get_image_histogram(
+    catalog_id: uuid.UUID,
+    image_id: str,
+    db: Session = Depends(get_db),
+) -> HistogramResponse:
+    """Generate RGB histogram for an image.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+        db: Database session
+
+    Returns:
+        Histogram data with red, green, blue, and luminance channels (256 bins each)
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    # Get image record
+    result = db.execute(
+        text(
+            "SELECT source_path FROM images WHERE id = :id AND catalog_id = :catalog_id"
+        ),
+        {"id": image_id, "catalog_id": str(catalog_id)},
+    )
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    source_path = Path(row[0])
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="Image file not found on disk")
+
+    # Load image and compute histogram
+    try:
+        # Load image using helper that supports all formats (JPEG, PNG, HEIC, RAW)
+        # Use half-size for RAW files (faster and sufficient for histogram)
+        img = load_image_any_format(source_path, full_size=False)
+
+        # Apply EXIF orientation FIRST (respects camera metadata)
+        img = ImageOps.exif_transpose(img)
+
+        # Convert to RGB if needed
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Get image data as numpy array
+        img_array = np.array(img)
+
+        # Compute histograms for each channel
+        red_hist = np.histogram(img_array[:, :, 0], bins=256, range=(0, 256))[0]
+        green_hist = np.histogram(img_array[:, :, 1], bins=256, range=(0, 256))[0]
+        blue_hist = np.histogram(img_array[:, :, 2], bins=256, range=(0, 256))[0]
+
+        # Compute luminance histogram (using standard weights)
+        luminance = (
+            0.299 * img_array[:, :, 0]
+            + 0.587 * img_array[:, :, 1]
+            + 0.114 * img_array[:, :, 2]
+        )
+        lum_hist = np.histogram(luminance, bins=256, range=(0, 256))[0]
+
+        return HistogramResponse(
+            red=red_hist.tolist(),
+            green=green_hist.tolist(),
+            blue=blue_hist.tolist(),
+            luminance=lum_hist.tolist(),
+        )
+    except Exception as e:
+        logger.error(f"Error computing histogram for {source_path}: {e}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot generate histogram: unsupported or corrupted file format",
+        )
+
+
+@router.get("/{catalog_id}/images/{image_id}/edit")
+def get_image_edit_data(
+    catalog_id: uuid.UUID,
+    image_id: str,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Get current edit data for an image.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+        db: Database session
+
+    Returns:
+        Edit data or default empty structure
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    result = db.execute(
+        text(
+            "SELECT edit_data FROM images WHERE id = :id AND catalog_id = :catalog_id"
+        ),
+        {"id": image_id, "catalog_id": str(catalog_id)},
+    )
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    edit_data = row[0]
+    if edit_data is None:
+        # Return default structure
+        return {
+            "version": 1,
+            "transforms": {"rotation": 0, "flip_h": False, "flip_v": False},
+        }
+
+    return edit_data
+
+
+@router.put("/{catalog_id}/images/{image_id}/edit")
+def update_image_edit_data(
+    catalog_id: uuid.UUID,
+    image_id: str,
+    edit_data: EditData,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Update edit data for an image.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+        edit_data: New edit data
+        db: Database session
+
+    Returns:
+        Success status and updated edit data
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    # Verify image exists
+    result = db.execute(
+        text("SELECT id FROM images WHERE id = :id AND catalog_id = :catalog_id"),
+        {"id": image_id, "catalog_id": str(catalog_id)},
+    )
+    if not result.fetchone():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Update edit_data
+    edit_dict = edit_data.model_dump()
+    db.execute(
+        text(
+            "UPDATE images SET edit_data = :edit_data, updated_at = NOW() "
+            "WHERE id = :id AND catalog_id = :catalog_id"
+        ),
+        {
+            "edit_data": json.dumps(edit_dict),
+            "id": image_id,
+            "catalog_id": str(catalog_id),
+        },
+    )
+    db.commit()
+
+    return {"success": True, "edit_data": edit_dict}
+
+
+@router.delete("/{catalog_id}/images/{image_id}/edit")
+def reset_image_edit_data(
+    catalog_id: uuid.UUID,
+    image_id: str,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Reset edit data for an image (clear all edits).
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+        db: Database session
+
+    Returns:
+        Success status
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    # Verify image exists
+    result = db.execute(
+        text("SELECT id FROM images WHERE id = :id AND catalog_id = :catalog_id"),
+        {"id": image_id, "catalog_id": str(catalog_id)},
+    )
+    if not result.fetchone():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Clear edit_data
+    db.execute(
+        text(
+            "UPDATE images SET edit_data = NULL, updated_at = NOW() "
+            "WHERE id = :id AND catalog_id = :catalog_id"
+        ),
+        {"id": image_id, "catalog_id": str(catalog_id)},
+    )
+    db.commit()
+
+    return {"success": True, "message": "Edit data reset to original"}
+
+
+@router.get("/{catalog_id}/images/{image_id}/full", response_model=None)
+def get_full_image(
+    catalog_id: uuid.UUID,
+    image_id: str,
+    apply_transforms: bool = Query(
+        False, description="Apply stored transforms to image"
+    ),
+    db: Session = Depends(get_db),
+):
+    """Serve full-size image, optionally with transforms applied.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+        apply_transforms: Whether to apply stored rotation/flip transforms
+        db: Database session
+
+    Returns:
+        Image file (JPEG for processed images, original format otherwise)
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    result = db.execute(
+        text(
+            "SELECT source_path, edit_data FROM images "
+            "WHERE id = :id AND catalog_id = :catalog_id"
+        ),
+        {"id": image_id, "catalog_id": str(catalog_id)},
+    )
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    source_path = Path(row[0])
+    edit_data = row[1]
+
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="Image file not found on disk")
+
+    # Check if file needs conversion (RAW/HEIC can't be served directly to browsers)
+    suffix = source_path.suffix.lower()
+    needs_conversion = suffix in RAW_EXTENSIONS or suffix in HEIC_EXTENSIONS
+
+    # If no transforms requested or no edit_data, serve original (unless it needs conversion)
+    if (not apply_transforms or edit_data is None) and not needs_conversion:
+        return FileResponse(
+            source_path,
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    # Apply transforms
+    transforms = edit_data.get("transforms", {}) if edit_data else {}
+    rotation = transforms.get("rotation", 0)
+    flip_h = transforms.get("flip_h", False)
+    flip_v = transforms.get("flip_v", False)
+
+    # If no actual transforms and no conversion needed, serve original
+    if rotation == 0 and not flip_h and not flip_v and not needs_conversion:
+        return FileResponse(
+            source_path,
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    # Load and transform image
+    try:
+        # Load image using helper that supports all formats (JPEG, PNG, HEIC, RAW)
+        # Use full-size for RAW files to get best quality
+        img = load_image_any_format(source_path, full_size=True)
+
+        # Apply EXIF orientation FIRST (respects camera metadata)
+        img = ImageOps.exif_transpose(img)
+
+        # Convert to RGB if needed
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        # Apply rotation (PIL rotates counter-clockwise, so negate for clockwise)
+        if rotation != 0:
+            img = img.rotate(-rotation, expand=True)
+
+        # Apply flips
+        if flip_h:
+            img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        if flip_v:
+            img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+
+        # Save to buffer
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=95)
+        buffer.seek(0)
+
+        return StreamingResponse(
+            buffer,
+            media_type="image/jpeg",
+            headers={
+                "Content-Disposition": f"inline; filename={source_path.stem}_edited.jpg",
+                "Cache-Control": "no-cache",  # Don't cache transformed images
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error applying transforms to {source_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error applying transforms: {e}")
+
+
+@router.post("/{catalog_id}/images/{image_id}/export-xmp")
+def export_xmp_sidecar(
+    catalog_id: uuid.UUID,
+    image_id: str,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Export edit data as XMP sidecar file for Darktable compatibility.
+
+    The XMP file will be created in the same directory as the source image
+    with the same filename but .xmp extension.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+        db: Database session
+
+    Returns:
+        Success status and path to created XMP file
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    result = db.execute(
+        text(
+            "SELECT source_path, edit_data FROM images "
+            "WHERE id = :id AND catalog_id = :catalog_id"
+        ),
+        {"id": image_id, "catalog_id": str(catalog_id)},
+    )
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    source_path = Path(row[0])
+    edit_data = row[1]
+
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="Image file not found on disk")
+
+    # Calculate XMP file path
+    xmp_path = source_path.with_suffix(".xmp")
+
+    # Get transforms
+    transforms = edit_data.get("transforms", {}) if edit_data else {}
+    rotation = transforms.get("rotation", 0)
+    flip_h = transforms.get("flip_h", False)
+    flip_v = transforms.get("flip_v", False)
+
+    # Map transforms to EXIF orientation value
+    # Standard EXIF orientation mapping:
+    # 1 = normal, 2 = flip H, 3 = 180, 4 = 180 + flip H
+    # 5 = 90 CW + flip H, 6 = 90 CW, 7 = 90 CCW + flip H, 8 = 90 CCW
+    orientation = 1  # Default: normal
+
+    if rotation == 0:
+        orientation = 2 if flip_h else 1
+    elif rotation == 90:
+        orientation = 5 if flip_h else 6
+    elif rotation == 180:
+        orientation = 4 if flip_h else 3
+    elif rotation == 270 or rotation == -90:
+        orientation = 7 if flip_h else 8
+
+    # Generate XMP content
+    xmp_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">
+      <tiff:Orientation>{orientation}</tiff:Orientation>
+      <xmp:CreatorTool>VAM Tools</xmp:CreatorTool>
+      <xmp:ModifyDate>{datetime.now().isoformat()}</xmp:ModifyDate>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+"""
+
+    # Write XMP file
+    try:
+        xmp_path.write_text(xmp_content, encoding="utf-8")
+        logger.info(f"Exported XMP sidecar: {xmp_path}")
+
+        return {
+            "success": True,
+            "xmp_path": str(xmp_path),
+            "orientation": orientation,
+        }
+    except PermissionError:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission denied: Cannot write to {xmp_path.parent}",
+        )
+    except Exception as e:
+        logger.error(f"Error writing XMP file {xmp_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error writing XMP file: {e}")

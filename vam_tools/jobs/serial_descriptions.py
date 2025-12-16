@@ -5,9 +5,6 @@ This module implements serial (non-parallel) description generation using Ollama
 vision models. Since Ollama can only handle one request at a time without
 resource contention, this task processes images one at a time.
 
-The task runs on a dedicated queue with concurrency=1 to ensure only one
-Ollama request is processed at a time across all workers.
-
 Failure Monitoring:
     The task monitors consecutive failures and will pause (enter PAUSED state)
     after hitting a configurable threshold. This allows the operator to restart
@@ -68,11 +65,8 @@ def _update_job_status(
     bind=True,
     base=ProgressTask,
     name="generate_descriptions",
-    # Route to a dedicated queue with concurrency=1
-    queue="ollama",
-    # Longer time limit since Ollama is slow
-    soft_time_limit=3600,  # 1 hour soft limit
-    time_limit=3900,  # 1 hour 5 min hard limit
+    # Uses config defaults: 23-hour soft limit, 24-hour hard limit
+    # Task is resumable - just run again to continue from where it left off
 )
 def generate_descriptions_task(
     self: ProgressTask,

@@ -26,7 +26,13 @@ from ..analysis.burst_detector import BurstDetector, ImageInfo
 from ..db import CatalogDB as CatalogDatabase
 from ..db.models import Job
 from .celery_app import app
-from .coordinator import BatchManager, BatchResult, publish_job_progress
+from .coordinator import (
+    CONSECUTIVE_FAILURE_THRESHOLD,
+    BatchManager,
+    BatchResult,
+    cancel_and_requeue_job,
+    publish_job_progress,
+)
 from .progress_publisher import publish_completion, publish_progress
 from .tasks import ProgressTask
 
@@ -472,6 +478,36 @@ def burst_finalizer_task(
             progress = batch_manager.get_progress(db)
 
         failed_batches = sum(1 for wr in worker_results if wr.get("status") == "failed")
+
+        # If there were too many failed batches, auto-requeue to continue
+        if failed_batches >= CONSECUTIVE_FAILURE_THRESHOLD:
+            logger.warning(
+                f"[{finalizer_id}] {failed_batches} batches failed, auto-requeuing continuation"
+            )
+
+            cancel_and_requeue_job(
+                parent_job_id=parent_job_id,
+                catalog_id=catalog_id,
+                job_type="bursts",
+                task_name="burst_coordinator",
+                task_kwargs={
+                    "catalog_id": catalog_id,
+                    "gap_threshold": gap_threshold,
+                    "min_burst_size": min_burst_size,
+                    "batch_size": 5000,  # default batch size
+                },
+                reason=f"{failed_batches} batch failures",
+                processed_so_far=len(merged_bursts),
+            )
+
+            return {
+                "status": "requeued",
+                "catalog_id": catalog_id,
+                "bursts_detected": len(merged_bursts),
+                "total_burst_images": total_burst_images,
+                "failed_batches": failed_batches,
+                "message": f"Job requeued due to {failed_batches} batch failures",
+            }
 
         final_result = {
             "status": "completed" if failed_batches == 0 else "completed_with_errors",

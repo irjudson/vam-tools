@@ -2148,3 +2148,429 @@ async def find_similar_images(
         }
     finally:
         db.close()
+
+
+# ============================================================================
+# Edit Mode Endpoints
+# ============================================================================
+
+
+class EditData(BaseModel):
+    """Edit data for non-destructive transforms."""
+
+    version: int = 1
+    transforms: Dict[str, Any] = {"rotation": 0, "flip_h": False, "flip_v": False}
+
+
+class HistogramResponse(BaseModel):
+    """RGB histogram data."""
+
+    red: List[int]
+    green: List[int]
+    blue: List[int]
+    luminance: List[int]
+
+
+@app.get("/api/catalogs/{catalog_id}/images/{image_id}/histogram")
+async def get_image_histogram(catalog_id: str, image_id: str) -> HistogramResponse:
+    """Generate RGB histogram for an image.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+
+    Returns:
+        Histogram data with red, green, blue, and luminance channels (256 bins each)
+    """
+    import numpy as np
+
+    db = get_catalog_db(catalog_id)
+
+    try:
+        # Get image record
+        from sqlalchemy import text
+
+        from ..db.models import Image as ImageModel
+
+        result = db.session.execute(
+            text(
+                "SELECT source_path FROM images WHERE id = :id AND catalog_id = :catalog_id"
+            ),
+            {"id": image_id, "catalog_id": catalog_id},
+        )
+        row = result.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        source_path = Path(row[0])
+        if not source_path.exists():
+            raise HTTPException(status_code=404, detail="Image file not found on disk")
+
+        # Load image and compute histogram
+        try:
+            with Image.open(source_path) as img:
+                # Convert to RGB if needed
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+
+                # Get image data as numpy array
+                img_array = np.array(img)
+
+                # Compute histograms for each channel
+                red_hist = np.histogram(img_array[:, :, 0], bins=256, range=(0, 256))[0]
+                green_hist = np.histogram(img_array[:, :, 1], bins=256, range=(0, 256))[
+                    0
+                ]
+                blue_hist = np.histogram(img_array[:, :, 2], bins=256, range=(0, 256))[
+                    0
+                ]
+
+                # Compute luminance histogram (using standard weights)
+                luminance = (
+                    0.299 * img_array[:, :, 0]
+                    + 0.587 * img_array[:, :, 1]
+                    + 0.114 * img_array[:, :, 2]
+                )
+                lum_hist = np.histogram(luminance, bins=256, range=(0, 256))[0]
+
+                return HistogramResponse(
+                    red=red_hist.tolist(),
+                    green=green_hist.tolist(),
+                    blue=blue_hist.tolist(),
+                    luminance=lum_hist.tolist(),
+                )
+        except Exception as e:
+            logger.error(f"Error computing histogram for {source_path}: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Error computing histogram: {e}"
+            )
+    finally:
+        db.close()
+
+
+@app.get("/api/catalogs/{catalog_id}/images/{image_id}/edit")
+async def get_image_edit_data(catalog_id: str, image_id: str) -> Dict[str, Any]:
+    """Get current edit data for an image.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+
+    Returns:
+        Edit data or default empty structure
+    """
+    from sqlalchemy import text
+
+    db = get_catalog_db(catalog_id)
+
+    try:
+        result = db.session.execute(
+            text(
+                "SELECT edit_data FROM images WHERE id = :id AND catalog_id = :catalog_id"
+            ),
+            {"id": image_id, "catalog_id": catalog_id},
+        )
+        row = result.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        edit_data = row[0]
+        if edit_data is None:
+            # Return default structure
+            return {
+                "version": 1,
+                "transforms": {"rotation": 0, "flip_h": False, "flip_v": False},
+            }
+
+        return edit_data
+    finally:
+        db.close()
+
+
+@app.put("/api/catalogs/{catalog_id}/images/{image_id}/edit")
+async def update_image_edit_data(
+    catalog_id: str, image_id: str, edit_data: EditData
+) -> Dict[str, Any]:
+    """Update edit data for an image.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+        edit_data: New edit data
+
+    Returns:
+        Success status and updated edit data
+    """
+    from sqlalchemy import text
+
+    db = get_catalog_db(catalog_id)
+
+    try:
+        # Verify image exists
+        result = db.session.execute(
+            text("SELECT id FROM images WHERE id = :id AND catalog_id = :catalog_id"),
+            {"id": image_id, "catalog_id": catalog_id},
+        )
+        if not result.fetchone():
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        # Update edit_data
+        import json
+
+        edit_dict = edit_data.model_dump()
+        db.session.execute(
+            text(
+                "UPDATE images SET edit_data = :edit_data, updated_at = NOW() "
+                "WHERE id = :id AND catalog_id = :catalog_id"
+            ),
+            {
+                "edit_data": json.dumps(edit_dict),
+                "id": image_id,
+                "catalog_id": catalog_id,
+            },
+        )
+        db.session.commit()
+
+        return {"success": True, "edit_data": edit_dict}
+    finally:
+        db.close()
+
+
+@app.delete("/api/catalogs/{catalog_id}/images/{image_id}/edit")
+async def reset_image_edit_data(catalog_id: str, image_id: str) -> Dict[str, Any]:
+    """Reset edit data for an image (clear all edits).
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+
+    Returns:
+        Success status
+    """
+    from sqlalchemy import text
+
+    db = get_catalog_db(catalog_id)
+
+    try:
+        # Verify image exists
+        result = db.session.execute(
+            text("SELECT id FROM images WHERE id = :id AND catalog_id = :catalog_id"),
+            {"id": image_id, "catalog_id": catalog_id},
+        )
+        if not result.fetchone():
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        # Clear edit_data
+        db.session.execute(
+            text(
+                "UPDATE images SET edit_data = NULL, updated_at = NOW() "
+                "WHERE id = :id AND catalog_id = :catalog_id"
+            ),
+            {"id": image_id, "catalog_id": catalog_id},
+        )
+        db.session.commit()
+
+        return {"success": True, "message": "Edit data reset to original"}
+    finally:
+        db.close()
+
+
+@app.get("/api/catalogs/{catalog_id}/images/{image_id}/full")
+async def get_full_image(
+    catalog_id: str,
+    image_id: str,
+    apply_transforms: bool = Query(
+        False, description="Apply stored transforms to image"
+    ),
+) -> Union[FileResponse, StreamingResponse]:
+    """Serve full-size image, optionally with transforms applied.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+        apply_transforms: Whether to apply stored rotation/flip transforms
+
+    Returns:
+        Image file (JPEG for processed images, original format otherwise)
+    """
+    from sqlalchemy import text
+
+    db = get_catalog_db(catalog_id)
+
+    try:
+        result = db.session.execute(
+            text(
+                "SELECT source_path, edit_data FROM images "
+                "WHERE id = :id AND catalog_id = :catalog_id"
+            ),
+            {"id": image_id, "catalog_id": catalog_id},
+        )
+        row = result.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        source_path = Path(row[0])
+        edit_data = row[1]
+
+        if not source_path.exists():
+            raise HTTPException(status_code=404, detail="Image file not found on disk")
+
+        # If no transforms requested or no edit_data, serve original
+        if not apply_transforms or edit_data is None:
+            return FileResponse(
+                source_path,
+                headers={"Cache-Control": "public, max-age=3600"},
+            )
+
+        # Apply transforms
+        transforms = edit_data.get("transforms", {})
+        rotation = transforms.get("rotation", 0)
+        flip_h = transforms.get("flip_h", False)
+        flip_v = transforms.get("flip_v", False)
+
+        # If no actual transforms, serve original
+        if rotation == 0 and not flip_h and not flip_v:
+            return FileResponse(
+                source_path,
+                headers={"Cache-Control": "public, max-age=3600"},
+            )
+
+        # Load and transform image
+        try:
+            with Image.open(source_path) as img:
+                # Convert to RGB if needed
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+
+                # Apply rotation (PIL rotates counter-clockwise, so negate for clockwise)
+                if rotation != 0:
+                    img = img.rotate(-rotation, expand=True)
+
+                # Apply flips
+                if flip_h:
+                    img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                if flip_v:
+                    img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+
+                # Save to buffer
+                buffer = io.BytesIO()
+                img.save(buffer, format="JPEG", quality=95)
+                buffer.seek(0)
+
+                return StreamingResponse(
+                    buffer,
+                    media_type="image/jpeg",
+                    headers={
+                        "Content-Disposition": f"inline; filename={source_path.stem}_edited.jpg",
+                        "Cache-Control": "no-cache",  # Don't cache transformed images
+                    },
+                )
+        except Exception as e:
+            logger.error(f"Error applying transforms to {source_path}: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Error applying transforms: {e}"
+            )
+    finally:
+        db.close()
+
+
+@app.post("/api/catalogs/{catalog_id}/images/{image_id}/export-xmp")
+async def export_xmp_sidecar(catalog_id: str, image_id: str) -> Dict[str, Any]:
+    """Export edit data as XMP sidecar file for Darktable compatibility.
+
+    The XMP file will be created in the same directory as the source image
+    with the same filename but .xmp extension.
+
+    Args:
+        catalog_id: Catalog ID
+        image_id: Image ID
+
+    Returns:
+        Success status and path to created XMP file
+    """
+    from sqlalchemy import text
+
+    db = get_catalog_db(catalog_id)
+
+    try:
+        result = db.session.execute(
+            text(
+                "SELECT source_path, edit_data FROM images "
+                "WHERE id = :id AND catalog_id = :catalog_id"
+            ),
+            {"id": image_id, "catalog_id": catalog_id},
+        )
+        row = result.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        source_path = Path(row[0])
+        edit_data = row[1]
+
+        if not source_path.exists():
+            raise HTTPException(status_code=404, detail="Image file not found on disk")
+
+        # Calculate XMP file path
+        xmp_path = source_path.with_suffix(".xmp")
+
+        # Get transforms
+        transforms = edit_data.get("transforms", {}) if edit_data else {}
+        rotation = transforms.get("rotation", 0)
+        flip_h = transforms.get("flip_h", False)
+        flip_v = transforms.get("flip_v", False)
+
+        # Map transforms to EXIF orientation value
+        # Standard EXIF orientation mapping:
+        # 1 = normal, 2 = flip H, 3 = 180, 4 = 180 + flip H
+        # 5 = 90 CW + flip H, 6 = 90 CW, 7 = 90 CCW + flip H, 8 = 90 CCW
+        orientation = 1  # Default: normal
+
+        if rotation == 0:
+            orientation = 2 if flip_h else 1
+        elif rotation == 90:
+            orientation = 5 if flip_h else 6
+        elif rotation == 180:
+            orientation = 4 if flip_h else 3
+        elif rotation == 270 or rotation == -90:
+            orientation = 7 if flip_h else 8
+
+        # Generate XMP content
+        xmp_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">
+      <tiff:Orientation>{orientation}</tiff:Orientation>
+      <xmp:CreatorTool>VAM Tools</xmp:CreatorTool>
+      <xmp:ModifyDate>{datetime.now().isoformat()}</xmp:ModifyDate>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+"""
+
+        # Write XMP file
+        try:
+            xmp_path.write_text(xmp_content, encoding="utf-8")
+            logger.info(f"Exported XMP sidecar: {xmp_path}")
+
+            return {
+                "success": True,
+                "xmp_path": str(xmp_path),
+                "orientation": orientation,
+            }
+        except PermissionError:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Permission denied: Cannot write to {xmp_path.parent}",
+            )
+        except Exception as e:
+            logger.error(f"Error writing XMP file {xmp_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error writing XMP file: {e}")
+    finally:
+        db.close()

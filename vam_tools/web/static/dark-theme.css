@@ -343,6 +343,11 @@ label {
     color: var(--accent-danger);
 }
 
+.status-killed {
+    background-color: rgba(245, 158, 11, 0.2);
+    color: var(--accent-warning);
+}
+
 /* Loading spinner */
 .spinner {
     display: inline-block;
