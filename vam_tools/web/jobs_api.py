@@ -16,9 +16,9 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from ..jobs.celery_app import app as celery_app
+from ..jobs.parallel_duplicates import duplicates_coordinator_task
 from ..jobs.tasks import (
     analyze_catalog_task,
-    detect_duplicates_task,
     generate_thumbnails_task,
     organize_catalog_task,
 )
@@ -304,7 +304,7 @@ async def submit_duplicate_detection_job(
         ```
     """
     try:
-        task = detect_duplicates_task.delay(
+        task = duplicates_coordinator_task.delay(
             catalog_id=request.catalog_id,
             similarity_threshold=request.similarity_threshold,
             recompute_hashes=request.recompute_hashes,
@@ -721,7 +721,7 @@ async def rerun_job(job_id: str) -> Dict[str, Any]:
                 "message": "Thumbnail generation job resubmitted successfully",
             }
         elif job_type == "detect_duplicates":
-            task = detect_duplicates_task.delay(**params)
+            task = duplicates_coordinator_task.delay(**params)
             _track_job(task.id, job_type, params)
             return {
                 "job_id": task.id,

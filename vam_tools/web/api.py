@@ -2381,7 +2381,7 @@ async def reset_image_edit_data(catalog_id: str, image_id: str) -> Dict[str, Any
         db.close()
 
 
-@app.get("/api/catalogs/{catalog_id}/images/{image_id}/full")
+@app.get("/api/catalogs/{catalog_id}/images/{image_id}/full", response_model=None)
 async def get_full_image(
     catalog_id: str,
     image_id: str,
