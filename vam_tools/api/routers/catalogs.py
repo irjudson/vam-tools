@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from math import cos, radians
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -28,7 +28,6 @@ from ...shared.thumbnail_utils import (
     THUMBNAIL_SIZES,
     generate_thumbnail,
     get_thumbnail_path,
-    load_raw_image,
 )
 
 logger = logging.getLogger(__name__)
@@ -2690,7 +2689,7 @@ def load_image_any_format(source_path: Path, full_size: bool = False) -> Image.I
             logger.error(f"Error loading HEIC file {source_path}: {e}")
             raise HTTPException(
                 status_code=422,
-                detail=f"Cannot load HEIC file. Install pillow-heif for HEIC support.",
+                detail="Cannot load HEIC file. Install pillow-heif for HEIC support.",
             )
 
     # Handle standard formats (JPEG, PNG, etc.)
@@ -2799,7 +2798,7 @@ def get_image_histogram(
         logger.error(f"Error computing histogram for {source_path}: {e}")
         raise HTTPException(
             status_code=422,
-            detail=f"Cannot generate histogram: unsupported or corrupted file format",
+            detail="Cannot generate histogram: unsupported or corrupted file format",
         )
 
 
@@ -3094,7 +3093,7 @@ def export_xmp_sidecar(
     transforms = edit_data.get("transforms", {}) if edit_data else {}
     rotation = transforms.get("rotation", 0)
     flip_h = transforms.get("flip_h", False)
-    flip_v = transforms.get("flip_v", False)
+    # Note: flip_v not currently used in EXIF orientation mapping
 
     # Map transforms to EXIF orientation value
     # Standard EXIF orientation mapping:

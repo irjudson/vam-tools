@@ -22,12 +22,12 @@ from __future__ import annotations
 
 import logging
 import math
-import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from celery import chord, group
 from sqlalchemy import text
+from sqlalchemy.engine import Result
 
 from ..db import CatalogDB as CatalogDatabase
 from ..db.models import Job
@@ -755,7 +755,7 @@ def duplicates_finalizer_task(
 
                 # Insert group and get the auto-generated ID
                 assert db.session is not None
-                result = db.session.execute(
+                insert_result: Result[Any] = db.session.execute(
                     text(
                         """
                         INSERT INTO duplicate_groups (
@@ -773,7 +773,7 @@ def duplicates_finalizer_task(
                         "confidence": confidence,
                     },
                 )
-                group_id = result.scalar()
+                group_id = insert_result.scalar()
 
                 # Insert group members into duplicate_members table
                 for img_id in group_images:

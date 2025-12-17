@@ -7,7 +7,7 @@ including HEIC, RAW, and common video formats.
 
 import logging
 from pathlib import Path
-from typing import Optional, Set, Tuple, Union
+from typing import Optional, Set, Tuple
 
 from PIL import Image, ImageOps
 

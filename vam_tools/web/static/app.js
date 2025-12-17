@@ -2407,14 +2407,18 @@ createApp({
                 );
                 console.log('[Histogram] Data loaded:', response.data);
                 this.editMode.histogram = response.data;
-                // Render histogram after DOM updates
+                this.editMode.histogramLoading = false;
+                // Render histogram after DOM updates (double nextTick for safety)
                 this.$nextTick(() => {
-                    console.log('[Histogram] Rendering...');
-                    this.renderHistogram();
+                    this.$nextTick(() => {
+                        console.log('[Histogram] Rendering...');
+                        this.renderHistogram();
+                    });
                 });
             } catch (error) {
                 console.error('[Histogram] Failed to load:', error);
                 this.editMode.histogram = null;
+                this.editMode.histogramLoading = false;
                 // Extract error message from response
                 if (error.response?.data?.detail) {
                     this.editMode.histogramError = error.response.data.detail;
@@ -2422,7 +2426,6 @@ createApp({
                     this.editMode.histogramError = 'Failed to load histogram';
                 }
             }
-            this.editMode.histogramLoading = false;
         },
 
         getEditModeImageUrl() {
@@ -2637,14 +2640,17 @@ createApp({
         renderHistogram() {
             console.log('[Histogram] renderHistogram called');
             console.log('[Histogram] Has data:', !!this.editMode.histogram);
-            console.log('[Histogram] Has canvas:', !!this.$refs.histogramCanvas);
+            console.log('[Histogram] editHistogramCanvas ref:', this.$refs.editHistogramCanvas);
+            console.log('[Histogram] All refs:', Object.keys(this.$refs));
 
-            if (!this.editMode.histogram || !this.$refs.histogramCanvas) {
+            if (!this.editMode.histogram || !this.$refs.editHistogramCanvas) {
                 console.log('[Histogram] Missing data or canvas, skipping render');
+                console.log('[Histogram] Data check:', !!this.editMode.histogram);
+                console.log('[Histogram] Canvas check:', !!this.$refs.editHistogramCanvas);
                 return;
             }
 
-            const canvas = this.$refs.histogramCanvas;
+            const canvas = this.$refs.editHistogramCanvas;
             const ctx = canvas.getContext('2d');
             const width = canvas.width;
             const height = canvas.height;

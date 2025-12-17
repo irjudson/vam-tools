@@ -14,10 +14,11 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import BaseModel
 
 from ..analysis.semantic_search import SearchResult, SemanticSearchService
+from ..api.routers.catalogs import load_image_any_format
 from ..core.types import ImageRecord
 from ..db import CatalogDB as CatalogDatabase
 from ..shared.preview_cache import PreviewCache
@@ -2209,41 +2210,44 @@ async def get_image_histogram(catalog_id: str, image_id: str) -> HistogramRespon
 
         # Load image and compute histogram
         try:
-            with Image.open(source_path) as img:
-                # Convert to RGB if needed
-                if img.mode != "RGB":
-                    img = img.convert("RGB")
+            # Load image using helper that supports all formats (JPEG, PNG, HEIC, RAW)
+            # Use half-size for RAW files (faster and sufficient for histogram)
+            img = load_image_any_format(source_path, full_size=False)
 
-                # Get image data as numpy array
-                img_array = np.array(img)
+            # Apply EXIF orientation FIRST (respects camera metadata)
+            img = ImageOps.exif_transpose(img)
 
-                # Compute histograms for each channel
-                red_hist = np.histogram(img_array[:, :, 0], bins=256, range=(0, 256))[0]
-                green_hist = np.histogram(img_array[:, :, 1], bins=256, range=(0, 256))[
-                    0
-                ]
-                blue_hist = np.histogram(img_array[:, :, 2], bins=256, range=(0, 256))[
-                    0
-                ]
+            # Convert to RGB if needed
+            if img.mode != "RGB":
+                img = img.convert("RGB")
 
-                # Compute luminance histogram (using standard weights)
-                luminance = (
-                    0.299 * img_array[:, :, 0]
-                    + 0.587 * img_array[:, :, 1]
-                    + 0.114 * img_array[:, :, 2]
-                )
-                lum_hist = np.histogram(luminance, bins=256, range=(0, 256))[0]
+            # Get image data as numpy array
+            img_array = np.array(img)
 
-                return HistogramResponse(
-                    red=red_hist.tolist(),
-                    green=green_hist.tolist(),
-                    blue=blue_hist.tolist(),
-                    luminance=lum_hist.tolist(),
-                )
+            # Compute histograms for each channel
+            red_hist = np.histogram(img_array[:, :, 0], bins=256, range=(0, 256))[0]
+            green_hist = np.histogram(img_array[:, :, 1], bins=256, range=(0, 256))[0]
+            blue_hist = np.histogram(img_array[:, :, 2], bins=256, range=(0, 256))[0]
+
+            # Compute luminance histogram (using standard weights)
+            luminance = (
+                0.299 * img_array[:, :, 0]
+                + 0.587 * img_array[:, :, 1]
+                + 0.114 * img_array[:, :, 2]
+            )
+            lum_hist = np.histogram(luminance, bins=256, range=(0, 256))[0]
+
+            return HistogramResponse(
+                red=red_hist.tolist(),
+                green=green_hist.tolist(),
+                blue=blue_hist.tolist(),
+                luminance=lum_hist.tolist(),
+            )
         except Exception as e:
             logger.error(f"Error computing histogram for {source_path}: {e}")
             raise HTTPException(
-                status_code=500, detail=f"Error computing histogram: {e}"
+                status_code=422,
+                detail="Cannot generate histogram: unsupported or corrupted file format",
             )
     finally:
         db.close()
