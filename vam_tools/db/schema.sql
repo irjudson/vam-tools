@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS images (
     -- Perceptual hashes
     dhash TEXT,                             -- Difference hash (for duplicates)
     ahash TEXT,                             -- Average hash (for duplicates)
+    whash TEXT,                             -- Wavelet hash (for duplicates)
 
     -- Geohash columns for spatial queries (populated for images with GPS)
     geohash_4 VARCHAR(4),                   -- ~39km precision (country view)
@@ -75,12 +76,21 @@ CREATE TABLE IF NOT EXISTS images (
     quality_score INTEGER,                  -- 0-100
     status TEXT DEFAULT 'pending',          -- pending, complete, error
 
+    -- Processing flags - tracks which processing steps are complete
+    processing_flags JSONB NOT NULL DEFAULT '{}',  -- Tracks completion of various processing steps
+
     -- Burst detection
     burst_id UUID,                          -- References bursts.id
     burst_sequence INTEGER,                 -- Position in burst sequence
 
     -- Semantic search
     clip_embedding VECTOR(768),             -- CLIP embedding for semantic search
+
+    -- AI-generated description from Ollama vision model
+    description TEXT,                       -- AI-generated description
+
+    -- Non-destructive edit data
+    edit_data JSONB,                        -- Non-destructive edit transforms and adjustments
 
     -- Timestamps
     created_at TIMESTAMP DEFAULT NOW(),
@@ -96,6 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_images_catalog_id ON images(catalog_id);
 CREATE INDEX IF NOT EXISTS idx_images_checksum ON images(checksum);
 CREATE INDEX IF NOT EXISTS idx_images_dhash ON images(dhash);
 CREATE INDEX IF NOT EXISTS idx_images_ahash ON images(ahash);
+CREATE INDEX IF NOT EXISTS idx_images_whash ON images(whash);
 CREATE INDEX IF NOT EXISTS idx_images_status ON images(status);
 CREATE INDEX IF NOT EXISTS idx_images_burst_id ON images(burst_id);
 CREATE INDEX IF NOT EXISTS idx_images_dates ON images USING GIN (dates);

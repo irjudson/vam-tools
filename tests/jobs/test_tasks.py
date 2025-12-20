@@ -523,7 +523,7 @@ class TestAutoTagTask:
         # Verify tag_image was called (not tag_batch for Ollama)
         mock_tagger.tag_image.assert_called()
 
-    @patch("vam_tools.jobs.tasks.detect_duplicates_task")
+    @patch("vam_tools.jobs.parallel_duplicates.duplicates_coordinator_task")
     @patch("vam_tools.jobs.job_metrics.get_gpu_info")
     @patch("vam_tools.jobs.job_metrics.check_gpu_available")
     @patch("vam_tools.jobs.tasks.CatalogDatabase")
@@ -536,7 +536,7 @@ class TestAutoTagTask:
         mock_catalog_db,
         mock_check_gpu,
         mock_get_gpu_info,
-        mock_detect_duplicates,
+        mock_duplicates_coordinator,
     ):
         """Test auto_tag triggers duplicate detection when continue_pipeline=True."""
         from pathlib import Path
@@ -576,8 +576,8 @@ class TestAutoTagTask:
         assert result["status"] == "completed"
         assert result["next_job"] == "detect_duplicates"
 
-        # Verify detect_duplicates_task.delay was called
-        mock_detect_duplicates.delay.assert_called_once_with(
+        # Verify duplicates_coordinator_task.delay was called
+        mock_duplicates_coordinator.delay.assert_called_once_with(
             catalog_id=catalog_id,
             similarity_threshold=5,
             recompute_hashes=False,

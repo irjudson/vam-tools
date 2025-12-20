@@ -1532,10 +1532,12 @@ def auto_tag_task(
 
             # Continue pipeline if requested
             if continue_pipeline:
+                from .parallel_duplicates import duplicates_coordinator_task
+
                 logger.info(
                     f"Continuing pipeline: starting duplicate detection for {catalog_id}"
                 )
-                detect_duplicates_task.delay(
+                duplicates_coordinator_task.delay(
                     catalog_id=catalog_id,
                     similarity_threshold=5,
                     recompute_hashes=False,

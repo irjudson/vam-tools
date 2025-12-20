@@ -149,11 +149,14 @@ class TestGenerateThumbnail:
 
         output_path = tmp_path / "thumb.jpg"
 
-        with patch("PIL.Image.open") as mock_open:
+        with patch("PIL.Image.open") as mock_open, patch(
+            "PIL.ImageOps.exif_transpose"
+        ) as mock_transpose:
             mock_img = Mock()
             mock_img.mode = "RGB"
             mock_img.thumbnail.side_effect = Exception("Unexpected error")
             mock_open.return_value = mock_img
+            mock_transpose.return_value = mock_img  # Return same mocked image
 
             result = generate_thumbnail(source_path, output_path)
 
