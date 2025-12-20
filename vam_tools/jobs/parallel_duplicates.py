@@ -598,8 +598,64 @@ def duplicates_compare_worker_task(
         pass  # Non-critical
 
     try:
-        all_duplicate_pairs = []
+        # Instead of collecting ALL pairs in memory, write them to database in batches
+        # This prevents "value too large for Redis" errors
+        from ..db import CatalogDB as CatalogDatabase
+
+        pairs_found = 0
         pairs_processed = 0
+        batch_pairs: List[Dict[str, Any]] = []
+        BATCH_SIZE = 5000  # Write to DB every 5000 pairs
+
+        def _flush_pairs_to_db() -> None:
+            """Helper to write batch of pairs to database"""
+            nonlocal batch_pairs
+            if not batch_pairs:
+                return
+
+            try:
+                with CatalogDatabase(catalog_id) as db:
+                    assert db.session is not None
+                    # Create temp table if needed
+                    db.session.execute(
+                        text(
+                            """
+                            CREATE TABLE IF NOT EXISTS duplicate_pairs_temp (
+                                job_id TEXT NOT NULL,
+                                image_1 TEXT NOT NULL,
+                                image_2 TEXT NOT NULL,
+                                type TEXT NOT NULL,
+                                distance INTEGER NOT NULL,
+                                PRIMARY KEY (job_id, image_1, image_2)
+                            )
+                            """
+                        )
+                    )
+
+                    # Batch insert all pairs
+                    for pair in batch_pairs:
+                        db.session.execute(
+                            text(
+                                """
+                                INSERT INTO duplicate_pairs_temp
+                                (job_id, image_1, image_2, type, distance)
+                                VALUES (:job_id, :img1, :img2, :type, :dist)
+                                ON CONFLICT DO NOTHING
+                                """
+                            ),
+                            {
+                                "job_id": parent_job_id,
+                                "img1": pair["image_1"],
+                                "img2": pair["image_2"],
+                                "type": pair["type"],
+                                "dist": pair["distance"],
+                            },
+                        )
+                    db.session.commit()
+                    batch_pairs = []  # Reset for next batch
+            except Exception as e:
+                logger.warning(f"Failed to save duplicate pairs batch: {e}")
+                # Don't fail the whole task, just log the error
 
         # Process each block pair in the batch
         for block_i, block_j in block_pairs:
@@ -630,7 +686,7 @@ def duplicates_compare_worker_task(
                         and img_j["checksum"]
                         and img_i["checksum"] == img_j["checksum"]
                     ):
-                        all_duplicate_pairs.append(
+                        batch_pairs.append(
                             {
                                 "image_1": img_i["id"],
                                 "image_2": img_j["id"],
@@ -638,6 +694,9 @@ def duplicates_compare_worker_task(
                                 "distance": 0,
                             }
                         )
+                        pairs_found += 1
+                        if len(batch_pairs) >= BATCH_SIZE:
+                            _flush_pairs_to_db()
                         continue
 
                     # Check perceptual similarity using all three hash types
@@ -671,7 +730,7 @@ def duplicates_compare_worker_task(
 
                     # Consider similar if any hash matches
                     if dhash_similar or ahash_similar or whash_similar:
-                        all_duplicate_pairs.append(
+                        batch_pairs.append(
                             {
                                 "image_1": img_i["id"],
                                 "image_2": img_j["id"],
@@ -679,6 +738,9 @@ def duplicates_compare_worker_task(
                                 "distance": best_distance,
                             }
                         )
+                        pairs_found += 1
+                        if len(batch_pairs) >= BATCH_SIZE:
+                            _flush_pairs_to_db()
 
             pairs_processed += 1
 
@@ -692,18 +754,21 @@ def duplicates_compare_worker_task(
                         state="PROGRESS",
                         current=pairs_processed,
                         total=num_pairs,
-                        message=f"Comparing batch: {pairs_processed}/{num_pairs} block pairs done, {len(all_duplicate_pairs)} duplicates found",
+                        message=f"Comparing batch: {pairs_processed}/{num_pairs} block pairs done, {pairs_found} duplicates found",
                         extra={
                             "phase": "comparing",
                             "pairs_processed": pairs_processed,
-                            "pairs_found": len(all_duplicate_pairs),
+                            "pairs_found": pairs_found,
                         },
                     )
                 except Exception:
                     pass
 
+        # Flush any remaining pairs to database
+        _flush_pairs_to_db()
+
         logger.info(
-            f"[{worker_id}] Completed {num_pairs} block pairs: found {len(all_duplicate_pairs)} duplicate pairs"
+            f"[{worker_id}] Completed {num_pairs} block pairs: found {pairs_found} duplicate pairs"
         )
 
         # Publish final progress
@@ -715,21 +780,21 @@ def duplicates_compare_worker_task(
                 state="PROGRESS",
                 current=num_pairs,
                 total=num_pairs,
-                message=f"Batch complete: {num_pairs} block pairs, {len(all_duplicate_pairs)} duplicates found",
+                message=f"Batch complete: {num_pairs} block pairs, {pairs_found} duplicates found",
                 extra={
                     "phase": "comparing",
                     "pairs_processed": num_pairs,
-                    "pairs_found": len(all_duplicate_pairs),
+                    "pairs_found": pairs_found,
                 },
             )
         except Exception as e:
             logger.debug(f"Failed to publish comparison progress: {e}")
 
+        # Return only counts, not the actual pairs (to avoid Redis size limits)
         return {
             "status": "completed",
             "block_pairs_processed": num_pairs,
-            "pairs_found": len(all_duplicate_pairs),
-            "duplicate_pairs": all_duplicate_pairs,
+            "pairs_found": pairs_found,
         }
 
     except Exception as e:
@@ -739,7 +804,6 @@ def duplicates_compare_worker_task(
             "error": str(e),
             "block_pairs_processed": 0,
             "pairs_found": 0,
-            "duplicate_pairs": [],
         }
 
 
@@ -765,13 +829,33 @@ def duplicates_finalizer_task(
             0, 1, "Building duplicate groups...", {"phase": "finalizing"}
         )
 
-        # Collect all duplicate pairs
+        # Collect all duplicate pairs from database (not from results to avoid Redis size limits)
         all_pairs = []
-        for result in comparison_results:
-            if result.get("status") == "completed":
-                all_pairs.extend(result.get("duplicate_pairs", []))
+        with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
+            result = db.session.execute(
+                text(
+                    """
+                    SELECT image_1, image_2, type, distance
+                    FROM duplicate_pairs_temp
+                    WHERE job_id = :job_id
+                    """
+                ),
+                {"job_id": parent_job_id},
+            )
+            for row in result:
+                all_pairs.append(
+                    {
+                        "image_1": row[0],
+                        "image_2": row[1],
+                        "type": row[2],
+                        "distance": row[3],
+                    }
+                )
 
-        logger.info(f"[{finalizer_id}] Collected {len(all_pairs)} duplicate pairs")
+        logger.info(
+            f"[{finalizer_id}] Collected {len(all_pairs)} duplicate pairs from database"
+        )
 
         if not all_pairs:
             final_result = {
@@ -804,8 +888,10 @@ def duplicates_finalizer_task(
                             text("SELECT quality_score FROM images WHERE id = :id"),
                             {"id": img_id},
                         )
-                        row = query_result.fetchone()
-                        image_quality[img_id] = row[0] if row and row[0] else 0.0
+                        row = query_result.fetchone()  # type: ignore
+                        image_quality[img_id] = (
+                            row[0] if row and row[0] is not None else 0.0
+                        )
 
         # Save groups to database using correct schema
         # duplicate_groups: id (SERIAL), catalog_id, primary_image_id, similarity_type, confidence, reviewed
@@ -953,6 +1039,24 @@ def duplicates_finalizer_task(
         logger.info(
             f"[{finalizer_id}] Duplicate detection complete: {len(groups)} groups, {total_duplicates} duplicates"
         )
+
+        # Clean up temporary table
+        try:
+            with CatalogDatabase(catalog_id) as db:
+                assert db.session is not None
+                db.session.execute(
+                    text(
+                        """
+                        DELETE FROM duplicate_pairs_temp
+                        WHERE job_id = :job_id
+                        """
+                    ),
+                    {"job_id": parent_job_id},
+                )
+                db.session.commit()
+                logger.info(f"[{finalizer_id}] Cleaned up temporary duplicate pairs")
+        except Exception as e:
+            logger.warning(f"[{finalizer_id}] Failed to clean up temp table: {e}")
 
         return final_result
 
