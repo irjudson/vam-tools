@@ -478,35 +478,54 @@ def duplicates_comparison_phase_task(
         block_size = 500  # Images per block
         num_blocks = math.ceil(num_images / block_size)
 
-        # Create comparison tasks for each block pair
+        # Generate all block pairs that need to be compared
         # Block pairs: (0,0), (0,1), (0,2), ..., (1,1), (1,2), ..., (n-1,n-1)
-        comparison_tasks = []
+        block_pairs = []
         for i in range(num_blocks):
             for j in range(i, num_blocks):
-                comparison_tasks.append(
-                    duplicates_compare_worker_task.s(
-                        catalog_id=catalog_id,
-                        parent_job_id=parent_job_id,
-                        block_i=i,
-                        block_j=j,
-                        block_size=block_size,
-                        similarity_threshold=similarity_threshold,
-                        images=images,  # Pass all images - workers will slice
-                    )
-                )
+                block_pairs.append((i, j))
 
-        num_comparisons = len(comparison_tasks)
+        total_block_pairs = len(block_pairs)
         logger.info(
-            f"[{task_id}] Creating {num_comparisons} comparison tasks ({num_blocks} blocks)"
+            f"[{task_id}] Generated {total_block_pairs} block pairs from {num_blocks} blocks"
+        )
+
+        # Batch block pairs to avoid creating too many Celery tasks
+        # Each worker will process multiple block pairs
+        pairs_per_batch = 100  # Process 100 block pairs per worker
+        comparison_tasks = []
+
+        for batch_start in range(0, total_block_pairs, pairs_per_batch):
+            batch_end = min(batch_start + pairs_per_batch, total_block_pairs)
+            batch = block_pairs[batch_start:batch_end]
+
+            comparison_tasks.append(
+                duplicates_compare_worker_task.s(
+                    catalog_id=catalog_id,
+                    parent_job_id=parent_job_id,
+                    block_pairs=batch,  # Pass list of (i,j) tuples
+                    block_size=block_size,
+                    similarity_threshold=similarity_threshold,
+                    images=images,  # Pass all images - workers will slice
+                )
+            )
+
+        num_worker_tasks = len(comparison_tasks)
+        logger.info(
+            f"[{task_id}] Creating {num_worker_tasks} comparison workers for {total_block_pairs} block pairs ({pairs_per_batch} pairs/worker)"
         )
 
         publish_progress(
             parent_job_id,
             "PROGRESS",
             current=hash_success,
-            total=total_images + num_comparisons,
-            message=f"Starting comparison phase ({num_comparisons} block pairs)",
-            extra={"phase": "comparing", "comparison_tasks": num_comparisons},
+            total=total_images,
+            message=f"Starting comparison phase ({num_worker_tasks} workers, {total_block_pairs} block pairs)",
+            extra={
+                "phase": "comparing",
+                "worker_tasks": num_worker_tasks,
+                "block_pairs": total_block_pairs,
+            },
         )
 
         # Launch comparison workers with finalizer
@@ -520,7 +539,7 @@ def duplicates_comparison_phase_task(
         chord(group(comparison_tasks))(finalizer)
 
         logger.info(
-            f"[{task_id}] Comparison chord dispatched: {num_comparisons} tasks → finalizer"
+            f"[{task_id}] Comparison chord dispatched: {num_worker_tasks} workers → finalizer"
         )
 
         return {
@@ -528,7 +547,8 @@ def duplicates_comparison_phase_task(
             "hash_success": hash_success,
             "hash_errors": hash_errors,
             "images_with_hashes": num_images,
-            "comparison_tasks": num_comparisons,
+            "comparison_tasks": num_worker_tasks,
+            "block_pairs": total_block_pairs,
         }
 
     except Exception as e:
@@ -543,23 +563,26 @@ def duplicates_compare_worker_task(
     self: Any,
     catalog_id: str,
     parent_job_id: str,
-    block_i: int,
-    block_j: int,
+    block_pairs: List[tuple],
     block_size: int,
     similarity_threshold: int,
     images: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
-    Worker task that compares images in two blocks.
+    Worker task that compares images in multiple block pairs.
 
-    For block pair (i,j):
+    Args:
+        block_pairs: List of (i,j) tuples representing block pairs to compare
+
+    For each block pair (i,j):
     - If i == j: Compare all pairs within block i
     - If i != j: Compare all images in block i against all in block j
     """
     worker_id = self.request.id or "unknown"
-    logger.info(f"[{worker_id}] Starting comparison for blocks ({block_i}, {block_j})")
+    num_pairs = len(block_pairs)
+    logger.info(f"[{worker_id}] Starting comparison for {num_pairs} block pairs")
 
-    # Publish progress at start so UI knows comparison phase is active
+    # Publish progress at start
     try:
         from .progress_publisher import publish_progress
 
@@ -567,131 +590,156 @@ def duplicates_compare_worker_task(
             job_id=parent_job_id,
             state="PROGRESS",
             current=0,
-            total=0,
-            message=f"Starting comparison for blocks ({block_i}, {block_j})...",
-            extra={"phase": "comparing", "block_i": block_i, "block_j": block_j},
+            total=num_pairs,
+            message=f"Starting comparison batch ({num_pairs} block pairs)...",
+            extra={"phase": "comparing", "num_pairs": num_pairs},
         )
     except Exception:
         pass  # Non-critical
 
     try:
-        # Get images for each block
-        start_i = block_i * block_size
-        end_i = min(start_i + block_size, len(images))
-        block_i_images = images[start_i:end_i]
+        all_duplicate_pairs = []
+        pairs_processed = 0
 
-        if block_i == block_j:
-            # Compare within same block
-            block_j_images = block_i_images
-        else:
-            start_j = block_j * block_size
-            end_j = min(start_j + block_size, len(images))
-            block_j_images = images[start_j:end_j]
+        # Process each block pair in the batch
+        for block_i, block_j in block_pairs:
+            # Get images for each block
+            start_i = block_i * block_size
+            end_i = min(start_i + block_size, len(images))
+            block_i_images = images[start_i:end_i]
 
-        # Find duplicate pairs
-        duplicate_pairs = []
+            if block_i == block_j:
+                # Compare within same block
+                block_j_images = block_i_images
+            else:
+                start_j = block_j * block_size
+                end_j = min(start_j + block_size, len(images))
+                block_j_images = images[start_j:end_j]
 
-        for idx_i, img_i in enumerate(block_i_images):
-            # For same block, only compare with images after this one
-            start_idx = idx_i + 1 if block_i == block_j else 0
+            # Find duplicate pairs
+            for idx_i, img_i in enumerate(block_i_images):
+                # For same block, only compare with images after this one
+                start_idx = idx_i + 1 if block_i == block_j else 0
 
-            for _idx_j, img_j in enumerate(block_j_images[start_idx:], start=start_idx):
-                # Check exact duplicates (same checksum)
-                if (
-                    img_i["checksum"]
-                    and img_j["checksum"]
-                    and img_i["checksum"] == img_j["checksum"]
+                for _idx_j, img_j in enumerate(
+                    block_j_images[start_idx:], start=start_idx
                 ):
-                    duplicate_pairs.append(
-                        {
-                            "image_1": img_i["id"],
-                            "image_2": img_j["id"],
-                            "type": "exact",
-                            "distance": 0,
-                        }
+                    # Check exact duplicates (same checksum)
+                    if (
+                        img_i["checksum"]
+                        and img_j["checksum"]
+                        and img_i["checksum"] == img_j["checksum"]
+                    ):
+                        all_duplicate_pairs.append(
+                            {
+                                "image_1": img_i["id"],
+                                "image_2": img_j["id"],
+                                "type": "exact",
+                                "distance": 0,
+                            }
+                        )
+                        continue
+
+                    # Check perceptual similarity using all three hash types
+                    dhash_similar = False
+                    ahash_similar = False
+                    whash_similar = False
+                    best_distance = 999
+
+                    if img_i["dhash"] and img_j["dhash"]:
+                        dhash_distance = _hamming_distance(
+                            img_i["dhash"], img_j["dhash"]
+                        )
+                        dhash_similar = dhash_distance <= similarity_threshold
+                        best_distance = min(best_distance, dhash_distance)
+
+                    if img_i["ahash"] and img_j["ahash"]:
+                        ahash_distance = _hamming_distance(
+                            img_i["ahash"], img_j["ahash"]
+                        )
+                        ahash_similar = ahash_distance <= similarity_threshold
+                        best_distance = min(best_distance, ahash_distance)
+
+                    # whash uses a slightly tighter threshold (more robust = stricter)
+                    whash_threshold = max(1, similarity_threshold - 1)
+                    if img_i["whash"] and img_j["whash"]:
+                        whash_distance = _hamming_distance(
+                            img_i["whash"], img_j["whash"]
+                        )
+                        whash_similar = whash_distance <= whash_threshold
+                        best_distance = min(best_distance, whash_distance)
+
+                    # Consider similar if any hash matches
+                    if dhash_similar or ahash_similar or whash_similar:
+                        all_duplicate_pairs.append(
+                            {
+                                "image_1": img_i["id"],
+                                "image_2": img_j["id"],
+                                "type": "similar",
+                                "distance": best_distance,
+                            }
+                        )
+
+            pairs_processed += 1
+
+            # Publish progress every 10 block pairs
+            if pairs_processed % 10 == 0:
+                try:
+                    from .progress_publisher import publish_progress
+
+                    publish_progress(
+                        job_id=parent_job_id,
+                        state="PROGRESS",
+                        current=pairs_processed,
+                        total=num_pairs,
+                        message=f"Comparing batch: {pairs_processed}/{num_pairs} block pairs done, {len(all_duplicate_pairs)} duplicates found",
+                        extra={
+                            "phase": "comparing",
+                            "pairs_processed": pairs_processed,
+                            "pairs_found": len(all_duplicate_pairs),
+                        },
                     )
-                    continue
-
-                # Check perceptual similarity using all three hash types
-                # Consider similar if ANY hash matches (any match = potential duplicate)
-                dhash_similar = False
-                ahash_similar = False
-                whash_similar = False
-                best_distance = 999
-
-                if img_i["dhash"] and img_j["dhash"]:
-                    dhash_distance = _hamming_distance(img_i["dhash"], img_j["dhash"])
-                    dhash_similar = dhash_distance <= similarity_threshold
-                    best_distance = min(best_distance, dhash_distance)
-
-                if img_i["ahash"] and img_j["ahash"]:
-                    ahash_distance = _hamming_distance(img_i["ahash"], img_j["ahash"])
-                    ahash_similar = ahash_distance <= similarity_threshold
-                    best_distance = min(best_distance, ahash_distance)
-
-                # whash uses a slightly tighter threshold (more robust = stricter)
-                whash_threshold = max(1, similarity_threshold - 1)
-                if img_i["whash"] and img_j["whash"]:
-                    whash_distance = _hamming_distance(img_i["whash"], img_j["whash"])
-                    whash_similar = whash_distance <= whash_threshold
-                    best_distance = min(best_distance, whash_distance)
-
-                # Consider similar if any hash matches
-                if dhash_similar or ahash_similar or whash_similar:
-                    duplicate_pairs.append(
-                        {
-                            "image_1": img_i["id"],
-                            "image_2": img_j["id"],
-                            "type": "similar",
-                            "distance": best_distance,
-                        }
-                    )
+                except Exception:
+                    pass
 
         logger.info(
-            f"[{worker_id}] Blocks ({block_i}, {block_j}): found {len(duplicate_pairs)} pairs"
+            f"[{worker_id}] Completed {num_pairs} block pairs: found {len(all_duplicate_pairs)} duplicate pairs"
         )
 
-        # Publish progress so frontend knows work is happening
+        # Publish final progress
         try:
             from .progress_publisher import publish_progress
 
-            # Estimate progress based on block completion
-            # This is approximate since we don't track total comparisons in DB
-            total_blocks = math.ceil(len(images) / block_size)
-            total_comparisons = total_blocks * (total_blocks + 1) // 2
-            # We don't know exactly how many are done, but we can at least signal activity
             publish_progress(
                 job_id=parent_job_id,
                 state="PROGRESS",
-                current=0,  # Can't track exact count without DB
-                total=total_comparisons,
-                message=f"Comparing blocks ({block_i}, {block_j}): {len(duplicate_pairs)} pairs found",
+                current=num_pairs,
+                total=num_pairs,
+                message=f"Batch complete: {num_pairs} block pairs, {len(all_duplicate_pairs)} duplicates found",
                 extra={
                     "phase": "comparing",
-                    "block_i": block_i,
-                    "block_j": block_j,
-                    "pairs_found": len(duplicate_pairs),
+                    "pairs_processed": num_pairs,
+                    "pairs_found": len(all_duplicate_pairs),
                 },
             )
         except Exception as e:
-            # Don't fail the task if progress publishing fails
             logger.debug(f"Failed to publish comparison progress: {e}")
 
         return {
-            "block_i": block_i,
-            "block_j": block_j,
             "status": "completed",
-            "pairs_found": len(duplicate_pairs),
-            "duplicate_pairs": duplicate_pairs,
+            "block_pairs_processed": num_pairs,
+            "pairs_found": len(all_duplicate_pairs),
+            "duplicate_pairs": all_duplicate_pairs,
         }
 
     except Exception as e:
         logger.error(f"[{worker_id}] Comparison worker failed: {e}", exc_info=True)
         return {
-            "block_i": block_i,
-            "block_j": block_j,
             "status": "failed",
             "error": str(e),
+            "block_pairs_processed": 0,
+            "pairs_found": 0,
+            "duplicate_pairs": [],
         }
 
 
