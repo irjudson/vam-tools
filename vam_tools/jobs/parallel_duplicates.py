@@ -472,6 +472,26 @@ def duplicates_comparison_phase_task(
             _update_job_status(parent_job_id, "SUCCESS", result=final_result)
             return final_result
 
+        # Create temp table for duplicate pairs (before spawning workers to avoid race condition)
+        with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
+            db.session.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS duplicate_pairs_temp (
+                        job_id TEXT NOT NULL,
+                        image_1 TEXT NOT NULL,
+                        image_2 TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        distance INTEGER NOT NULL,
+                        PRIMARY KEY (job_id, image_1, image_2)
+                    )
+                    """
+                )
+            )
+            db.session.commit()
+        logger.info(f"[{task_id}] Created temp table for duplicate pairs")
+
         # Divide images into blocks for parallel comparison
         # Each block pair (i,j) will be compared by a worker
         # For N images divided into B blocks, we have B*(B+1)/2 comparisons
@@ -616,23 +636,7 @@ def duplicates_compare_worker_task(
             try:
                 with CatalogDatabase(catalog_id) as db:
                     assert db.session is not None
-                    # Create temp table if needed
-                    db.session.execute(
-                        text(
-                            """
-                            CREATE TABLE IF NOT EXISTS duplicate_pairs_temp (
-                                job_id TEXT NOT NULL,
-                                image_1 TEXT NOT NULL,
-                                image_2 TEXT NOT NULL,
-                                type TEXT NOT NULL,
-                                distance INTEGER NOT NULL,
-                                PRIMARY KEY (job_id, image_1, image_2)
-                            )
-                            """
-                        )
-                    )
-
-                    # Batch insert all pairs
+                    # Batch insert all pairs (table already created by coordinator)
                     for pair in batch_pairs:
                         db.session.execute(
                             text(
