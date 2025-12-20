@@ -559,6 +559,21 @@ def duplicates_compare_worker_task(
     worker_id = self.request.id or "unknown"
     logger.info(f"[{worker_id}] Starting comparison for blocks ({block_i}, {block_j})")
 
+    # Publish progress at start so UI knows comparison phase is active
+    try:
+        from .progress_publisher import publish_progress
+
+        publish_progress(
+            job_id=parent_job_id,
+            state="PROGRESS",
+            current=0,
+            total=0,
+            message=f"Starting comparison for blocks ({block_i}, {block_j})...",
+            extra={"phase": "comparing", "block_i": block_i, "block_j": block_j},
+        )
+    except Exception:
+        pass  # Non-critical
+
     try:
         # Get images for each block
         start_i = block_i * block_size
@@ -635,6 +650,32 @@ def duplicates_compare_worker_task(
         logger.info(
             f"[{worker_id}] Blocks ({block_i}, {block_j}): found {len(duplicate_pairs)} pairs"
         )
+
+        # Publish progress so frontend knows work is happening
+        try:
+            from .progress_publisher import publish_progress
+
+            # Estimate progress based on block completion
+            # This is approximate since we don't track total comparisons in DB
+            total_blocks = math.ceil(len(images) / block_size)
+            total_comparisons = total_blocks * (total_blocks + 1) // 2
+            # We don't know exactly how many are done, but we can at least signal activity
+            publish_progress(
+                job_id=parent_job_id,
+                state="PROGRESS",
+                current=0,  # Can't track exact count without DB
+                total=total_comparisons,
+                message=f"Comparing blocks ({block_i}, {block_j}): {len(duplicate_pairs)} pairs found",
+                extra={
+                    "phase": "comparing",
+                    "block_i": block_i,
+                    "block_j": block_j,
+                    "pairs_found": len(duplicate_pairs),
+                },
+            )
+        except Exception as e:
+            # Don't fail the task if progress publishing fails
+            logger.debug(f"Failed to publish comparison progress: {e}")
 
         return {
             "block_i": block_i,
