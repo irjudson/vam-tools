@@ -1,6 +1,11 @@
 """Tests for duplicate detection grouping algorithms."""
+
 import pytest
-from vam_tools.jobs.parallel_duplicates import _build_duplicate_groups, _can_add_to_group
+
+from vam_tools.jobs.parallel_duplicates import (
+    _build_duplicate_groups,
+    _can_add_to_group,
+)
 
 
 def test_build_groups_all_similar():

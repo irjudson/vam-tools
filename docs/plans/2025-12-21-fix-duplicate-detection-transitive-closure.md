@@ -248,3 +248,42 @@ class DuplicateGroupingStrategy(str, Enum):
    - Too slow for 96k images
 
 **Decision:** Greedy maximal cliques provide the best balance of speed, accuracy, and simplicity.
+
+## Implementation Completed
+
+**Date:** 2025-12-22
+**Branch:** `fix/duplicate-detection-transitive-closure`
+
+### Changes Made
+
+1. ✅ Added `_can_add_to_group()` helper function for strict similarity checking
+2. ✅ Replaced `_build_duplicate_groups()` Union-Find with greedy clique algorithm
+3. ✅ Added query filtering to exclude videos, NULL hashes, and zero hashes
+4. ✅ Added logging for filtered image counts
+5. ✅ Documented alternative grouping strategies with enum
+6. ✅ Added comprehensive test suite (unit + integration tests)
+
+### Test Results
+
+All tests passing:
+- `test_can_add_to_group_*` - Helper function validation
+- `test_build_groups_*` - Greedy clique algorithm correctness
+- `test_prevents_mega_group_from_hash_chain` - Real-world scenario validation
+- `test_exact_duplicates_still_group` - Exact duplicate handling
+
+**Total:** 10 tests passing
+
+### Next Steps
+
+1. Merge to main branch
+2. Deploy to production
+3. Run duplicate detection on test catalog
+4. Verify group size distribution is reasonable (2-50 images per group)
+5. Monitor for any performance issues
+
+### Files Modified
+
+- `vam_tools/jobs/parallel_duplicates.py` - Core algorithm changes
+- `tests/jobs/test_duplicate_grouping.py` - Unit tests (new file)
+- `tests/jobs/test_duplicate_detection_integration.py` - Integration tests (new file)
+- `docs/plans/2025-12-21-fix-duplicate-detection-transitive-closure.md` - This doc

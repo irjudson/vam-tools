@@ -950,22 +950,35 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
         if kill_info:
             response.update(kill_info)
 
-    # For active jobs, try to get live progress from Celery
+    # For active jobs, try to get live progress from Celery or Redis
     if effective_status == "running" and not progress_data:
-        celery_state = _get_celery_task_state(job_id)
-        if celery_state == "PROGRESS":
-            task_info = _get_celery_task_info(job_id)
-            response["progress"] = task_info or {}
-        elif celery_state == "SUCCESS":
-            # Coordinator finished, check result for progress info
-            task_result = _get_celery_task_result(job_id)
-            if isinstance(task_result, dict):
-                response["progress"] = {
-                    "phase": "processing",
-                    "message": task_result.get("message", "Processing..."),
-                    "total_files": task_result.get("total_files", 0),
-                    "num_batches": task_result.get("num_batches", 0),
-                }
+        # First, try Redis (used by duplicate detection and other chord-based jobs)
+        try:
+            from ...jobs.progress_publisher import get_last_progress
+
+            redis_progress = get_last_progress(job_id)
+            if redis_progress and redis_progress.get("progress"):
+                response["progress"] = redis_progress["progress"]
+                progress_data = redis_progress["progress"]  # Mark as found
+        except Exception as e:
+            logger.warning(f"Failed to get Redis progress for job {job_id}: {e}")
+
+        # If still no progress, fall back to Celery state
+        if not progress_data:
+            celery_state = _get_celery_task_state(job_id)
+            if celery_state == "PROGRESS":
+                task_info = _get_celery_task_info(job_id)
+                response["progress"] = task_info or {}
+            elif celery_state == "SUCCESS":
+                # Coordinator finished, check result for progress info
+                task_result = _get_celery_task_result(job_id)
+                if isinstance(task_result, dict):
+                    response["progress"] = {
+                        "phase": "processing",
+                        "message": task_result.get("message", "Processing..."),
+                        "total_files": task_result.get("total_files", 0),
+                        "num_batches": task_result.get("num_batches", 0),
+                    }
 
     return response
 

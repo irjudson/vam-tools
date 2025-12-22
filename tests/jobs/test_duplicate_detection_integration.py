@@ -1,5 +1,7 @@
 """Integration tests for duplicate detection with real-world scenarios."""
+
 import pytest
+
 from vam_tools.jobs.parallel_duplicates import _build_duplicate_groups
 
 
@@ -21,15 +23,12 @@ def test_prevents_mega_group_from_hash_chain():
         {"image_1": "A1", "image_2": "A2", "distance": 0},
         {"image_1": "A1", "image_2": "A3", "distance": 0},
         {"image_1": "A2", "image_2": "A3", "distance": 0},
-
         # Group 2 internally similar (simulate 92 images)
         {"image_1": "B1", "image_2": "B2", "distance": 0},
         {"image_1": "B1", "image_2": "B3", "distance": 0},
         {"image_1": "B2", "image_2": "B3", "distance": 0},
-
         # Group 3 internally similar (simulate 54 images)
         {"image_1": "C1", "image_2": "C2", "distance": 0},
-
         # Cross-group connections (these create the chain)
         {"image_1": "A1", "image_2": "B1", "distance": 3},  # Within threshold
         {"image_1": "B1", "image_2": "C1", "distance": 4},  # Within threshold
@@ -52,7 +51,9 @@ def test_prevents_mega_group_from_hash_chain():
         # Should not have both A and C members in same group
         has_a = any(img.startswith("A") for img in group_set)
         has_c = any(img.startswith("C") for img in group_set)
-        assert not (has_a and has_c), "A and C images in same group (transitive closure)"
+        assert not (
+            has_a and has_c
+        ), "A and C images in same group (transitive closure)"
 
 
 def test_exact_duplicates_still_group():

@@ -1212,12 +1212,13 @@ def _build_duplicate_groups(pairs: List[Dict[str, Any]]) -> List[List[str]]:
 
         # Try to add this pair to an existing group
         added = False
-        for group in groups:
+        for dup_group in groups:
             # Check if both images are similar to ALL group members
-            if _can_add_to_group(img1, group, graph) and \
-               _can_add_to_group(img2, group, graph):
-                group.add(img1)
-                group.add(img2)
+            if _can_add_to_group(img1, dup_group, graph) and _can_add_to_group(
+                img2, dup_group, graph
+            ):
+                dup_group.add(img1)
+                dup_group.add(img2)
                 assigned.add(img1)
                 assigned.add(img2)
                 added = True
