@@ -1123,7 +1123,17 @@ def _can_add_to_group(img: str, group: set, graph: Dict[str, set]) -> bool:
 
 def _build_duplicate_groups(pairs: List[Dict[str, Any]]) -> List[List[str]]:
     """
-    Build duplicate groups from pairwise relationships using union-find.
+    Build duplicate groups using greedy maximal cliques.
+
+    Only groups images where EVERY image is similar to EVERY other image.
+    This prevents transitive closure mega-groups where A-B-C get grouped
+    even when A and C are not similar to each other.
+
+    Algorithm:
+    1. Build similarity graph from pairs
+    2. Sort pairs by distance (most similar first)
+    3. Try to add each pair to existing groups where both images are similar to ALL members
+    4. If no compatible group exists, create new group
 
     Args:
         pairs: List of {image_1, image_2, type, distance} dicts
@@ -1131,40 +1141,52 @@ def _build_duplicate_groups(pairs: List[Dict[str, Any]]) -> List[List[str]]:
     Returns:
         List of image ID lists, each representing a duplicate group
     """
-    # Union-find data structure
-    parent = {}
-    rank = {}
+    if not pairs:
+        return []
 
-    def find(x: str) -> str:
-        if x not in parent:
-            parent[x] = x
-            rank[x] = 0
-        if parent[x] != x:
-            parent[x] = find(parent[x])  # Path compression
-        return parent[x]
+    # Build adjacency list: image_id -> set of similar image_ids
+    graph: Dict[str, set] = {}
 
-    def union(x: str, y: str) -> None:
-        px, py = find(x), find(y)
-        if px == py:
-            return
-        # Union by rank
-        if rank[px] < rank[py]:
-            px, py = py, px
-        parent[py] = px
-        if rank[px] == rank[py]:
-            rank[px] += 1
-
-    # Build groups
     for pair in pairs:
-        union(pair["image_1"], pair["image_2"])
+        img1, img2 = pair["image_1"], pair["image_2"]
 
-    # Collect groups
-    groups_dict: Dict[str, List[str]] = {}
-    for img_id in parent.keys():
-        root = find(img_id)
-        if root not in groups_dict:
-            groups_dict[root] = []
-        groups_dict[root].append(img_id)
+        # Add edges (bidirectional)
+        if img1 not in graph:
+            graph[img1] = set()
+        if img2 not in graph:
+            graph[img2] = set()
 
-    # Only return groups with 2+ images
-    return [group for group in groups_dict.values() if len(group) >= 2]
+        graph[img1].add(img2)
+        graph[img2].add(img1)
+
+    # Sort pairs by distance (most similar first = lowest distance)
+    sorted_pairs = sorted(pairs, key=lambda p: p["distance"])
+
+    # Greedy group building
+    groups: List[set] = []
+    assigned: set = set()  # Track images already in groups
+
+    for pair in sorted_pairs:
+        img1, img2 = pair["image_1"], pair["image_2"]
+
+        # Try to add this pair to an existing group
+        added = False
+        for group in groups:
+            # Check if both images are similar to ALL group members
+            if _can_add_to_group(img1, group, graph) and \
+               _can_add_to_group(img2, group, graph):
+                group.add(img1)
+                group.add(img2)
+                assigned.add(img1)
+                assigned.add(img2)
+                added = True
+                break
+
+        # If couldn't add to existing group, create new group
+        if not added:
+            groups.append({img1, img2})
+            assigned.add(img1)
+            assigned.add(img2)
+
+    # Convert sets to lists, filter groups with size >= 2
+    return [list(g) for g in groups if len(g) >= 2]
