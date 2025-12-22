@@ -425,7 +425,7 @@ def duplicates_comparison_phase_task(
             0, 1, "Loading image hashes...", {"phase": "comparison_init"}
         )
 
-        # Load all image hashes from database
+        # Load all image hashes from database (filter out problematic images)
         with CatalogDatabase(catalog_id) as db:
             assert db.session is not None
             result = db.session.execute(
@@ -435,7 +435,13 @@ def duplicates_comparison_phase_task(
                     FROM images
                     WHERE catalog_id = :catalog_id
                     AND file_type = 'image'
-                    AND (dhash IS NOT NULL OR ahash IS NOT NULL OR whash IS NOT NULL)
+                    AND dhash IS NOT NULL
+                    AND dhash != ''
+                    AND dhash != '0000000000000000'
+                    AND ahash IS NOT NULL
+                    AND ahash != ''
+                    AND whash IS NOT NULL
+                    AND whash != ''
                 """
                 ),
                 {"catalog_id": catalog_id},
@@ -456,7 +462,10 @@ def duplicates_comparison_phase_task(
                 )
 
         num_images = len(images)
-        logger.info(f"[{task_id}] Loaded {num_images} images with hashes")
+        logger.info(
+            f"[{task_id}] Loaded {num_images} images with valid hashes "
+            f"(filtered: videos, null hashes, zero hashes)"
+        )
 
         if num_images < 2:
             # Not enough images to compare
