@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -43,6 +44,37 @@ from .progress_publisher import publish_completion, publish_progress
 from .tasks import ProgressTask
 
 logger = logging.getLogger(__name__)
+
+
+class DuplicateGroupingStrategy(str, Enum):
+    """
+    Different strategies for grouping similar images.
+
+    STRICT_CLIQUE: Current implementation. Only groups images where every image
+                   is similar to every other image in the group. Prevents
+                   transitive closure mega-groups.
+
+    STAR_GROUPS: Future strategy. Creates star-shaped groups with a primary
+                 image (highest quality) and duplicates. Other images are only
+                 considered duplicates if similar to the primary, not each other.
+                 Good for photo shoots with many similar shots.
+
+    PAIR_GROUPS: Future strategy. Creates separate groups for each pair.
+                 Images can appear in multiple groups {A,B} and {B,C} are
+                 independent. Good for finding all similar relationships.
+
+    TRANSITIVE: Legacy Union-Find implementation. Creates transitive closures
+                which cause mega-groups. Kept for reference only.
+    """
+
+    STRICT_CLIQUE = "strict_clique"  # Current implementation
+    STAR_GROUPS = "star_groups"  # Future: primary with duplicates
+    PAIR_GROUPS = "pair_groups"  # Future: overlapping pairs
+    TRANSITIVE = "transitive"  # Legacy: Union-find (creates mega-groups)
+
+
+# Current grouping strategy (may be made configurable in future)
+CURRENT_GROUPING_STRATEGY = DuplicateGroupingStrategy.STRICT_CLIQUE
 
 
 def _update_job_status(
