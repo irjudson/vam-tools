@@ -875,7 +875,13 @@ def duplicates_finalizer_task(
 
         # Build groups using union-find
         groups = _build_duplicate_groups(all_pairs)
-        logger.info(f"[{finalizer_id}] Built {len(groups)} duplicate groups")
+        group_sizes = [len(g) for g in groups]
+        logger.info(
+            f"[{finalizer_id}] Built {len(groups)} duplicate groups. "
+            f"Sizes: min={min(group_sizes) if group_sizes else 0}, "
+            f"max={max(group_sizes) if group_sizes else 0}, "
+            f"avg={sum(group_sizes) / len(group_sizes) if group_sizes else 0:.1f}"
+        )
 
         self.update_progress(
             0, 1, f"Saving {len(groups)} duplicate groups...", {"phase": "saving"}
@@ -911,20 +917,29 @@ def duplicates_finalizer_task(
                 pair_distances[key] = dist
 
         with CatalogDatabase(catalog_id) as db:
+            groups_processed = 0
             for group_images in groups:
                 if len(group_images) < 2:
                     continue
+
+                groups_processed += 1
+                # Log progress for large groups
+                if len(group_images) > 1000:
+                    logger.info(
+                        f"[{finalizer_id}] Processing large group {groups_processed}/{len(groups)} "
+                        f"with {len(group_images)} images"
+                    )
 
                 # Select primary (highest quality)
                 primary_id = max(group_images, key=lambda x: image_quality.get(x, 0))
 
                 # Determine similarity type based on best distance in the group
+                # Optimized: only check pairs that actually exist (O(m) instead of O(n²))
                 group_distances = []
-                for i, img1 in enumerate(group_images):
-                    for img2 in group_images[i + 1 :]:
-                        key = tuple(sorted([img1, img2]))
-                        if key in pair_distances:
-                            group_distances.append(pair_distances[key])
+                group_images_set = set(group_images)
+                for (img1, img2), distance in pair_distances.items():
+                    if img1 in group_images_set and img2 in group_images_set:
+                        group_distances.append(distance)
 
                 best_distance = min(group_distances) if group_distances else 0
                 # exact = distance 0, similar = distance > 0
@@ -1085,6 +1100,25 @@ def _hamming_distance(hash1: str, hash2: str) -> int:
             return 999  # Invalid hex
 
     return distance
+
+
+def _can_add_to_group(img: str, group: set, graph: Dict[str, set]) -> bool:
+    """
+    Check if an image is similar to ALL members of a group.
+
+    Args:
+        img: Image ID to check
+        group: Set of image IDs in the current group
+        graph: Adjacency list mapping image_id -> set of similar image_ids
+
+    Returns:
+        True if img is similar to all group members, False otherwise
+    """
+    if img in group:
+        return True
+
+    neighbors = graph.get(img, set())
+    return all(member in neighbors for member in group)
 
 
 def _build_duplicate_groups(pairs: List[Dict[str, Any]]) -> List[List[str]]:
