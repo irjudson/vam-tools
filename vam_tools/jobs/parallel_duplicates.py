@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -43,6 +44,37 @@ from .progress_publisher import publish_completion, publish_progress
 from .tasks import ProgressTask
 
 logger = logging.getLogger(__name__)
+
+
+class DuplicateGroupingStrategy(str, Enum):
+    """
+    Different strategies for grouping similar images.
+
+    STRICT_CLIQUE: Current implementation. Only groups images where every image
+                   is similar to every other image in the group. Prevents
+                   transitive closure mega-groups.
+
+    STAR_GROUPS: Future strategy. Creates star-shaped groups with a primary
+                 image (highest quality) and duplicates. Other images are only
+                 considered duplicates if similar to the primary, not each other.
+                 Good for photo shoots with many similar shots.
+
+    PAIR_GROUPS: Future strategy. Creates separate groups for each pair.
+                 Images can appear in multiple groups {A,B} and {B,C} are
+                 independent. Good for finding all similar relationships.
+
+    TRANSITIVE: Legacy Union-Find implementation. Creates transitive closures
+                which cause mega-groups. Kept for reference only.
+    """
+
+    STRICT_CLIQUE = "strict_clique"  # Current implementation
+    STAR_GROUPS = "star_groups"  # Future: primary with duplicates
+    PAIR_GROUPS = "pair_groups"  # Future: overlapping pairs
+    TRANSITIVE = "transitive"  # Legacy: Union-find (creates mega-groups)
+
+
+# Current grouping strategy (may be made configurable in future)
+CURRENT_GROUPING_STRATEGY = DuplicateGroupingStrategy.STRICT_CLIQUE
 
 
 def _update_job_status(
@@ -425,7 +457,7 @@ def duplicates_comparison_phase_task(
             0, 1, "Loading image hashes...", {"phase": "comparison_init"}
         )
 
-        # Load all image hashes from database
+        # Load all image hashes from database (filter out problematic images)
         with CatalogDatabase(catalog_id) as db:
             assert db.session is not None
             result = db.session.execute(
@@ -435,7 +467,13 @@ def duplicates_comparison_phase_task(
                     FROM images
                     WHERE catalog_id = :catalog_id
                     AND file_type = 'image'
-                    AND (dhash IS NOT NULL OR ahash IS NOT NULL OR whash IS NOT NULL)
+                    AND dhash IS NOT NULL
+                    AND dhash != ''
+                    AND dhash != '0000000000000000'
+                    AND ahash IS NOT NULL
+                    AND ahash != ''
+                    AND whash IS NOT NULL
+                    AND whash != ''
                 """
                 ),
                 {"catalog_id": catalog_id},
@@ -456,7 +494,10 @@ def duplicates_comparison_phase_task(
                 )
 
         num_images = len(images)
-        logger.info(f"[{task_id}] Loaded {num_images} images with hashes")
+        logger.info(
+            f"[{task_id}] Loaded {num_images} images with valid hashes "
+            f"(filtered: videos, null hashes, zero hashes)"
+        )
 
         if num_images < 2:
             # Not enough images to compare
@@ -875,7 +916,13 @@ def duplicates_finalizer_task(
 
         # Build groups using union-find
         groups = _build_duplicate_groups(all_pairs)
-        logger.info(f"[{finalizer_id}] Built {len(groups)} duplicate groups")
+        group_sizes = [len(g) for g in groups]
+        logger.info(
+            f"[{finalizer_id}] Built {len(groups)} duplicate groups. "
+            f"Sizes: min={min(group_sizes) if group_sizes else 0}, "
+            f"max={max(group_sizes) if group_sizes else 0}, "
+            f"avg={sum(group_sizes) / len(group_sizes) if group_sizes else 0:.1f}"
+        )
 
         self.update_progress(
             0, 1, f"Saving {len(groups)} duplicate groups...", {"phase": "saving"}
@@ -911,20 +958,29 @@ def duplicates_finalizer_task(
                 pair_distances[key] = dist
 
         with CatalogDatabase(catalog_id) as db:
+            groups_processed = 0
             for group_images in groups:
                 if len(group_images) < 2:
                     continue
+
+                groups_processed += 1
+                # Log progress for large groups
+                if len(group_images) > 1000:
+                    logger.info(
+                        f"[{finalizer_id}] Processing large group {groups_processed}/{len(groups)} "
+                        f"with {len(group_images)} images"
+                    )
 
                 # Select primary (highest quality)
                 primary_id = max(group_images, key=lambda x: image_quality.get(x, 0))
 
                 # Determine similarity type based on best distance in the group
+                # Optimized: only check pairs that actually exist (O(m) instead of O(n²))
                 group_distances = []
-                for i, img1 in enumerate(group_images):
-                    for img2 in group_images[i + 1 :]:
-                        key = tuple(sorted([img1, img2]))
-                        if key in pair_distances:
-                            group_distances.append(pair_distances[key])
+                group_images_set = set(group_images)
+                for (img1, img2), distance in pair_distances.items():
+                    if img1 in group_images_set and img2 in group_images_set:
+                        group_distances.append(distance)
 
                 best_distance = min(group_distances) if group_distances else 0
                 # exact = distance 0, similar = distance > 0
@@ -1087,9 +1143,38 @@ def _hamming_distance(hash1: str, hash2: str) -> int:
     return distance
 
 
+def _can_add_to_group(img: str, group: set, graph: Dict[str, set]) -> bool:
+    """
+    Check if an image is similar to ALL members of a group.
+
+    Args:
+        img: Image ID to check
+        group: Set of image IDs in the current group
+        graph: Adjacency list mapping image_id -> set of similar image_ids
+
+    Returns:
+        True if img is similar to all group members, False otherwise
+    """
+    if img in group:
+        return True
+
+    neighbors = graph.get(img, set())
+    return all(member in neighbors for member in group)
+
+
 def _build_duplicate_groups(pairs: List[Dict[str, Any]]) -> List[List[str]]:
     """
-    Build duplicate groups from pairwise relationships using union-find.
+    Build duplicate groups using greedy maximal cliques.
+
+    Only groups images where EVERY image is similar to EVERY other image.
+    This prevents transitive closure mega-groups where A-B-C get grouped
+    even when A and C are not similar to each other.
+
+    Algorithm:
+    1. Build similarity graph from pairs
+    2. Sort pairs by distance (most similar first)
+    3. Try to add each pair to existing groups where both images are similar to ALL members
+    4. If no compatible group exists, create new group
 
     Args:
         pairs: List of {image_1, image_2, type, distance} dicts
@@ -1097,40 +1182,53 @@ def _build_duplicate_groups(pairs: List[Dict[str, Any]]) -> List[List[str]]:
     Returns:
         List of image ID lists, each representing a duplicate group
     """
-    # Union-find data structure
-    parent = {}
-    rank = {}
+    if not pairs:
+        return []
 
-    def find(x: str) -> str:
-        if x not in parent:
-            parent[x] = x
-            rank[x] = 0
-        if parent[x] != x:
-            parent[x] = find(parent[x])  # Path compression
-        return parent[x]
+    # Build adjacency list: image_id -> set of similar image_ids
+    graph: Dict[str, set] = {}
 
-    def union(x: str, y: str) -> None:
-        px, py = find(x), find(y)
-        if px == py:
-            return
-        # Union by rank
-        if rank[px] < rank[py]:
-            px, py = py, px
-        parent[py] = px
-        if rank[px] == rank[py]:
-            rank[px] += 1
-
-    # Build groups
     for pair in pairs:
-        union(pair["image_1"], pair["image_2"])
+        img1, img2 = pair["image_1"], pair["image_2"]
 
-    # Collect groups
-    groups_dict: Dict[str, List[str]] = {}
-    for img_id in parent.keys():
-        root = find(img_id)
-        if root not in groups_dict:
-            groups_dict[root] = []
-        groups_dict[root].append(img_id)
+        # Add edges (bidirectional)
+        if img1 not in graph:
+            graph[img1] = set()
+        if img2 not in graph:
+            graph[img2] = set()
 
-    # Only return groups with 2+ images
-    return [group for group in groups_dict.values() if len(group) >= 2]
+        graph[img1].add(img2)
+        graph[img2].add(img1)
+
+    # Sort pairs by distance (most similar first = lowest distance)
+    sorted_pairs = sorted(pairs, key=lambda p: p["distance"])
+
+    # Greedy group building
+    groups: List[set] = []
+    assigned: set = set()  # Track images already in groups
+
+    for pair in sorted_pairs:
+        img1, img2 = pair["image_1"], pair["image_2"]
+
+        # Try to add this pair to an existing group
+        added = False
+        for dup_group in groups:
+            # Check if both images are similar to ALL group members
+            if _can_add_to_group(img1, dup_group, graph) and _can_add_to_group(
+                img2, dup_group, graph
+            ):
+                dup_group.add(img1)
+                dup_group.add(img2)
+                assigned.add(img1)
+                assigned.add(img2)
+                added = True
+                break
+
+        # If couldn't add to existing group, create new group
+        if not added:
+            groups.append({img1, img2})
+            assigned.add(img1)
+            assigned.add(img2)
+
+    # Convert sets to lists, filter groups with size >= 2
+    return [list(g) for g in groups if len(g) >= 2]

@@ -79,7 +79,7 @@ services:
       - OLLAMA_HOST=http://ollama:11434
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    command: celery -A vam_tools.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A vam_tools.celery_app worker --loglevel=info --concurrency=2 --queues=celery
     restart: unless-stopped
     ulimits:
       nofile:
