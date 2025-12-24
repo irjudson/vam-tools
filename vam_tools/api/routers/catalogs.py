@@ -2456,11 +2456,25 @@ def get_bursts_stats(
 
     result = db.execute(text(stats_query), {"catalog_id": catalog_id_str}).fetchone()
 
+    # Get list of all cameras
+    cameras_query = """
+        SELECT DISTINCT b.camera_make || ' ' || b.camera_model as camera
+        FROM bursts b
+        WHERE b.catalog_id = :catalog_id
+        AND b.camera_make IS NOT NULL
+        AND b.camera_model IS NOT NULL
+        ORDER BY camera
+    """
+
+    cameras_result = db.execute(text(cameras_query), {"catalog_id": catalog_id_str})
+    cameras = [row[0] for row in cameras_result]
+
     return {
         "total_bursts": int(result[0]) if result[0] else 0,
         "total_images": int(result[1]) if result[1] else 0,
         "avg_burst_size": float(result[2]) if result[2] else 0.0,
         "cameras_count": int(result[3]) if result[3] else 0,
+        "cameras": cameras,
     }
 
 

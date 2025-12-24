@@ -145,7 +145,9 @@ createApp({
                 catalogInfo: false,
                 quickActions: true,
                 activeJobs: true,
-                jobHistory: false
+                jobHistory: false,
+                burstFilters: true,
+                burstGroups: true
             },
 
             // Job streaming
@@ -2179,7 +2181,8 @@ createApp({
             try {
                 const params = {
                     limit: this.burstsPageSize,
-                    offset: this.burstsPage * this.burstsPageSize
+                    offset: this.burstsPage * this.burstsPageSize,
+                    sort: 'largest'  // Sort by size (largest first)
                 };
 
                 // Apply filters
@@ -2204,20 +2207,9 @@ createApp({
                 this.burstsTotal = response.data.total || 0;
                 this.burstsPage++;
 
-                // Load stats on first load
+                // Load stats on first load (includes camera list)
                 if (reset) {
                     await this.loadBurstsStats();
-                }
-
-                // Extract available cameras for filter
-                if (response.data.bursts) {
-                    const cameras = new Set();
-                    response.data.bursts.forEach(burst => {
-                        if (burst.camera_make && burst.camera_model) {
-                            cameras.add(`${burst.camera_make} ${burst.camera_model}`);
-                        }
-                    });
-                    this.burstsAvailableCameras = Array.from(cameras).sort();
                 }
 
             } catch (error) {
@@ -2236,6 +2228,8 @@ createApp({
                     `/api/catalogs/${this.currentCatalog.id}/bursts/stats`
                 );
                 this.burstsStats = response.data;
+                // Load camera list from stats
+                this.burstsAvailableCameras = response.data.cameras || [];
             } catch (error) {
                 console.error('Error loading bursts stats:', error);
                 // Stats are optional, don't show error to user
