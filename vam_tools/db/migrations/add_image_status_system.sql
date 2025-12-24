@@ -21,10 +21,17 @@ ON CONFLICT (id) DO NOTHING;
 ALTER TABLE images
     ADD COLUMN IF NOT EXISTS status_id VARCHAR(50)
     DEFAULT 'active'
-    REFERENCES image_statuses(id);
+    NOT NULL;
+
+-- Add foreign key constraint separately
+ALTER TABLE images
+    ADD CONSTRAINT fk_images_status_id
+    FOREIGN KEY (status_id)
+    REFERENCES image_statuses(id)
+    ON DELETE RESTRICT;
 
 -- Create index for efficient filtering
 CREATE INDEX IF NOT EXISTS idx_images_status_id ON images(status_id);
 
--- Backfill existing images
+-- Backfill existing images (if any NULL values exist from before NOT NULL was added)
 UPDATE images SET status_id = 'active' WHERE status_id IS NULL;
