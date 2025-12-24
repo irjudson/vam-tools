@@ -230,6 +230,11 @@
                         :class="['view-btn', {'active': currentView === 'maptime'}]">
                         Map
                     </button>
+                    <button
+                        @click="setView('bursts')"
+                        :class="['view-btn', {'active': currentView === 'bursts'}]">
+                        Bursts
+                    </button>
                 </div>
             </div>
 
@@ -808,6 +813,204 @@
                         <div class="modal-footer">
                             <button @click="closeDuplicateGroup" class="btn-secondary">Close</button>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bursts View -->
+        <div v-if="currentView === 'bursts'" class="view-container">
+            <div class="content-wrapper">
+                <div v-if="!currentCatalog" class="text-center p-lg">
+                    <p class="text-secondary">Please select a catalog to view bursts</p>
+                </div>
+
+                <div v-else class="bursts-container">
+                    <div class="bursts-header">
+                        <h2>Burst Detection</h2>
+                        <button @click="startBurstDetection" class="btn-primary">
+                            Detect Bursts
+                        </button>
+                    </div>
+
+                    <!-- Statistics Panel -->
+                    <div v-if="burstsStats" class="stats-grid mb-lg">
+                        <div class="stat-card">
+                            <div class="stat-value">{{ formatNumber(burstsStats.total_bursts || 0) }}</div>
+                            <div class="stat-label">Total Bursts</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ formatNumber(burstsStats.total_images || 0) }}</div>
+                            <div class="stat-label">Images in Bursts</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ burstsStats.avg_burst_size ? burstsStats.avg_burst_size.toFixed(1) : '0' }}</div>
+                            <div class="stat-label">Avg Burst Size</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ burstsStats.cameras_count || 0 }}</div>
+                            <div class="stat-label">Cameras Used</div>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="filter-bar mb-md">
+                        <div class="filter-group">
+                            <label>Camera:</label>
+                            <select v-model="burstsFilter.camera" @change="applyBurstsFilter">
+                                <option :value="null">All Cameras</option>
+                                <option v-for="camera in burstsAvailableCameras" :key="camera" :value="camera">
+                                    {{ camera }}
+                                </option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Min Size:</label>
+                            <select v-model="burstsFilter.minSize" @change="applyBurstsFilter">
+                                <option :value="null">Any Size</option>
+                                <option :value="3">3+ images</option>
+                                <option :value="5">5+ images</option>
+                                <option :value="10">10+ images</option>
+                            </select>
+                        </div>
+                        <button v-if="burstsFilter.camera || burstsFilter.minSize"
+                                @click="clearBurstsFilter"
+                                class="btn-secondary btn-small">
+                            Clear Filters
+                        </button>
+                    </div>
+
+                    <!-- Loading State -->
+                    <div v-if="burstsLoading && bursts.length === 0" class="text-center p-lg">
+                        <div class="spinner"></div>
+                        <p class="text-secondary mt-md">Loading bursts...</p>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div v-else-if="bursts.length === 0 && !burstsLoading" class="text-center p-lg">
+                        <p class="text-secondary">No bursts found. Run "Detect Bursts" to identify burst sequences.</p>
+                    </div>
+
+                    <!-- Three-Panel Layout -->
+                    <div v-else class="bursts-three-panel">
+                        <!-- Left Panel: Burst List -->
+                        <div class="bursts-list-panel">
+                            <div class="bursts-list-header">
+                                <h3>Burst Groups ({{ bursts.length }})</h3>
+                            </div>
+                            <div class="bursts-list">
+                                <div v-for="burst in bursts" :key="burst.id"
+                                     class="burst-list-item"
+                                     :class="{ 'active': selectedBurst && selectedBurst.id === burst.id }"
+                                     @click="selectBurst(burst)">
+                                    <div class="burst-thumbnail">
+                                        <img v-if="burst.best_thumbnail_url"
+                                             :src="burst.best_thumbnail_url"
+                                             :alt="'Burst ' + burst.id"
+                                             loading="lazy" />
+                                        <div class="burst-count-badge">{{ burst.image_count }}</div>
+                                    </div>
+                                    <div class="burst-info">
+                                        <div class="burst-camera">
+                                            {{ burst.camera_make }} {{ burst.camera_model }}
+                                        </div>
+                                        <div class="burst-metadata">
+                                            <span>{{ burst.duration_seconds ? burst.duration_seconds.toFixed(1) + 's' : 'N/A' }}</span>
+                                            <span v-if="burst.start_time">{{ formatTime(burst.start_time) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Middle Panel: Burst Images Grid -->
+                        <div class="bursts-images-panel">
+                            <div v-if="selectedBurst" class="burst-images-container">
+                                <div class="burst-images-header">
+                                    <h3>{{ selectedBurst.image_count }} Images in Burst</h3>
+                                    <div class="burst-details">
+                                        <span>Duration: {{ selectedBurst.duration_seconds ? selectedBurst.duration_seconds.toFixed(1) + 's' : 'N/A' }}</span>
+                                        <span v-if="selectedBurst.start_time">{{ formatDateTime(selectedBurst.start_time) }}</span>
+                                    </div>
+                                </div>
+                                <div class="burst-images-grid">
+                                    <div v-for="image in burstImages" :key="image.id"
+                                         class="burst-image-item"
+                                         :class="{ 'is-best': image.id === selectedBurst.best_image_id }"
+                                         @click="selectBurstImage(image)">
+                                        <img :src="image.thumbnail_url" :alt="image.source_path" loading="lazy" />
+                                        <div class="burst-image-overlay">
+                                            <span v-if="image.id === selectedBurst.best_image_id" class="best-badge">BEST</span>
+                                            <span class="sequence-badge">#{{ (image.sequence || 0) + 1 }}</span>
+                                            <span v-if="image.quality_score" class="quality-score">
+                                                Q: {{ (image.quality_score * 100).toFixed(0) }}%
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else class="text-center p-lg">
+                                <p class="text-secondary">Select a burst from the list to view images</p>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: Image Details -->
+                        <div class="bursts-detail-panel">
+                            <div v-if="selectedBurstImage" class="burst-image-detail">
+                                <div class="detail-image">
+                                    <img :src="selectedBurstImage.thumbnail_url" :alt="selectedBurstImage.source_path" />
+                                </div>
+                                <div class="detail-info">
+                                    <h4>Image Details</h4>
+                                    <div class="detail-field">
+                                        <label>Filename:</label>
+                                        <span>{{ getFileName(selectedBurstImage.source_path) }}</span>
+                                    </div>
+                                    <div class="detail-field">
+                                        <label>Sequence:</label>
+                                        <span>#{{ (selectedBurstImage.sequence || 0) + 1 }} of {{ selectedBurst.image_count }}</span>
+                                    </div>
+                                    <div class="detail-field" v-if="selectedBurstImage.quality_score">
+                                        <label>Quality Score:</label>
+                                        <span>{{ (selectedBurstImage.quality_score * 100).toFixed(1) }}%</span>
+                                    </div>
+                                    <div class="detail-field" v-if="selectedBurstImage.size_bytes">
+                                        <label>File Size:</label>
+                                        <span>{{ formatFileSize(selectedBurstImage.size_bytes) }}</span>
+                                    </div>
+                                    <div class="detail-actions">
+                                        <button v-if="selectedBurstImage.id !== selectedBurst.best_image_id"
+                                                @click="setBestImage(selectedBurst.id, selectedBurstImage.id)"
+                                                class="btn-primary btn-small">
+                                            Set as Best
+                                        </button>
+                                        <button v-else class="btn-secondary btn-small" disabled>
+                                            Current Best
+                                        </button>
+                                        <button @click="openImageInLightbox(selectedBurstImage)"
+                                                class="btn-secondary btn-small">
+                                            View Full Size
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else class="text-center p-lg">
+                                <p class="text-secondary">Select an image to view details</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Load More -->
+                    <div v-if="hasMoreBursts() && !burstsLoading" class="load-more-container">
+                        <button @click="loadBursts(false)" class="btn-secondary">
+                            Load More ({{ formatNumber(burstsTotal - bursts.length) }} remaining)
+                        </button>
+                    </div>
+
+                    <!-- Loading More Indicator -->
+                    <div v-if="burstsLoading && bursts.length > 0" class="loading-more">
+                        <div class="spinner"></div>
+                        <span>Loading more...</span>
                     </div>
                 </div>
             </div>
