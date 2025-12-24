@@ -2486,7 +2486,7 @@ def list_bursts(
         conditions.append("""
             EXISTS (
                 SELECT 1 FROM images i
-                WHERE i.burst_id = b.id
+                WHERE i.burst_id::uuid = b.id
                 AND (i.status_id IS NULL OR i.status_id != 'rejected')
             )
         """)
