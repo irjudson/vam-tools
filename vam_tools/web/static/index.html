@@ -24,6 +24,28 @@
                     <div class="nav-brand">
                         <h1>VAM Tools</h1>
                     </div>
+                    <div class="view-switcher">
+                        <button
+                            @click="setView('browse')"
+                            :class="['view-btn', {'active': currentView === 'browse'}]">
+                            Library
+                        </button>
+                        <button
+                            @click="setView('maptime')"
+                            :class="['view-btn', {'active': currentView === 'maptime'}]">
+                            Map
+                        </button>
+                        <button
+                            @click="setView('duplicates')"
+                            :class="['view-btn', {'active': currentView === 'duplicates'}]">
+                            Duplicates
+                        </button>
+                        <button
+                            @click="setView('bursts')"
+                            :class="['view-btn', {'active': currentView === 'bursts'}]">
+                            Bursts
+                        </button>
+                    </div>
                 </div>
             </nav>
         </header>
@@ -217,27 +239,6 @@
 
         <!-- Main Content Area -->
         <main class="main-content">
-            <!-- Main Toolbar with View Switcher -->
-            <div class="main-toolbar">
-                <div class="view-switcher">
-                    <button
-                        @click="setView('browse')"
-                        :class="['view-btn', {'active': currentView === 'browse'}]">
-                        Library
-                    </button>
-                    <button
-                        @click="setView('maptime')"
-                        :class="['view-btn', {'active': currentView === 'maptime'}]">
-                        Map
-                    </button>
-                    <button
-                        @click="setView('bursts')"
-                        :class="['view-btn', {'active': currentView === 'bursts'}]">
-                        Bursts
-                    </button>
-                </div>
-            </div>
-
             <!-- Main Browse View (default home page / Library module) -->
             <div v-if="currentView === 'browse'" class="view-container">
             <div class="content-wrapper">
