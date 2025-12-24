@@ -2430,6 +2430,40 @@ def start_burst_detection(
     }
 
 
+@router.get("/{catalog_id}/bursts/stats")
+def get_bursts_stats(
+    catalog_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    """Get aggregate statistics for bursts in a catalog."""
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Get burst statistics
+    stats_query = """
+        SELECT
+            COUNT(*) as total_bursts,
+            SUM(b.image_count) as total_images,
+            AVG(b.image_count) as avg_burst_size,
+            COUNT(DISTINCT b.camera_make || ' ' || b.camera_model) as cameras_count
+        FROM bursts b
+        WHERE b.catalog_id = :catalog_id
+    """
+
+    result = db.execute(text(stats_query), {"catalog_id": catalog_id_str}).fetchone()
+
+    return {
+        "total_bursts": int(result[0]) if result[0] else 0,
+        "total_images": int(result[1]) if result[1] else 0,
+        "avg_burst_size": float(result[2]) if result[2] else 0.0,
+        "cameras_count": int(result[3]) if result[3] else 0,
+    }
+
+
 @router.get("/{catalog_id}/bursts", response_model=BurstListResponse)
 def list_bursts(
     catalog_id: uuid.UUID,
