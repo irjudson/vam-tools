@@ -161,6 +161,9 @@ class Image(Base):
         "DuplicateMember", back_populates="image", cascade="all, delete-orphan"
     )
     burst = relationship("Burst", back_populates="images")
+    status_history = relationship(
+        "ImageStatus", back_populates="image", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         UniqueConstraint("catalog_id", "checksum", name="unique_catalog_checksum"),
@@ -168,6 +171,27 @@ class Image(Base):
 
     def __repr__(self) -> str:
         return f"<Image(id={self.id}, path={self.source_path})>"
+
+
+class ImageStatus(Base):
+    """Status history for images."""
+
+    __tablename__ = "image_status"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    image_id = Column(
+        String,
+        ForeignKey("images.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status = Column(String(50), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    image = relationship("Image", back_populates="status_history")
+
+    def __repr__(self) -> str:
+        return f"<ImageStatus(id={self.id}, image_id={self.image_id}, status={self.status})>"
 
 
 class Burst(Base):
