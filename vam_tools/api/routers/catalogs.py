@@ -72,6 +72,19 @@ class BurstDetailResponse(BaseModel):
     images: List[BurstImageDetail]
 
 
+class ApplySelectionRequest(BaseModel):
+    """Request for applying a burst selection."""
+
+    selected_image_id: str
+
+
+class ApplySelectionResponse(BaseModel):
+    """Response from applying a burst selection."""
+
+    selected_image_id: str
+    rejected_count: int
+
+
 @router.get("/", response_model=List[CatalogResponse])
 def list_catalogs(db: Session = Depends(get_db)):
     """List all catalogs."""
@@ -2699,6 +2712,104 @@ def get_burst(
         ),
         "images": members,
     }
+
+
+@router.post(
+    "/{catalog_id}/bursts/{burst_id}/apply-selection",
+    response_model=ApplySelectionResponse
+)
+def apply_burst_selection(
+    catalog_id: uuid.UUID,
+    burst_id: str,
+    request: ApplySelectionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Apply a burst selection by setting the selected image to active and all others to rejected.
+
+    Args:
+        catalog_id: The catalog ID
+        burst_id: The burst ID
+        request: Request containing the selected_image_id
+        db: Database session
+
+    Returns:
+        ApplySelectionResponse with selected_image_id and rejected_count
+
+    Raises:
+        HTTPException: 404 if burst not found, 400 if selected_image_id not in burst
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Verify burst exists
+    burst_query = text(
+        """
+        SELECT id
+        FROM bursts
+        WHERE id = :burst_id AND catalog_id = :catalog_id
+        """
+    )
+    burst_result = db.execute(
+        burst_query, {"burst_id": burst_id, "catalog_id": catalog_id_str}
+    ).fetchone()
+
+    if not burst_result:
+        raise HTTPException(status_code=404, detail="Burst not found")
+
+    # Verify selected image is in the burst
+    image_check_query = text(
+        """
+        SELECT id
+        FROM images
+        WHERE id = :image_id AND burst_id = :burst_id
+        """
+    )
+    image_result = db.execute(
+        image_check_query,
+        {"image_id": request.selected_image_id, "burst_id": burst_id}
+    ).fetchone()
+
+    if not image_result:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Image {request.selected_image_id} is not in burst {burst_id}"
+        )
+
+    # Set selected image to active
+    update_selected_query = text(
+        """
+        UPDATE images
+        SET status_id = 'active'
+        WHERE id = :image_id
+        """
+    )
+    db.execute(update_selected_query, {"image_id": request.selected_image_id})
+
+    # Set all other images in burst to rejected
+    update_others_query = text(
+        """
+        UPDATE images
+        SET status_id = 'rejected'
+        WHERE burst_id = :burst_id AND id != :selected_id
+        """
+    )
+    result = db.execute(
+        update_others_query,
+        {"burst_id": burst_id, "selected_id": request.selected_image_id}
+    )
+    rejected_count = result.rowcount
+
+    db.commit()
+
+    return ApplySelectionResponse(
+        selected_image_id=request.selected_image_id,
+        rejected_count=rejected_count
+    )
 
 
 # ============================================================================

@@ -543,3 +543,164 @@ class TestGetBurstDetailEndpoint:
         # Verify 404 response
         assert response.status_code == 404
         assert "Burst not found" in response.json()["detail"]
+
+
+class TestApplySelectionEndpoint:
+    """Tests for POST /api/catalogs/{catalog_id}/bursts/{burst_id}/apply-selection endpoint."""
+
+    def test_apply_selection_sets_selected_active_others_rejected(self, client, db_session):
+        """Test that applying selection sets selected image to active and others to rejected."""
+        # Create a catalog
+        catalog_id = uuid.uuid4()
+        catalog = Catalog(
+            id=catalog_id,
+            name="Test Catalog Apply Selection",
+            schema_name=f"catalog_{str(catalog_id).replace('-', '_')}",
+            source_directories=["/tmp/test"],
+        )
+        db_session.add(catalog)
+        db_session.commit()
+
+        # Create a burst with 4 images all active
+        burst_id = str(uuid.uuid4())
+        start_time = datetime(2024, 1, 1, 12, 0, 0)
+        end_time = datetime(2024, 1, 1, 12, 0, 3)
+
+        db_session.execute(
+            text(
+                """
+                INSERT INTO bursts (id, catalog_id, image_count, start_time, end_time,
+                                   duration_seconds, camera_make, camera_model,
+                                   best_image_id, selection_method, created_at)
+                VALUES (:id, :catalog_id, 4, :start_time, :end_time, 3.0,
+                       'Canon', 'EOS R5', :best_id, 'quality', NOW())
+                """
+            ),
+            {
+                "id": burst_id,
+                "catalog_id": str(catalog_id),
+                "start_time": start_time,
+                "end_time": end_time,
+                "best_id": str(uuid.uuid4()),
+            }
+        )
+
+        # Create 4 active images in the burst
+        image_ids = []
+        for i in range(4):
+            img_id = _create_test_image(db_session, catalog_id, burst_id, i, "active")
+            image_ids.append(img_id)
+
+        db_session.commit()
+
+        # Select the second image (index 1)
+        selected_image_id = image_ids[1]
+
+        # Make the request
+        response = client.post(
+            f"/api/catalogs/{catalog_id}/bursts/{burst_id}/apply-selection",
+            json={"selected_image_id": selected_image_id}
+        )
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["selected_image_id"] == selected_image_id
+        assert data["rejected_count"] == 3
+
+        # Verify database state - selected image is active
+        result = db_session.execute(
+            text("SELECT status_id FROM images WHERE id = :image_id"),
+            {"image_id": selected_image_id}
+        ).fetchone()
+        assert result[0] == "active"
+
+        # Verify other images are rejected
+        for img_id in image_ids:
+            if img_id != selected_image_id:
+                result = db_session.execute(
+                    text("SELECT status_id FROM images WHERE id = :image_id"),
+                    {"image_id": img_id}
+                ).fetchone()
+                assert result[0] == "rejected"
+
+    def test_apply_selection_returns_404_when_burst_not_found(self, client, db_session):
+        """Test that endpoint returns 404 when burst does not exist."""
+        # Create a catalog
+        catalog_id = uuid.uuid4()
+        catalog = Catalog(
+            id=catalog_id,
+            name="Test Catalog Apply Not Found",
+            schema_name=f"catalog_{str(catalog_id).replace('-', '_')}",
+            source_directories=["/tmp/test"],
+        )
+        db_session.add(catalog)
+        db_session.commit()
+
+        # Try to apply selection to non-existent burst
+        non_existent_burst_id = str(uuid.uuid4())
+        selected_image_id = str(uuid.uuid4())
+
+        response = client.post(
+            f"/api/catalogs/{catalog_id}/bursts/{non_existent_burst_id}/apply-selection",
+            json={"selected_image_id": selected_image_id}
+        )
+
+        # Verify 404 response
+        assert response.status_code == 404
+        assert "Burst not found" in response.json()["detail"]
+
+    def test_apply_selection_returns_400_when_image_not_in_burst(self, client, db_session):
+        """Test that endpoint returns 400 when selected_image_id is not in the burst."""
+        # Create a catalog
+        catalog_id = uuid.uuid4()
+        catalog = Catalog(
+            id=catalog_id,
+            name="Test Catalog Apply Bad Image",
+            schema_name=f"catalog_{str(catalog_id).replace('-', '_')}",
+            source_directories=["/tmp/test"],
+        )
+        db_session.add(catalog)
+        db_session.commit()
+
+        # Create a burst with 3 images
+        burst_id = str(uuid.uuid4())
+        start_time = datetime(2024, 1, 1, 12, 0, 0)
+        end_time = datetime(2024, 1, 1, 12, 0, 2)
+
+        db_session.execute(
+            text(
+                """
+                INSERT INTO bursts (id, catalog_id, image_count, start_time, end_time,
+                                   duration_seconds, camera_make, camera_model,
+                                   best_image_id, selection_method, created_at)
+                VALUES (:id, :catalog_id, 3, :start_time, :end_time, 2.0,
+                       'Canon', 'EOS R5', :best_id, 'quality', NOW())
+                """
+            ),
+            {
+                "id": burst_id,
+                "catalog_id": str(catalog_id),
+                "start_time": start_time,
+                "end_time": end_time,
+                "best_id": str(uuid.uuid4()),
+            }
+        )
+
+        # Create 3 images in the burst
+        for i in range(3):
+            _create_test_image(db_session, catalog_id, burst_id, i, "active")
+
+        db_session.commit()
+
+        # Try to select an image that's not in the burst
+        non_member_image_id = str(uuid.uuid4())
+
+        response = client.post(
+            f"/api/catalogs/{catalog_id}/bursts/{burst_id}/apply-selection",
+            json={"selected_image_id": non_member_image_id}
+        )
+
+        # Verify 400 response
+        assert response.status_code == 400
+        assert "not in burst" in response.json()["detail"].lower()
