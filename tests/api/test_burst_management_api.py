@@ -704,3 +704,229 @@ class TestApplySelectionEndpoint:
         # Verify 400 response
         assert response.status_code == 400
         assert "not in burst" in response.json()["detail"].lower()
+
+
+class TestBatchApplyEndpoint:
+    """Tests for POST /api/catalogs/{catalog_id}/bursts/batch-apply endpoint."""
+
+    def test_batch_apply_processes_bursts_with_best_image_id(self, client, db_session):
+        """Test that batch apply processes bursts that have best_image_id set."""
+        # Create a catalog
+        catalog_id = uuid.uuid4()
+        catalog = Catalog(
+            id=catalog_id,
+            name="Test Catalog Batch Apply",
+            schema_name=f"catalog_{str(catalog_id).replace('-', '_')}",
+            source_directories=["/tmp/test"],
+        )
+        db_session.add(catalog)
+        db_session.commit()
+
+        # Create 3 bursts:
+        # - Burst 1: has best_image_id set, should be processed
+        # - Burst 2: has best_image_id set, should be processed
+        # - Burst 3: no best_image_id, should be skipped
+
+        # Burst 1 with best_image_id
+        burst_id_1 = str(uuid.uuid4())
+        best_image_id_1 = str(uuid.uuid4())
+        db_session.execute(
+            text(
+                """
+                INSERT INTO bursts (id, catalog_id, image_count, start_time, end_time,
+                                   duration_seconds, camera_make, camera_model,
+                                   best_image_id, selection_method, created_at)
+                VALUES (:id, :catalog_id, 4, :start_time, :end_time, 3.0,
+                       'Canon', 'EOS R5', :best_id, 'quality', NOW())
+                """
+            ),
+            {
+                "id": burst_id_1,
+                "catalog_id": str(catalog_id),
+                "start_time": datetime(2024, 1, 1, 12, 0, 0),
+                "end_time": datetime(2024, 1, 1, 12, 0, 3),
+                "best_id": best_image_id_1,
+            }
+        )
+
+        # Create 4 images for burst 1, one is the best image
+        for i in range(4):
+            img_id = best_image_id_1 if i == 1 else str(uuid.uuid4())
+            _create_test_image(db_session, catalog_id, burst_id_1, i, "active")
+            # Update the image ID for the best image
+            if i == 1:
+                db_session.execute(
+                    text("UPDATE images SET id = :new_id WHERE catalog_id = :catalog_id AND burst_id = :burst_id AND burst_sequence = :seq"),
+                    {"new_id": best_image_id_1, "catalog_id": str(catalog_id), "burst_id": burst_id_1, "seq": i}
+                )
+
+        # Burst 2 with best_image_id
+        burst_id_2 = str(uuid.uuid4())
+        best_image_id_2 = str(uuid.uuid4())
+        db_session.execute(
+            text(
+                """
+                INSERT INTO bursts (id, catalog_id, image_count, start_time, end_time,
+                                   duration_seconds, camera_make, camera_model,
+                                   best_image_id, selection_method, created_at)
+                VALUES (:id, :catalog_id, 3, :start_time, :end_time, 2.0,
+                       'Canon', 'EOS R5', :best_id, 'quality', NOW())
+                """
+            ),
+            {
+                "id": burst_id_2,
+                "catalog_id": str(catalog_id),
+                "start_time": datetime(2024, 1, 1, 13, 0, 0),
+                "end_time": datetime(2024, 1, 1, 13, 0, 2),
+                "best_id": best_image_id_2,
+            }
+        )
+
+        # Create 3 images for burst 2
+        for i in range(3):
+            img_id = best_image_id_2 if i == 0 else str(uuid.uuid4())
+            _create_test_image(db_session, catalog_id, burst_id_2, i, "active")
+            # Update the image ID for the best image
+            if i == 0:
+                db_session.execute(
+                    text("UPDATE images SET id = :new_id WHERE catalog_id = :catalog_id AND burst_id = :burst_id AND burst_sequence = :seq"),
+                    {"new_id": best_image_id_2, "catalog_id": str(catalog_id), "burst_id": burst_id_2, "seq": i}
+                )
+
+        # Burst 3 without best_image_id (NULL)
+        burst_id_3 = str(uuid.uuid4())
+        db_session.execute(
+            text(
+                """
+                INSERT INTO bursts (id, catalog_id, image_count, start_time, end_time,
+                                   duration_seconds, camera_make, camera_model,
+                                   best_image_id, selection_method, created_at)
+                VALUES (:id, :catalog_id, 3, :start_time, :end_time, 2.0,
+                       'Canon', 'EOS R5', NULL, 'quality', NOW())
+                """
+            ),
+            {
+                "id": burst_id_3,
+                "catalog_id": str(catalog_id),
+                "start_time": datetime(2024, 1, 1, 14, 0, 0),
+                "end_time": datetime(2024, 1, 1, 14, 0, 2),
+            }
+        )
+
+        # Create 3 images for burst 3
+        for i in range(3):
+            _create_test_image(db_session, catalog_id, burst_id_3, i, "active")
+
+        db_session.commit()
+
+        # Make the request with default use_recommendations=true
+        response = client.post(f"/api/catalogs/{catalog_id}/bursts/batch-apply")
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["bursts_processed"] == 2  # Only burst 1 and 2 processed
+        assert data["images_rejected"] == 5  # 3 rejected from burst 1 + 2 rejected from burst 2
+
+        # Verify database state - best images are active, others are rejected
+        # Burst 1
+        result = db_session.execute(
+            text("SELECT status_id FROM images WHERE id = :image_id"),
+            {"image_id": best_image_id_1}
+        ).fetchone()
+        assert result[0] == "active"
+
+        # Other images in burst 1 should be rejected
+        result = db_session.execute(
+            text("SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND id != :best_id AND status_id = 'rejected'"),
+            {"burst_id": burst_id_1, "best_id": best_image_id_1}
+        ).fetchone()
+        assert result[0] == 3
+
+        # Burst 2
+        result = db_session.execute(
+            text("SELECT status_id FROM images WHERE id = :image_id"),
+            {"image_id": best_image_id_2}
+        ).fetchone()
+        assert result[0] == "active"
+
+        # Other images in burst 2 should be rejected
+        result = db_session.execute(
+            text("SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND id != :best_id AND status_id = 'rejected'"),
+            {"burst_id": burst_id_2, "best_id": best_image_id_2}
+        ).fetchone()
+        assert result[0] == 2
+
+        # Burst 3 images should still be active (not processed)
+        result = db_session.execute(
+            text("SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND status_id = 'active'"),
+            {"burst_id": burst_id_3}
+        ).fetchone()
+        assert result[0] == 3
+
+    def test_batch_apply_respects_use_recommendations_flag(self, client, db_session):
+        """Test that batch apply can be disabled with use_recommendations=false."""
+        # Create a catalog
+        catalog_id = uuid.uuid4()
+        catalog = Catalog(
+            id=catalog_id,
+            name="Test Catalog Batch Apply No Recs",
+            schema_name=f"catalog_{str(catalog_id).replace('-', '_')}",
+            source_directories=["/tmp/test"],
+        )
+        db_session.add(catalog)
+        db_session.commit()
+
+        # Create a burst with best_image_id set
+        burst_id = str(uuid.uuid4())
+        best_image_id = str(uuid.uuid4())
+        db_session.execute(
+            text(
+                """
+                INSERT INTO bursts (id, catalog_id, image_count, start_time, end_time,
+                                   duration_seconds, camera_make, camera_model,
+                                   best_image_id, selection_method, created_at)
+                VALUES (:id, :catalog_id, 3, :start_time, :end_time, 2.0,
+                       'Canon', 'EOS R5', :best_id, 'quality', NOW())
+                """
+            ),
+            {
+                "id": burst_id,
+                "catalog_id": str(catalog_id),
+                "start_time": datetime(2024, 1, 1, 12, 0, 0),
+                "end_time": datetime(2024, 1, 1, 12, 0, 2),
+                "best_id": best_image_id,
+            }
+        )
+
+        # Create 3 images for the burst
+        for i in range(3):
+            img_id = best_image_id if i == 0 else str(uuid.uuid4())
+            _create_test_image(db_session, catalog_id, burst_id, i, "active")
+            # Update the image ID for the best image
+            if i == 0:
+                db_session.execute(
+                    text("UPDATE images SET id = :new_id WHERE catalog_id = :catalog_id AND burst_id = :burst_id AND burst_sequence = :seq"),
+                    {"new_id": best_image_id, "catalog_id": str(catalog_id), "burst_id": burst_id, "seq": i}
+                )
+
+        db_session.commit()
+
+        # Make the request with use_recommendations=false
+        response = client.post(
+            f"/api/catalogs/{catalog_id}/bursts/batch-apply",
+            json={"use_recommendations": False}
+        )
+
+        # Verify response - should not process any bursts
+        assert response.status_code == 200
+        data = response.json()
+        assert data["bursts_processed"] == 0
+        assert data["images_rejected"] == 0
+
+        # Verify all images are still active
+        result = db_session.execute(
+            text("SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND status_id = 'active'"),
+            {"burst_id": burst_id}
+        ).fetchone()
+        assert result[0] == 3

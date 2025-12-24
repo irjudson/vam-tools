@@ -85,6 +85,19 @@ class ApplySelectionResponse(BaseModel):
     rejected_count: int
 
 
+class BatchApplyRequest(BaseModel):
+    """Request for batch applying burst selections."""
+
+    use_recommendations: bool = True
+
+
+class BatchApplyResponse(BaseModel):
+    """Response from batch applying burst selections."""
+
+    bursts_processed: int
+    images_rejected: int
+
+
 @router.get("/", response_model=List[CatalogResponse])
 def list_catalogs(db: Session = Depends(get_db)):
     """List all catalogs."""
@@ -2809,6 +2822,98 @@ def apply_burst_selection(
     return ApplySelectionResponse(
         selected_image_id=request.selected_image_id,
         rejected_count=rejected_count
+    )
+
+
+@router.post(
+    "/{catalog_id}/bursts/batch-apply",
+    response_model=BatchApplyResponse
+)
+def batch_apply_burst_selections(
+    catalog_id: uuid.UUID,
+    request: BatchApplyRequest = BatchApplyRequest(),
+    db: Session = Depends(get_db),
+):
+    """
+    Batch apply burst selections for all bursts with best_image_id set.
+
+    For each burst in the catalog that has best_image_id set:
+    - Set the best image to active
+    - Set all other images in the burst to rejected
+
+    Args:
+        catalog_id: The catalog ID
+        request: Request containing use_recommendations flag (default: true)
+        db: Database session
+
+    Returns:
+        BatchApplyResponse with bursts_processed and images_rejected counts
+
+    Raises:
+        HTTPException: 404 if catalog not found
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # If use_recommendations is False, return immediately without processing
+    if not request.use_recommendations:
+        return BatchApplyResponse(
+            bursts_processed=0,
+            images_rejected=0
+        )
+
+    # Find all bursts in this catalog that have best_image_id set
+    bursts_query = text(
+        """
+        SELECT id, best_image_id
+        FROM bursts
+        WHERE catalog_id = :catalog_id AND best_image_id IS NOT NULL
+        """
+    )
+    bursts_result = db.execute(bursts_query, {"catalog_id": catalog_id_str}).fetchall()
+
+    bursts_processed = 0
+    images_rejected = 0
+
+    # Process each burst
+    for burst_row in bursts_result:
+        burst_id = burst_row[0]
+        best_image_id = burst_row[1]
+
+        # Set best image to active
+        update_best_query = text(
+            """
+            UPDATE images
+            SET status_id = 'active'
+            WHERE id = :image_id
+            """
+        )
+        db.execute(update_best_query, {"image_id": best_image_id})
+
+        # Set all other images in burst to rejected
+        update_others_query = text(
+            """
+            UPDATE images
+            SET status_id = 'rejected'
+            WHERE burst_id = :burst_id AND id != :best_id
+            """
+        )
+        result = db.execute(
+            update_others_query,
+            {"burst_id": burst_id, "best_id": best_image_id}
+        )
+        images_rejected += result.rowcount
+        bursts_processed += 1
+
+    db.commit()
+
+    return BatchApplyResponse(
+        bursts_processed=bursts_processed,
+        images_rejected=images_rejected
     )
 
 
