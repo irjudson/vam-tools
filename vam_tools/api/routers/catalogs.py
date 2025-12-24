@@ -35,6 +35,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class BurstListResponse(BaseModel):
+    bursts: List[Dict[str, Any]]
+    total: int
+    limit: int
+    offset: int
+
+
 @router.get("/", response_model=List[CatalogResponse])
 def list_catalogs(db: Session = Depends(get_db)):
     """List all catalogs."""
@@ -2367,16 +2374,16 @@ def start_burst_detection(
     }
 
 
-@router.get("/{catalog_id}/bursts")
+@router.get("/{catalog_id}/bursts", response_model=BurstListResponse)
 def list_bursts(
     catalog_id: uuid.UUID,
-    limit: int = Query(50, le=200),
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     camera_make: str = None,
     camera_model: str = None,
     min_images: int = Query(None, ge=2, description="Minimum images in burst"),
     show_rejected: bool = Query(False, description="Include bursts where all images are rejected"),
-    sort: str = Query("newest", description="Sort order: newest, oldest, or largest"),
+    sort: str = Query("newest", regex="^(newest|oldest|largest)$", description="Sort order: newest, oldest, or largest"),
     db: Session = Depends(get_db),
 ):
     """
