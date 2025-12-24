@@ -2375,12 +2375,25 @@ def list_bursts(
     camera_make: str = None,
     camera_model: str = None,
     min_images: int = Query(None, ge=2, description="Minimum images in burst"),
+    show_rejected: bool = Query(False, description="Include bursts where all images are rejected"),
+    sort: str = Query("newest", description="Sort order: newest, oldest, or largest"),
     db: Session = Depends(get_db),
 ):
     """
     List burst groups in a catalog.
 
     Returns burst sequences with their member images, timing info, and best selection.
+    By default, excludes bursts where all images are rejected.
+
+    Args:
+        catalog_id: Catalog UUID
+        limit: Maximum bursts to return (default 50, max 200)
+        offset: Pagination offset
+        camera_make: Filter by camera make
+        camera_model: Filter by camera model
+        min_images: Minimum images in burst
+        show_rejected: Include bursts where all images are rejected (default: False)
+        sort: Sort order - newest (default), oldest, or largest
     """
     # Verify catalog exists
     catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
@@ -2405,7 +2418,25 @@ def list_bursts(
         conditions.append("b.image_count >= :min_images")
         params["min_images"] = min_images
 
+    # Exclude bursts where ALL images are rejected (unless show_rejected=True)
+    if not show_rejected:
+        conditions.append("""
+            EXISTS (
+                SELECT 1 FROM images i
+                WHERE i.burst_id = b.id
+                AND (i.status_id IS NULL OR i.status_id != 'rejected')
+            )
+        """)
+
     where_clause = " AND ".join(conditions)
+
+    # Determine sort order
+    if sort == "oldest":
+        order_by = "b.start_time ASC"
+    elif sort == "largest":
+        order_by = "b.image_count DESC"
+    else:  # newest (default)
+        order_by = "b.start_time DESC"
 
     # Get bursts with member count
     query = text(
@@ -2423,7 +2454,7 @@ def list_bursts(
             b.created_at
         FROM bursts b
         WHERE {where_clause}
-        ORDER BY b.start_time DESC
+        ORDER BY {order_by}
         LIMIT :limit OFFSET :offset
     """
     )
