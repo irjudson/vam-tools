@@ -42,6 +42,36 @@ class BurstListResponse(BaseModel):
     offset: int
 
 
+class BurstImageDetail(BaseModel):
+    """Detail for a single image in a burst."""
+
+    image_id: str
+    source_path: str
+    sequence: int
+    quality_score: int | None
+    size_bytes: int | None
+    dates: Dict[str, Any]
+    metadata: Dict[str, Any]
+    is_best: bool
+
+
+class BurstDetailResponse(BaseModel):
+    """Detailed response for a single burst with all images."""
+
+    id: str
+    catalog_id: str
+    image_count: int
+    start_time: str | None
+    end_time: str | None
+    duration_seconds: float | None
+    camera_make: str | None
+    camera_model: str | None
+    best_image_id: str | None
+    selection_method: str | None
+    created_at: str | None
+    images: List[BurstImageDetail]
+
+
 @router.get("/", response_model=List[CatalogResponse])
 def list_catalogs(db: Session = Depends(get_db)):
     """List all catalogs."""
@@ -2570,7 +2600,7 @@ def list_bursts(
     }
 
 
-@router.get("/{catalog_id}/bursts/{burst_id}")
+@router.get("/{catalog_id}/bursts/{burst_id}", response_model=BurstDetailResponse)
 def get_burst(
     catalog_id: uuid.UUID,
     burst_id: str,
@@ -2579,7 +2609,7 @@ def get_burst(
     """
     Get details for a specific burst.
 
-    Returns full burst information with all member images.
+    Returns full burst information with all member images sorted by quality score.
     """
     # Verify catalog exists
     catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
@@ -2628,7 +2658,7 @@ def get_burst(
             i.metadata
         FROM images i
         WHERE i.burst_id = :burst_id
-        ORDER BY i.burst_sequence
+        ORDER BY i.quality_score DESC
     """
     )
     members_result = db.execute(members_query, {"burst_id": burst_id})
@@ -2638,7 +2668,7 @@ def get_burst(
         member_dict = dict(member_row._mapping)
         members.append(
             {
-                "image_id": member_dict["id"],
+                "image_id": str(member_dict["id"]) if member_dict["id"] else None,
                 "source_path": member_dict["source_path"],
                 "sequence": member_dict["burst_sequence"],
                 "quality_score": member_dict["quality_score"],
@@ -2650,7 +2680,7 @@ def get_burst(
         )
 
     return {
-        "id": row_dict["id"],
+        "id": str(row_dict["id"]) if row_dict["id"] else None,
         "catalog_id": catalog_id_str,
         "image_count": row_dict["image_count"],
         "start_time": (
@@ -2662,7 +2692,7 @@ def get_burst(
         "duration_seconds": row_dict["duration_seconds"],
         "camera_make": row_dict["camera_make"],
         "camera_model": row_dict["camera_model"],
-        "best_image_id": row_dict["best_image_id"],
+        "best_image_id": str(row_dict["best_image_id"]) if row_dict["best_image_id"] else None,
         "selection_method": row_dict["selection_method"],
         "created_at": (
             row_dict["created_at"].isoformat() if row_dict["created_at"] else None
