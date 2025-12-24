@@ -78,6 +78,20 @@ class Catalog(Base):
         return f"<Catalog(id={self.id}, name={self.name}, schema={self.schema_name})>"
 
 
+class ImageStatus(Base):
+    """Status lookup table for images."""
+
+    __tablename__ = "image_statuses"
+
+    id = Column(String(50), primary_key=True)  # 'active', 'rejected', 'archived', 'flagged'
+    name = Column(String(100), nullable=False)
+    description = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<ImageStatus(id={self.id}, name={self.name})>"
+
+
 class Image(Base):
     """Image/video records in catalogs."""
 
@@ -113,7 +127,15 @@ class Image(Base):
 
     # Analysis results
     quality_score = Column(Integer)
-    status = Column(String, default="pending")
+
+    # Status (references lookup table)
+    status_id = Column(
+        String(50),
+        ForeignKey("image_statuses.id", ondelete="RESTRICT"),
+        nullable=False,
+        default="active",
+        server_default="active"
+    )
 
     # Processing flags - tracks which processing steps are complete
     # Structure: {
@@ -154,6 +176,7 @@ class Image(Base):
 
     # Relationships
     catalog = relationship("Catalog", backref="images")
+    status = relationship("ImageStatus")
     tags = relationship(
         "ImageTag", back_populates="image", cascade="all, delete-orphan"
     )

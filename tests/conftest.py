@@ -107,6 +107,53 @@ def tables_created(engine):
         conn.commit()
 
     Base.metadata.create_all(bind=engine)
+
+    # Populate ImageStatus lookup table FIRST (before adding foreign key)
+    from vam_tools.db.models import ImageStatus
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        # Check if statuses already exist
+        existing_count = session.query(ImageStatus).count()
+        if existing_count == 0:
+            # Insert initial statuses
+            statuses = [
+                ImageStatus(id='active', name='Active', description='Normal visible image'),
+                ImageStatus(id='rejected', name='Rejected', description='Rejected from burst/duplicate review'),
+                ImageStatus(id='archived', name='Archived', description='Manually archived by user'),
+                ImageStatus(id='flagged', name='Flagged', description='Flagged for review or special attention'),
+            ]
+            session.add_all(statuses)
+            session.commit()
+    finally:
+        session.close()
+
+    # Apply status_id column migration if not already applied
+    # This is needed because existing test databases may have been created
+    # before the status_id column was added to the Image model
+    with engine.connect() as conn:
+        # Check if status_id column exists
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'images' AND column_name = 'status_id'"
+        ))
+        if not result.fetchone():
+            # Add the column
+            conn.execute(text(
+                "ALTER TABLE images ADD COLUMN status_id VARCHAR(50) "
+                "DEFAULT 'active' NOT NULL"
+            ))
+            conn.execute(text(
+                "ALTER TABLE images ADD CONSTRAINT fk_images_status_id "
+                "FOREIGN KEY (status_id) REFERENCES image_statuses(id) "
+                "ON DELETE RESTRICT"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_images_status_id ON images(status_id)"
+            ))
+        conn.commit()
+
     yield
     # Tables persist for the entire test session
     # Optionally drop them here if needed:

@@ -35,6 +35,69 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class BurstListResponse(BaseModel):
+    bursts: List[Dict[str, Any]]
+    total: int
+    limit: int
+    offset: int
+
+
+class BurstImageDetail(BaseModel):
+    """Detail for a single image in a burst."""
+
+    image_id: str
+    source_path: str
+    sequence: int
+    quality_score: int | None
+    size_bytes: int | None
+    dates: Dict[str, Any]
+    metadata: Dict[str, Any]
+    is_best: bool
+
+
+class BurstDetailResponse(BaseModel):
+    """Detailed response for a single burst with all images."""
+
+    id: str
+    catalog_id: str
+    image_count: int
+    start_time: str | None
+    end_time: str | None
+    duration_seconds: float | None
+    camera_make: str | None
+    camera_model: str | None
+    best_image_id: str | None
+    selection_method: str | None
+    created_at: str | None
+    images: List[BurstImageDetail]
+
+
+class ApplySelectionRequest(BaseModel):
+    """Request for applying a burst selection."""
+
+    selected_image_id: str
+
+
+class ApplySelectionResponse(BaseModel):
+    """Response from applying a burst selection."""
+
+    selected_image_id: str
+    rejected_count: int
+
+
+class BatchApplyRequest(BaseModel):
+    """Request for batch applying burst selections."""
+
+    use_recommendations: bool = True
+
+
+class BatchApplyResponse(BaseModel):
+    """Response from batch applying burst selections."""
+
+    bursts_processed: int
+    images_rejected: int
+
+
 @router.get("/", response_model=List[CatalogResponse])
 def list_catalogs(db: Session = Depends(get_db)):
     """List all catalogs."""
@@ -2367,20 +2430,33 @@ def start_burst_detection(
     }
 
 
-@router.get("/{catalog_id}/bursts")
+@router.get("/{catalog_id}/bursts", response_model=BurstListResponse)
 def list_bursts(
     catalog_id: uuid.UUID,
-    limit: int = Query(50, le=200),
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     camera_make: str = None,
     camera_model: str = None,
     min_images: int = Query(None, ge=2, description="Minimum images in burst"),
+    show_rejected: bool = Query(False, description="Include bursts where all images are rejected"),
+    sort: str = Query("newest", regex="^(newest|oldest|largest)$", description="Sort order: newest, oldest, or largest"),
     db: Session = Depends(get_db),
 ):
     """
     List burst groups in a catalog.
 
     Returns burst sequences with their member images, timing info, and best selection.
+    By default, excludes bursts where all images are rejected.
+
+    Args:
+        catalog_id: Catalog UUID
+        limit: Maximum bursts to return (default 50, max 200)
+        offset: Pagination offset
+        camera_make: Filter by camera make
+        camera_model: Filter by camera model
+        min_images: Minimum images in burst
+        show_rejected: Include bursts where all images are rejected (default: False)
+        sort: Sort order - newest (default), oldest, or largest
     """
     # Verify catalog exists
     catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
@@ -2405,7 +2481,25 @@ def list_bursts(
         conditions.append("b.image_count >= :min_images")
         params["min_images"] = min_images
 
+    # Exclude bursts where ALL images are rejected (unless show_rejected=True)
+    if not show_rejected:
+        conditions.append("""
+            EXISTS (
+                SELECT 1 FROM images i
+                WHERE i.burst_id = b.id
+                AND (i.status_id IS NULL OR i.status_id != 'rejected')
+            )
+        """)
+
     where_clause = " AND ".join(conditions)
+
+    # Determine sort order
+    if sort == "oldest":
+        order_by = "b.start_time ASC"
+    elif sort == "largest":
+        order_by = "b.image_count DESC"
+    else:  # newest (default)
+        order_by = "b.start_time DESC"
 
     # Get bursts with member count
     query = text(
@@ -2423,7 +2517,7 @@ def list_bursts(
             b.created_at
         FROM bursts b
         WHERE {where_clause}
-        ORDER BY b.start_time DESC
+        ORDER BY {order_by}
         LIMIT :limit OFFSET :offset
     """
     )
@@ -2532,7 +2626,7 @@ def list_bursts(
     }
 
 
-@router.get("/{catalog_id}/bursts/{burst_id}")
+@router.get("/{catalog_id}/bursts/{burst_id}", response_model=BurstDetailResponse)
 def get_burst(
     catalog_id: uuid.UUID,
     burst_id: str,
@@ -2541,7 +2635,7 @@ def get_burst(
     """
     Get details for a specific burst.
 
-    Returns full burst information with all member images.
+    Returns full burst information with all member images sorted by quality score.
     """
     # Verify catalog exists
     catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
@@ -2590,7 +2684,7 @@ def get_burst(
             i.metadata
         FROM images i
         WHERE i.burst_id = :burst_id
-        ORDER BY i.burst_sequence
+        ORDER BY i.quality_score DESC NULLS LAST, i.burst_sequence ASC
     """
     )
     members_result = db.execute(members_query, {"burst_id": burst_id})
@@ -2600,7 +2694,7 @@ def get_burst(
         member_dict = dict(member_row._mapping)
         members.append(
             {
-                "image_id": member_dict["id"],
+                "image_id": str(member_dict["id"]) if member_dict["id"] else None,
                 "source_path": member_dict["source_path"],
                 "sequence": member_dict["burst_sequence"],
                 "quality_score": member_dict["quality_score"],
@@ -2612,7 +2706,7 @@ def get_burst(
         )
 
     return {
-        "id": row_dict["id"],
+        "id": str(row_dict["id"]) if row_dict["id"] else None,
         "catalog_id": catalog_id_str,
         "image_count": row_dict["image_count"],
         "start_time": (
@@ -2624,13 +2718,203 @@ def get_burst(
         "duration_seconds": row_dict["duration_seconds"],
         "camera_make": row_dict["camera_make"],
         "camera_model": row_dict["camera_model"],
-        "best_image_id": row_dict["best_image_id"],
+        "best_image_id": str(row_dict["best_image_id"]) if row_dict["best_image_id"] else None,
         "selection_method": row_dict["selection_method"],
         "created_at": (
             row_dict["created_at"].isoformat() if row_dict["created_at"] else None
         ),
         "images": members,
     }
+
+
+@router.post(
+    "/{catalog_id}/bursts/{burst_id}/apply-selection",
+    response_model=ApplySelectionResponse
+)
+def apply_burst_selection(
+    catalog_id: uuid.UUID,
+    burst_id: str,
+    request: ApplySelectionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Apply a burst selection by setting the selected image to active and all others to rejected.
+
+    Args:
+        catalog_id: The catalog ID
+        burst_id: The burst ID
+        request: Request containing the selected_image_id
+        db: Database session
+
+    Returns:
+        ApplySelectionResponse with selected_image_id and rejected_count
+
+    Raises:
+        HTTPException: 404 if burst not found, 400 if selected_image_id not in burst
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # Verify burst exists
+    burst_query = text(
+        """
+        SELECT id
+        FROM bursts
+        WHERE id = :burst_id AND catalog_id = :catalog_id
+        """
+    )
+    burst_result = db.execute(
+        burst_query, {"burst_id": burst_id, "catalog_id": catalog_id_str}
+    ).fetchone()
+
+    if not burst_result:
+        raise HTTPException(status_code=404, detail="Burst not found")
+
+    # Verify selected image is in the burst
+    image_check_query = text(
+        """
+        SELECT id
+        FROM images
+        WHERE id = :image_id AND burst_id = :burst_id
+        """
+    )
+    image_result = db.execute(
+        image_check_query,
+        {"image_id": request.selected_image_id, "burst_id": burst_id}
+    ).fetchone()
+
+    if not image_result:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Image {request.selected_image_id} is not in burst {burst_id}"
+        )
+
+    # Set selected image to active
+    update_selected_query = text(
+        """
+        UPDATE images
+        SET status_id = 'active'
+        WHERE id = :image_id
+        """
+    )
+    db.execute(update_selected_query, {"image_id": request.selected_image_id})
+
+    # Set all other images in burst to rejected
+    update_others_query = text(
+        """
+        UPDATE images
+        SET status_id = 'rejected'
+        WHERE burst_id = :burst_id AND id != :selected_id
+        """
+    )
+    result = db.execute(
+        update_others_query,
+        {"burst_id": burst_id, "selected_id": request.selected_image_id}
+    )
+    rejected_count = result.rowcount
+
+    db.commit()
+
+    return ApplySelectionResponse(
+        selected_image_id=request.selected_image_id,
+        rejected_count=rejected_count
+    )
+
+
+@router.post(
+    "/{catalog_id}/bursts/batch-apply",
+    response_model=BatchApplyResponse
+)
+def batch_apply_burst_selections(
+    catalog_id: uuid.UUID,
+    request: BatchApplyRequest = BatchApplyRequest(),
+    db: Session = Depends(get_db),
+):
+    """
+    Batch apply burst selections for all bursts with best_image_id set.
+
+    For each burst in the catalog that has best_image_id set:
+    - Set the best image to active
+    - Set all other images in the burst to rejected
+
+    Args:
+        catalog_id: The catalog ID
+        request: Request containing use_recommendations flag (default: true)
+        db: Database session
+
+    Returns:
+        BatchApplyResponse with bursts_processed and images_rejected counts
+
+    Raises:
+        HTTPException: 404 if catalog not found
+    """
+    # Verify catalog exists
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+
+    catalog_id_str = str(catalog_id)
+
+    # If use_recommendations is False, return immediately without processing
+    if not request.use_recommendations:
+        return BatchApplyResponse(
+            bursts_processed=0,
+            images_rejected=0
+        )
+
+    # Find all bursts in this catalog that have best_image_id set
+    bursts_query = text(
+        """
+        SELECT id, best_image_id
+        FROM bursts
+        WHERE catalog_id = :catalog_id AND best_image_id IS NOT NULL
+        """
+    )
+    bursts_result = db.execute(bursts_query, {"catalog_id": catalog_id_str}).fetchall()
+
+    bursts_processed = 0
+    images_rejected = 0
+
+    # Process each burst
+    for burst_row in bursts_result:
+        burst_id = burst_row[0]
+        best_image_id = burst_row[1]
+
+        # Set best image to active
+        update_best_query = text(
+            """
+            UPDATE images
+            SET status_id = 'active'
+            WHERE id = :image_id
+            """
+        )
+        db.execute(update_best_query, {"image_id": best_image_id})
+
+        # Set all other images in burst to rejected
+        update_others_query = text(
+            """
+            UPDATE images
+            SET status_id = 'rejected'
+            WHERE burst_id = :burst_id AND id != :best_id
+            """
+        )
+        result = db.execute(
+            update_others_query,
+            {"burst_id": burst_id, "best_id": best_image_id}
+        )
+        images_rejected += result.rowcount
+        bursts_processed += 1
+
+    db.commit()
+
+    return BatchApplyResponse(
+        bursts_processed=bursts_processed,
+        images_rejected=images_rejected
+    )
 
 
 # ============================================================================

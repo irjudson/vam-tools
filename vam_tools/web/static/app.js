@@ -186,6 +186,19 @@ createApp({
 
             // Burst Detection
             bursts: [],
+            burstsTotal: 0,
+            burstsLoading: false,
+            burstsPage: 0,
+            burstsPageSize: 20,
+            burstsStats: null,
+            burstsFilter: {
+                camera: null,
+                minSize: null
+            },
+            burstsAvailableCameras: [],
+            selectedBurst: null,
+            selectedBurstImage: null,
+            burstImages: [],
             currentBurst: null,
             showBurstModal: false,
 
@@ -350,6 +363,8 @@ createApp({
                 this.$nextTick(() => this.initMapView());
             } else if (view === 'duplicates') {
                 this.loadDuplicates(true);
+            } else if (view === 'bursts') {
+                this.loadBursts(true);
             }
         },
 
@@ -2148,16 +2163,160 @@ createApp({
         // Burst Detection Methods
         // =====================================================================
 
-        async loadBursts() {
+        async loadBursts(reset = false) {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog first', 'info');
+                return;
+            }
+
+            if (reset) {
+                this.burstsPage = 0;
+                this.bursts = [];
+            }
+
+            this.burstsLoading = true;
+
+            try {
+                const params = {
+                    limit: this.burstsPageSize,
+                    offset: this.burstsPage * this.burstsPageSize
+                };
+
+                // Apply filters
+                if (this.burstsFilter.camera) {
+                    params.camera = this.burstsFilter.camera;
+                }
+                if (this.burstsFilter.minSize) {
+                    params.min_size = this.burstsFilter.minSize;
+                }
+
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/bursts`,
+                    { params }
+                );
+
+                if (reset) {
+                    this.bursts = response.data.bursts || [];
+                } else {
+                    this.bursts.push(...(response.data.bursts || []));
+                }
+
+                this.burstsTotal = response.data.total || 0;
+                this.burstsPage++;
+
+                // Load stats on first load
+                if (reset) {
+                    await this.loadBurstsStats();
+                }
+
+                // Extract available cameras for filter
+                if (response.data.bursts) {
+                    const cameras = new Set();
+                    response.data.bursts.forEach(burst => {
+                        if (burst.camera_make && burst.camera_model) {
+                            cameras.add(`${burst.camera_make} ${burst.camera_model}`);
+                        }
+                    });
+                    this.burstsAvailableCameras = Array.from(cameras).sort();
+                }
+
+            } catch (error) {
+                console.error('Error loading bursts:', error);
+                this.addNotification('Failed to load bursts', 'error');
+            } finally {
+                this.burstsLoading = false;
+            }
+        },
+
+        async loadBurstsStats() {
             if (!this.currentCatalog) return;
 
             try {
                 const response = await axios.get(
-                    `/api/catalogs/${this.currentCatalog.id}/bursts`
+                    `/api/catalogs/${this.currentCatalog.id}/bursts/stats`
                 );
-                this.bursts = response.data.bursts;
+                this.burstsStats = response.data;
             } catch (error) {
-                console.error('Failed to load bursts:', error);
+                console.error('Error loading bursts stats:', error);
+                // Stats are optional, don't show error to user
+            }
+        },
+
+        async selectBurst(burst) {
+            this.selectedBurst = burst;
+            this.selectedBurstImage = null;
+            await this.loadBurstImages(burst.id);
+        },
+
+        async loadBurstImages(burstId) {
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/bursts/${burstId}`
+                );
+                this.burstImages = response.data.images || [];
+
+                // Auto-select first image if available
+                if (this.burstImages.length > 0) {
+                    this.selectedBurstImage = this.burstImages[0];
+                }
+            } catch (error) {
+                console.error('Failed to load burst images:', error);
+                this.addNotification('Failed to load burst images', 'error');
+            }
+        },
+
+        selectBurstImage(image) {
+            this.selectedBurstImage = image;
+        },
+
+        hasMoreBursts() {
+            return this.bursts.length < this.burstsTotal;
+        },
+
+        applyBurstsFilter() {
+            this.loadBursts(true);
+        },
+
+        clearBurstsFilter() {
+            this.burstsFilter = {
+                camera: null,
+                minSize: null
+            };
+            this.loadBursts(true);
+        },
+
+        openImageInLightbox(image) {
+            // Find the image in the main images array and open lightbox
+            const imageIndex = this.images.findIndex(img => img.id === image.id);
+            if (imageIndex !== -1) {
+                this.openLightbox(imageIndex);
+            } else {
+                this.addNotification('Image not found in current view', 'info');
+            }
+        },
+
+        getFileName(path) {
+            if (!path) return '';
+            return path.split('/').pop();
+        },
+
+        formatTime(timestamp) {
+            if (!timestamp) return '';
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } catch (e) {
+                return '';
+            }
+        },
+
+        formatDateTime(timestamp) {
+            if (!timestamp) return '';
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleString();
+            } catch (e) {
+                return timestamp;
             }
         },
 
@@ -2181,6 +2340,12 @@ createApp({
                     { best_image_id: imageId }
                 );
                 this.addNotification('Best image updated', 'success');
+
+                // Update the selected burst
+                if (this.selectedBurst && this.selectedBurst.id === burstId) {
+                    this.selectedBurst.best_image_id = imageId;
+                    await this.loadBurstImages(burstId);
+                }
 
                 // Refresh current burst if modal is open
                 if (this.showBurstModal && this.currentBurst && this.currentBurst.id === burstId) {

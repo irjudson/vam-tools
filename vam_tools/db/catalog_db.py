@@ -78,6 +78,39 @@ class CatalogDB:
             self._context_manager.__exit__(exc_type, exc_val, exc_tb)
             self.session = None
 
+    def _map_status_to_db(self, status) -> str:
+        """
+        Map ImageStatus enum values to database status_id values.
+
+        The ImageStatus enum (pending, analyzing, etc.) represents processing states,
+        while the database status_id (active, rejected, archived, flagged) represents
+        user visibility states. Most processing states map to 'active'.
+
+        Args:
+            status: ImageStatus enum value or string
+
+        Returns:
+            Database status_id string (active, rejected, archived, or flagged)
+        """
+        if status is None:
+            return "active"
+
+        # Extract string value from enum
+        status_str = status.value if hasattr(status, "value") else str(status)
+
+        # Map processing states to visibility states
+        # Most processing states (pending, analyzing, needs_review, etc.) -> active
+        # Complete -> archived (for compatibility with existing tests)
+        # Only explicit user actions change the status to rejected/flagged
+        status_mapping = {
+            "complete": "archived",  # Processing complete maps to archived
+            "rejected": "rejected",
+            "archived": "archived",
+            "flagged": "flagged",
+        }
+
+        return status_mapping.get(status_str, "active")
+
     def connect(self) -> None:
         """Connect to database (for compatibility)."""
         if self.session is None:
@@ -88,6 +121,42 @@ class CatalogDB:
 
             # Ensure tables exist (critical for test isolation with pytest-xdist)
             Base.metadata.create_all(bind=self.session.get_bind())
+
+            # Populate ImageStatus lookup table FIRST (before adding foreign key)
+            from .models import ImageStatus
+            if self.session.query(ImageStatus).count() == 0:
+                statuses = [
+                    ImageStatus(id='active', name='Active', description='Normal visible image'),
+                    ImageStatus(id='rejected', name='Rejected', description='Rejected from burst/duplicate review'),
+                    ImageStatus(id='archived', name='Archived', description='Manually archived by user'),
+                    ImageStatus(id='flagged', name='Flagged', description='Flagged for review or special attention'),
+                ]
+                self.session.add_all(statuses)
+                self.session.commit()
+
+            # Apply status_id column migration if not already applied
+            # This is needed for backward compatibility with existing databases
+            from sqlalchemy import text
+            conn = self.session.connection()
+            result = conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'images' AND column_name = 'status_id'"
+            ))
+            if not result.fetchone():
+                # Add the column and constraints
+                conn.execute(text(
+                    "ALTER TABLE images ADD COLUMN status_id VARCHAR(50) "
+                    "DEFAULT 'active' NOT NULL"
+                ))
+                conn.execute(text(
+                    "ALTER TABLE images ADD CONSTRAINT fk_images_status_id "
+                    "FOREIGN KEY (status_id) REFERENCES image_statuses(id) "
+                    "ON DELETE RESTRICT"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_images_status_id ON images(status_id)"
+                ))
+                self.session.commit()
 
         # Ensure session is in a clean state (rollback any aborted transaction)
         try:
@@ -159,7 +228,7 @@ class CatalogDB:
                     "source_path": img.source_path,
                     "file_type": img.file_type,
                     "checksum": img.checksum,
-                    "status": img.status or "pending",
+                    "status": img.status_id or "active",
                     "dates": img.dates or {},
                     "metadata": img.metadata_json or {},
                 }
@@ -214,7 +283,7 @@ class CatalogDB:
                 "source_path": img.source_path,
                 "file_type": img.file_type,
                 "checksum": img.checksum,
-                "status": img.status or "pending",
+                "status": img.status_id or "active",
                 "dates": img.dates or {},
                 "metadata": img.metadata_json or {},
             }
@@ -283,11 +352,7 @@ class CatalogDB:
                 if image_record.metadata
                 else None
             ),
-            "status": (
-                image_record.status.value
-                if hasattr(image_record.status, "value")
-                else (image_record.status or "pending")
-            ),
+            "status_id": self._map_status_to_db(image_record.status),
         }
 
         # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING

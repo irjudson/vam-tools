@@ -852,6 +852,99 @@ def duplicates_compare_worker_task(
         }
 
 
+def _create_duplicate_group_tags(
+    catalog_id: str, groups_data: List[Dict[str, Any]]
+) -> None:
+    """
+    Create tags for duplicate groups.
+
+    Creates a tag for each duplicate group with format: dup-{first 8 chars of dhash}
+    The full dhash is stored in the tag's description field.
+
+    Args:
+        catalog_id: UUID of the catalog
+        groups_data: List of dicts with keys: primary_id, members, dhash
+    """
+    if not groups_data:
+        return
+
+    logger.info(
+        f"Creating tags for {len(groups_data)} duplicate groups in catalog {catalog_id}"
+    )
+
+    with CatalogDatabase(catalog_id) as db:
+        for group_data in groups_data:
+            dhash = group_data.get("dhash")
+            if not dhash or len(dhash) < 8:
+                continue
+
+            # Tag format: dup-{first 8 chars of dhash}
+            tag_name = f"dup-{dhash[:8]}"
+
+            # Description contains full dhash for reference
+            description = f"Duplicate group with dhash: {dhash}"
+
+            # Check if tag already exists (avoid duplicates)
+            assert db.session is not None
+            result = db.session.execute(
+                text(
+                    """
+                    SELECT id FROM tags
+                    WHERE catalog_id = :catalog_id AND name = :name
+                """
+                ),
+                {"catalog_id": catalog_id, "name": tag_name},
+            )
+            existing_tag = result.fetchone()
+
+            if existing_tag:
+                tag_id = existing_tag[0]
+                logger.debug(f"Tag {tag_name} already exists with id {tag_id}")
+            else:
+                # Create new tag
+                assert db.session is not None
+                insert_result = db.session.execute(
+                    text(
+                        """
+                        INSERT INTO tags (catalog_id, name, category, description, created_at)
+                        VALUES (:catalog_id, :name, :category, :description, NOW())
+                        RETURNING id
+                    """
+                    ),
+                    {
+                        "catalog_id": catalog_id,
+                        "name": tag_name,
+                        "category": "duplicate",
+                        "description": description,
+                    },
+                )
+                tag_id = insert_result.scalar()
+                logger.debug(f"Created tag {tag_name} with id {tag_id}")
+
+            # Tag all members of the group
+            for member_id in group_data.get("members", []):
+                assert db.session is not None
+                db.session.execute(
+                    text(
+                        """
+                        INSERT INTO image_tags (image_id, tag_id, confidence, source, created_at)
+                        VALUES (:image_id, :tag_id, :confidence, :source, NOW())
+                        ON CONFLICT (image_id, tag_id) DO NOTHING
+                    """
+                    ),
+                    {
+                        "image_id": member_id,
+                        "tag_id": tag_id,
+                        "confidence": 1.0,
+                        "source": "duplicate_detection",
+                    },
+                )
+
+        assert db.session is not None
+        db.session.commit()
+        logger.info(f"Successfully created tags for {len(groups_data)} duplicate groups")
+
+
 @app.task(bind=True, base=ProgressTask, name="duplicates_finalizer")
 def duplicates_finalizer_task(
     self: ProgressTask,
@@ -957,6 +1050,9 @@ def duplicates_finalizer_task(
             if key not in pair_distances or dist < pair_distances[key]:
                 pair_distances[key] = dist
 
+        # Collect group data for tag creation
+        groups_data_for_tags = []
+
         with CatalogDatabase(catalog_id) as db:
             groups_processed = 0
             for group_images in groups:
@@ -973,6 +1069,15 @@ def duplicates_finalizer_task(
 
                 # Select primary (highest quality)
                 primary_id = max(group_images, key=lambda x: image_quality.get(x, 0))
+
+                # Get dhash from primary image for tag creation
+                assert db.session is not None
+                dhash_result = db.session.execute(
+                    text("SELECT dhash FROM images WHERE id = :id"),
+                    {"id": primary_id},
+                )
+                dhash_row = dhash_result.fetchone()
+                primary_dhash = dhash_row[0] if dhash_row else None
 
                 # Determine similarity type based on best distance in the group
                 # Optimized: only check pairs that actually exist (O(m) instead of O(n²))
@@ -1037,8 +1142,25 @@ def duplicates_finalizer_task(
                     len(group_images) - 1
                 )  # Don't count primary as duplicate
 
+                # Collect data for tag creation
+                if primary_dhash:
+                    groups_data_for_tags.append(
+                        {
+                            "primary_id": primary_id,
+                            "members": group_images,
+                            "dhash": primary_dhash,
+                        }
+                    )
+
             assert db.session is not None
             db.session.commit()
+
+        # Create tags for duplicate groups
+        if groups_data_for_tags:
+            try:
+                _create_duplicate_group_tags(catalog_id, groups_data_for_tags)
+            except Exception as e:
+                logger.warning(f"[{finalizer_id}] Failed to create duplicate group tags: {e}")
 
         failed_comparisons = sum(
             1 for r in comparison_results if r.get("status") == "failed"
