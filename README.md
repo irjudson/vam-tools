@@ -46,6 +46,7 @@ Comprehensive documentation is available in the **[docs](./docs)** directory:
 - **RAW File Support** - Native RAW metadata extraction during scanning (no conversion required)
 - **Duplicate Detection** - Find exact and similar duplicates using checksums and perceptual hashing
 - **Quality Scoring** - Automatically select the best copy among duplicates
+- **Burst Management** - Automatically detect continuous shooting sequences and select the best image from each burst
 - **Corruption Tracking** - Automatically detect and report corrupted/truncated image files
 - **Date-Based Reorganization** - Reorganize libraries into date-based directory structures
 
