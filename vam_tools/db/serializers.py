@@ -232,7 +232,21 @@ def deserialize_image_record(data: Dict[str, Any]) -> ImageRecord:
 
     status = None
     if data.get("status"):
-        status = ImageStatus(data["status"])
+        # Map database status_id values to ImageStatus enum
+        # Database uses: active, rejected, archived, flagged
+        # Enum uses: pending, analyzing, needs_review, approved, executed, complete
+        status_str = data["status"]
+        status_mapping = {
+            "active": ImageStatus.PENDING,  # Default to PENDING for active images
+            "rejected": ImageStatus.PENDING,  # Rejected maps to PENDING for compatibility
+            "archived": ImageStatus.COMPLETE,  # Archived maps to COMPLETE
+            "flagged": ImageStatus.NEEDS_REVIEW,  # Flagged maps to NEEDS_REVIEW
+        }
+        # Try direct enum conversion first, fall back to mapping
+        try:
+            status = ImageStatus(status_str)
+        except ValueError:
+            status = status_mapping.get(status_str, ImageStatus.PENDING)
 
     return ImageRecord(
         id=data["id"],
