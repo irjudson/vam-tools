@@ -425,6 +425,104 @@ class TestGetBurstDetailEndpoint:
         assert data["images"][1]["is_best"] is False
         assert data["images"][2]["is_best"] is False
 
+    def test_get_burst_detail_handles_null_quality_scores(self, client, db_session):
+        """Test that images with NULL quality_score are sorted last by sequence."""
+        # Create a catalog
+        catalog_id = uuid.uuid4()
+        catalog = Catalog(
+            id=catalog_id,
+            name="Test Catalog Null Quality",
+            schema_name=f"catalog_{str(catalog_id).replace('-', '_')}",
+            source_directories=["/tmp/test"],
+        )
+        db_session.add(catalog)
+        db_session.commit()
+
+        # Create a burst
+        burst_id = str(uuid.uuid4())
+        best_image_id = str(uuid.uuid4())
+        start_time = datetime(2024, 1, 1, 12, 0, 0)
+        end_time = datetime(2024, 1, 1, 12, 0, 5)
+
+        db_session.execute(
+            text(
+                """
+                INSERT INTO bursts (id, catalog_id, image_count, start_time, end_time,
+                                   duration_seconds, camera_make, camera_model,
+                                   best_image_id, selection_method, created_at)
+                VALUES (:id, :catalog_id, 3, :start_time, :end_time, 5.0,
+                       'Canon', 'EOS R5', :best_id, 'quality', NOW())
+                """
+            ),
+            {
+                "id": burst_id,
+                "catalog_id": str(catalog_id),
+                "start_time": start_time,
+                "end_time": end_time,
+                "best_id": best_image_id,
+            }
+        )
+
+        # Create 3 images: quality=90, quality=NULL (seq=1), quality=70 (seq=2)
+        # Expected order: [90 (seq=0), 70 (seq=2), NULL (seq=1)]
+        test_data = [
+            {"quality": 90, "seq": 0, "is_best": True, "id": best_image_id},
+            {"quality": None, "seq": 1, "is_best": False, "id": str(uuid.uuid4())},
+            {"quality": 70, "seq": 2, "is_best": False, "id": str(uuid.uuid4())},
+        ]
+
+        for data_item in test_data:
+            db_session.execute(
+                text(
+                    """
+                    INSERT INTO images (
+                        id, catalog_id, source_path, file_type, checksum,
+                        burst_id, burst_sequence, quality_score, status_id,
+                        dates, metadata, created_at
+                    ) VALUES (
+                        :id, :catalog_id, :path, :file_type, :checksum,
+                        :burst_id, :seq, :quality, 'active',
+                        '{"selected_date": "2024-01-01T12:00:00"}'::jsonb,
+                        '{}'::jsonb, NOW()
+                    )
+                    """
+                ),
+                {
+                    "id": data_item["id"],
+                    "catalog_id": str(catalog_id),
+                    "path": f"/tmp/img_{data_item['id']}.jpg",
+                    "file_type": "image",
+                    "checksum": data_item["id"],
+                    "burst_id": burst_id,
+                    "seq": data_item["seq"],
+                    "quality": data_item["quality"],
+                }
+            )
+
+        db_session.commit()
+
+        # Make the request
+        response = client.get(f"/api/catalogs/{catalog_id}/bursts/{burst_id}")
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check images are sorted: quality DESC NULLS LAST, then burst_sequence ASC
+        # Expected order: 90 (seq=0), 70 (seq=2), NULL (seq=1)
+        assert len(data["images"]) == 3
+        assert data["images"][0]["quality_score"] == 90
+        assert data["images"][0]["sequence"] == 0
+        assert data["images"][0]["is_best"] is True
+
+        assert data["images"][1]["quality_score"] == 70
+        assert data["images"][1]["sequence"] == 2
+        assert data["images"][1]["is_best"] is False
+
+        assert data["images"][2]["quality_score"] is None
+        assert data["images"][2]["sequence"] == 1
+        assert data["images"][2]["is_best"] is False
+
     def test_get_burst_detail_returns_404_when_burst_not_found(self, client, db_session):
         """Test that endpoint returns 404 when burst does not exist."""
         # Create a catalog

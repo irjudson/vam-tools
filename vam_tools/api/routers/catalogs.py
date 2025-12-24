@@ -2658,7 +2658,7 @@ def get_burst(
             i.metadata
         FROM images i
         WHERE i.burst_id = :burst_id
-        ORDER BY i.quality_score DESC
+        ORDER BY i.quality_score DESC NULLS LAST, i.burst_sequence ASC
     """
     )
     members_result = db.execute(members_query, {"burst_id": burst_id})
