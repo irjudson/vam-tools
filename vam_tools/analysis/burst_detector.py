@@ -108,6 +108,7 @@ class BurstDetector:
     3. From the same location (GPS coordinates within tolerance)
     4. Sequential filenames (continuous numeric sequence)
     5. At least min_burst_size images in the sequence
+    6. Total duration >= min_duration_seconds (filters identical timestamps)
     """
 
     def __init__(
@@ -115,6 +116,7 @@ class BurstDetector:
         gap_threshold_seconds: float = 1.0,
         min_burst_size: int = 3,
         location_tolerance_meters: float = 10.0,
+        min_duration_seconds: float = 0.5,
     ):
         """Initialize burst detector.
 
@@ -122,10 +124,13 @@ class BurstDetector:
             gap_threshold_seconds: Maximum gap between images (default 1.0s for bursts)
             min_burst_size: Minimum images required to form a burst
             location_tolerance_meters: Maximum distance between GPS coords (default 10m)
+            min_duration_seconds: Minimum total duration for valid burst (default 0.5s)
+                                 Filters out groups with identical timestamps
         """
         self.gap_threshold_seconds = gap_threshold_seconds
         self.min_burst_size = min_burst_size
         self.location_tolerance_meters = location_tolerance_meters
+        self.min_duration_seconds = min_duration_seconds
 
     def detect_bursts(self, images: List[ImageInfo]) -> List[BurstGroup]:
         """Detect burst sequences in a list of images.
@@ -292,8 +297,11 @@ class BurstDetector:
                 # Criteria not met - check if current sequence is a burst
                 if len(current_sequence) >= self.min_burst_size:
                     burst = BurstGroup(images=list(current_sequence))
-                    burst.best_image_id = self.select_best_image(burst).image_id
-                    bursts.append(burst)
+                    # Only include bursts with sufficient duration
+                    # (filters out groups with identical timestamps)
+                    if burst.duration_seconds >= self.min_duration_seconds:
+                        burst.best_image_id = self.select_best_image(burst).image_id
+                        bursts.append(burst)
 
                 # Start new sequence
                 current_sequence = [current_img]
@@ -301,8 +309,10 @@ class BurstDetector:
         # Don't forget the last sequence
         if len(current_sequence) >= self.min_burst_size:
             burst = BurstGroup(images=list(current_sequence))
-            burst.best_image_id = self.select_best_image(burst).image_id
-            bursts.append(burst)
+            # Only include bursts with sufficient duration
+            if burst.duration_seconds >= self.min_duration_seconds:
+                burst.best_image_id = self.select_best_image(burst).image_id
+                bursts.append(burst)
 
         return bursts
 
