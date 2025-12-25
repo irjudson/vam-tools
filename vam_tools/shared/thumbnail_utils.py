@@ -22,6 +22,8 @@ THUMBNAIL_SIZES = {
     "small": (100, 100),
     "medium": (200, 200),
     "large": (400, 400),
+    "xlarge": (1600, 1600),
+    "original": (9999, 9999),  # Effectively full resolution
 }
 
 # RAW file extensions that need special handling

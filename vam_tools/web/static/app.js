@@ -1687,7 +1687,7 @@ createApp({
 
         getFullImageUrl(image) {
             if (!this.currentCatalog || !image) return '';
-            return `/api/catalogs/${this.currentCatalog.id}/images/${image.id}/thumbnail?size=large&quality=95`;
+            return `/api/catalogs/${this.currentCatalog.id}/images/${image.id}/thumbnail?size=original&quality=95`;
         },
 
         formatFileSize(bytes) {
@@ -2318,6 +2318,11 @@ createApp({
             return `/api/catalogs/${this.currentCatalog.id}/images/${image.image_id}/thumbnail?size=medium`;
         },
 
+        getBurstImageLarge(image) {
+            if (!this.currentCatalog || !image.image_id) return '';
+            return `/api/catalogs/${this.currentCatalog.id}/images/${image.image_id}/thumbnail?size=xlarge&quality=95`;
+        },
+
         hasMoreBursts() {
             return this.bursts.length < this.burstsTotal;
         },
@@ -2335,13 +2340,41 @@ createApp({
         },
 
         openImageInLightbox(image) {
-            // Find the image in the main images array and open lightbox
-            const imageIndex = this.images.findIndex(img => img.id === image.id);
-            if (imageIndex !== -1) {
-                this.openLightbox(imageIndex);
+            // Handle burst images (use image_id field)
+            if (image.image_id) {
+                const imageIndex = this.images.findIndex(img => img.id === image.image_id);
+                if (imageIndex !== -1) {
+                    this.openLightbox(imageIndex);
+                } else {
+                    // Image not in current view, open direct lightbox
+                    this.openDirectLightbox(image.image_id, image.source_path);
+                }
             } else {
-                this.addNotification('Image not found in current view', 'info');
+                // Regular images (use id field)
+                const imageIndex = this.images.findIndex(img => img.id === image.id);
+                if (imageIndex !== -1) {
+                    this.openLightbox(imageIndex);
+                } else {
+                    this.addNotification('Image not found in current view', 'info');
+                }
             }
+        },
+
+        openDirectLightbox(imageId, sourcePath) {
+            // Open lightbox with a single image (not from current view)
+            // Create a minimal image object for the lightbox
+            this.lightboxImage = {
+                id: imageId,
+                source_path: sourcePath,
+                metadata: {}
+            };
+            this.lightboxImageIndex = -1; // -1 indicates direct view, no navigation
+            this.lightboxVisible = true;
+            this.lightboxZoom = 1;
+
+            // Add keyboard event listener
+            this._boundKeydownHandler = this.handleLightboxKeydown.bind(this);
+            document.addEventListener('keydown', this._boundKeydownHandler);
         },
 
         getFileName(path) {

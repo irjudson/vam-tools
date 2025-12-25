@@ -969,7 +969,8 @@ def get_image_thumbnail(
     """Get or generate a thumbnail for an image.
 
     Args:
-        size: Thumbnail size - "small" (100px), "medium" (200px), or "large" (400px)
+        size: Thumbnail size - "small" (100px), "medium" (200px), "large" (400px),
+              "xlarge" (1600px), or "original" (full resolution)
         quality: JPEG quality (1-100)
     """
     # Validate size parameter
