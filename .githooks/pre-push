@@ -98,7 +98,7 @@ PYTEST_BIN="${VIRTUAL_ENV:-venv}/bin/pytest"
 if [ ! -f "$PYTEST_BIN" ]; then
     PYTEST_BIN="venv/bin/pytest"
 fi
-if "$PYTEST_BIN" -m "not integration" --tb=short -q; then
+if "$PYTEST_BIN" -n 8 -m "not integration" --tb=short -q; then
     echo -e "${GREEN}  ✓ All tests passed${NC}"
 else
     echo -e "${RED}  ✗ Tests failed${NC}"
