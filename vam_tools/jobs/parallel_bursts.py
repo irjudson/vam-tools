@@ -107,7 +107,10 @@ def burst_coordinator_task(
                            (dates->>'selected_date')::timestamp as date_taken,
                            metadata->>'camera_make' as camera_make,
                            metadata->>'camera_model' as camera_model,
-                           quality_score
+                           quality_score,
+                           source_path,
+                           (metadata->>'latitude')::double precision as latitude,
+                           (metadata->>'longitude')::double precision as longitude
                     FROM images
                     WHERE catalog_id = :catalog_id
                     AND dates->>'selected_date' IS NOT NULL
@@ -118,7 +121,7 @@ def burst_coordinator_task(
                 {"catalog_id": catalog_id},
             )
 
-            # Build image data list: (id, timestamp_str, camera_make, camera_model, quality)
+            # Build image data list: (id, timestamp_str, camera_make, camera_model, quality, source_path, lat, lon)
             image_data = []
             for row in result.fetchall():
                 image_data.append(
@@ -128,6 +131,9 @@ def burst_coordinator_task(
                         row[2],
                         row[3],
                         row[4] or 0.0,
+                        row[5],  # source_path
+                        row[6],  # latitude
+                        row[7],  # longitude
                     )
                 )
 
@@ -276,7 +282,16 @@ def burst_worker_task(
         # Convert to ImageInfo objects
         images = []
         for item in image_data:
-            img_id, timestamp_str, camera_make, camera_model, quality = item
+            (
+                img_id,
+                timestamp_str,
+                camera_make,
+                camera_model,
+                quality,
+                source_path,
+                latitude,
+                longitude,
+            ) = item
             if timestamp_str:
                 try:
                     timestamp = datetime.fromisoformat(timestamp_str)
@@ -287,6 +302,9 @@ def burst_worker_task(
                             camera_make=camera_make,
                             camera_model=camera_model,
                             quality_score=quality,
+                            source_path=source_path,
+                            latitude=latitude,
+                            longitude=longitude,
                         )
                     )
                 except ValueError:
