@@ -97,15 +97,14 @@ def quality_coordinator_task(
 
             # Create batches (500 images per batch)
             batch_size = 500
-            batch_manager.create_batches(
+            batch_ids = batch_manager.create_batches(
                 work_items=images,
                 batch_size=batch_size,
                 db=db,
             )
 
             # Get total batches from progress
-            progress = batch_manager.get_progress(db)
-            total_batches = progress.total_batches
+            total_batches = len(batch_ids)
             logger.info(f"[{parent_job_id}] Created {total_batches} batches")
 
             # Publish initial progress
@@ -120,11 +119,11 @@ def quality_coordinator_task(
         from celery import group
 
         worker_tasks = []
-        for batch_num in range(total_batches):
+        for batch_id in batch_ids:
             worker_tasks.append(
                 quality_worker_task.s(
                     catalog_id=catalog_id,
-                    batch_id=f"batch_{batch_num}",
+                    batch_id=batch_id,
                     parent_job_id=parent_job_id,
                     force=force,
                 )
