@@ -929,9 +929,10 @@
 
                     <!-- Two-Panel Layout (left panel + content) -->
                     <div v-else class="bursts-two-panel">
-                        <!-- Middle Panel: Burst Images Grid -->
-                        <div class="bursts-images-panel">
-                            <div v-if="selectedBurst" class="burst-images-container">
+                        <!-- Content Panel: Large Preview + Filmstrip -->
+                        <div class="bursts-content-panel">
+                            <div v-if="selectedBurst" class="burst-viewer">
+                                <!-- Header -->
                                 <div class="burst-images-header">
                                     <h3>{{ selectedBurst.image_count }} Images in Burst</h3>
                                     <div class="burst-details">
@@ -939,69 +940,62 @@
                                         <span v-if="selectedBurst.start_time">{{ formatDateTime(selectedBurst.start_time) }}</span>
                                     </div>
                                 </div>
-                                <div class="burst-images-grid">
-                                    <div v-for="image in burstImages" :key="image.image_id"
-                                         class="burst-image-item"
-                                         :class="{ 'is-best': image.image_id === selectedBurst.best_image_id }"
-                                         @click="selectBurstImage(image)">
-                                        <img :src="getBurstImageThumbnail(image)" :alt="image.source_path" loading="lazy" />
-                                        <div class="burst-image-overlay">
-                                            <span v-if="image.image_id === selectedBurst.best_image_id" class="best-badge">BEST</span>
-                                            <span class="sequence-badge">#{{ (image.sequence || 0) + 1 }}</span>
-                                            <span v-if="image.quality_score" class="quality-score">
-                                                Q: {{ image.quality_score.toFixed(0) }}%
-                                            </span>
+
+                                <!-- Large Preview Image -->
+                                <div class="burst-preview-area">
+                                    <div v-if="selectedBurstImage" class="burst-preview-container">
+                                        <img :src="getBurstImageThumbnail(selectedBurstImage)" :alt="selectedBurstImage.source_path" />
+                                        <div class="burst-preview-info">
+                                            <div class="preview-details">
+                                                <span class="filename">{{ getFileName(selectedBurstImage.source_path) }}</span>
+                                                <span class="sequence">#{{ (selectedBurstImage.sequence || 0) + 1 }} of {{ selectedBurst.image_count }}</span>
+                                                <span v-if="selectedBurstImage.quality_score" class="quality">Quality: {{ selectedBurstImage.quality_score.toFixed(1) }}%</span>
+                                            </div>
+                                            <div class="preview-actions">
+                                                <button v-if="selectedBurstImage.image_id !== selectedBurst.best_image_id"
+                                                        @click="setBestImage(selectedBurst.id, selectedBurstImage.image_id)"
+                                                        class="btn-primary btn-small">
+                                                    Set as Best
+                                                </button>
+                                                <button v-else class="btn-secondary btn-small" disabled>
+                                                    Current Best
+                                                </button>
+                                                <button @click="openImageInLightbox(selectedBurstImage)"
+                                                        class="btn-secondary btn-small">
+                                                    View Full Size
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else class="burst-preview-placeholder">
+                                        <p class="text-secondary">Click an image below to preview</p>
+                                    </div>
+                                </div>
+
+                                <!-- Filmstrip at Bottom -->
+                                <div class="burst-filmstrip">
+                                    <div class="filmstrip-scroll">
+                                        <div v-for="image in burstImages" :key="image.image_id"
+                                             class="filmstrip-item"
+                                             :class="{
+                                                 'is-best': image.image_id === selectedBurst.best_image_id,
+                                                 'is-selected': selectedBurstImage && image.image_id === selectedBurstImage.image_id
+                                             }"
+                                             @click="selectBurstImage(image)">
+                                            <img :src="getBurstImageThumbnail(image)" :alt="image.source_path" loading="lazy" />
+                                            <div class="filmstrip-overlay">
+                                                <span v-if="image.image_id === selectedBurst.best_image_id" class="best-badge">BEST</span>
+                                                <span class="sequence-badge">#{{ (image.sequence || 0) + 1 }}</span>
+                                                <span v-if="image.quality_score" class="quality-score">
+                                                    Q: {{ image.quality_score.toFixed(0) }}%
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                             <div v-else class="text-center p-lg">
                                 <p class="text-secondary">Select a burst from the list to view images</p>
-                            </div>
-                        </div>
-
-                        <!-- Right Panel: Image Details -->
-                        <div class="bursts-detail-panel">
-                            <div v-if="selectedBurstImage" class="burst-image-detail">
-                                <div class="detail-image">
-                                    <img :src="getBurstImageThumbnail(selectedBurstImage)" :alt="selectedBurstImage.source_path" />
-                                </div>
-                                <div class="detail-info">
-                                    <h4>Image Details</h4>
-                                    <div class="detail-field">
-                                        <label>Filename:</label>
-                                        <span>{{ getFileName(selectedBurstImage.source_path) }}</span>
-                                    </div>
-                                    <div class="detail-field">
-                                        <label>Sequence:</label>
-                                        <span>#{{ (selectedBurstImage.sequence || 0) + 1 }} of {{ selectedBurst.image_count }}</span>
-                                    </div>
-                                    <div class="detail-field" v-if="selectedBurstImage.quality_score">
-                                        <label>Quality Score:</label>
-                                        <span>{{ selectedBurstImage.quality_score.toFixed(1) }}%</span>
-                                    </div>
-                                    <div class="detail-field" v-if="selectedBurstImage.size_bytes">
-                                        <label>File Size:</label>
-                                        <span>{{ formatFileSize(selectedBurstImage.size_bytes) }}</span>
-                                    </div>
-                                    <div class="detail-actions">
-                                        <button v-if="selectedBurstImage.image_id !== selectedBurst.best_image_id"
-                                                @click="setBestImage(selectedBurst.id, selectedBurstImage.image_id)"
-                                                class="btn-primary btn-small">
-                                            Set as Best
-                                        </button>
-                                        <button v-else class="btn-secondary btn-small" disabled>
-                                            Current Best
-                                        </button>
-                                        <button @click="openImageInLightbox(selectedBurstImage)"
-                                                class="btn-secondary btn-small">
-                                            View Full Size
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                            <div v-else class="text-center p-lg">
-                                <p class="text-secondary">Select an image to view details</p>
                             </div>
                         </div>
                     </div>
