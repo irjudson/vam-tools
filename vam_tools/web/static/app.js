@@ -224,7 +224,7 @@ createApp({
                 histogramError: null
             },
 
-            // Quick Actions Tree
+            // Tasks Tree
             expandedAction: null,
             quickActions: [
                 {
