@@ -319,8 +319,12 @@ def burst_worker_task(
 
         # Check for cancellation before processing
         if batch_manager.is_cancelled(batch_id):
-            logger.warning(f"[{worker_id}] Batch {batch_id} cancelled before burst detection")
-            raise JobCancelledException(f"Job cancelled before processing batch {batch_number + 1}")
+            logger.warning(
+                f"[{worker_id}] Batch {batch_id} cancelled before burst detection"
+            )
+            raise JobCancelledException(
+                f"Job cancelled before processing batch {batch_number + 1}"
+            )
 
         # Detect bursts within this batch
         detector = BurstDetector(
@@ -386,7 +390,7 @@ def burst_worker_task(
         logger.warning(f"[{worker_id}] Worker cancelled: {e}")
         return {
             "batch_id": batch_id,
-            "batch_number": batch_number if 'batch_number' in locals() else 0,
+            "batch_number": batch_number if "batch_number" in locals() else 0,
             "status": "cancelled",
             "bursts_count": 0,
             "images_processed": 0,

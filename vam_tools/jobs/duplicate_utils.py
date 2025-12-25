@@ -1,6 +1,7 @@
 """Utility functions for duplicate detection."""
+
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def calculate_recommendation_score(
@@ -73,7 +74,7 @@ def calculate_recommendation_score(
     return quality_component + age_component + size_component
 
 
-def find_recommended_image(images: List[Dict[str, Any]]) -> str:
+def find_recommended_image(images: List[Dict[str, Any]]) -> Optional[str]:
     """
     Find the recommended image to keep from a duplicate group.
 
@@ -84,7 +85,7 @@ def find_recommended_image(images: List[Dict[str, Any]]) -> str:
         images: List of image dicts
 
     Returns:
-        image_id of recommended image
+        image_id of recommended image, or None if images list is empty
     """
     if not images:
         return None
@@ -99,7 +100,9 @@ def find_recommended_image(images: List[Dict[str, Any]]) -> str:
     scored.sort(
         key=lambda x: (
             -x[0],  # Higher score first
-            x[1].get("dates", {}).get("taken") or x[1].get("created_at") or datetime.max,  # Older first
+            x[1].get("dates", {}).get("taken")
+            or x[1].get("created_at")
+            or datetime.max,  # Older first
             -(x[1].get("size_bytes", 0)),  # Larger first
         )
     )

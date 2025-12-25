@@ -863,8 +863,10 @@ def duplicates_compare_worker_task(
         logger.warning(f"[{worker_id}] Comparison worker cancelled: {e}")
         return {
             "status": "cancelled",
-            "block_pairs_processed": pairs_processed if 'pairs_processed' in locals() else 0,
-            "pairs_found": pairs_found if 'pairs_found' in locals() else 0,
+            "block_pairs_processed": (
+                pairs_processed if "pairs_processed" in locals() else 0
+            ),
+            "pairs_found": pairs_found if "pairs_found" in locals() else 0,
             "message": str(e),
         }
 
@@ -968,7 +970,9 @@ def _create_duplicate_group_tags(
 
         assert db.session is not None
         db.session.commit()
-        logger.info(f"Successfully created tags for {len(groups_data)} duplicate groups")
+        logger.info(
+            f"Successfully created tags for {len(groups_data)} duplicate groups"
+        )
 
 
 @app.task(bind=True, base=ProgressTask, name="duplicates_finalizer")
@@ -1186,7 +1190,9 @@ def duplicates_finalizer_task(
             try:
                 _create_duplicate_group_tags(catalog_id, groups_data_for_tags)
             except Exception as e:
-                logger.warning(f"[{finalizer_id}] Failed to create duplicate group tags: {e}")
+                logger.warning(
+                    f"[{finalizer_id}] Failed to create duplicate group tags: {e}"
+                )
 
         failed_comparisons = sum(
             1 for r in comparison_results if r.get("status") == "failed"

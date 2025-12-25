@@ -83,7 +83,9 @@ class ImageStatus(Base):
 
     __tablename__ = "image_statuses"
 
-    id = Column(String(50), primary_key=True)  # 'active', 'rejected', 'archived', 'flagged'
+    id = Column(
+        String(50), primary_key=True
+    )  # 'active', 'rejected', 'archived', 'flagged'
     name = Column(String(100), nullable=False)
     description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -134,7 +136,7 @@ class Image(Base):
         ForeignKey("image_statuses.id", ondelete="RESTRICT"),
         nullable=False,
         default="active",
-        server_default="active"
+        server_default="active",
     )
 
     # Processing flags - tracks which processing steps are complete

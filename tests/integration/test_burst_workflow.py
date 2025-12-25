@@ -73,7 +73,7 @@ class TestBurstWorkflowIntegration:
             if status_response.status_code == 200:
                 status = status_response.json()["status"]
                 if status in ["SUCCESS", "FAILURE"]:
-                    detection_complete = (status == "SUCCESS")
+                    detection_complete = status == "SUCCESS"
                     break
             time.sleep(0.5)
 
@@ -188,7 +188,7 @@ class TestBurstWorkflowIntegration:
             if status_response.status_code == 200:
                 status = status_response.json()["status"]
                 if status in ["SUCCESS", "FAILURE"]:
-                    detection_complete = (status == "SUCCESS")
+                    detection_complete = status == "SUCCESS"
                     break
             time.sleep(0.5)
 
@@ -208,9 +208,9 @@ class TestBurstWorkflowIntegration:
             pytest.skip("No bursts detected in catalog")
             return
 
-        expected_burst_count = len([
-            b for b in burst_list["bursts"] if b.get("best_image_id")
-        ])
+        expected_burst_count = len(
+            [b for b in burst_list["bursts"] if b.get("best_image_id")]
+        )
 
         # Step 3: Batch apply burst selections
         batch_apply_response = requests.post(
@@ -296,7 +296,7 @@ class TestBurstWorkflowIntegration:
             if status_response.status_code == 200:
                 status = status_response.json()["status"]
                 if status in ["SUCCESS", "FAILURE"]:
-                    detection_complete = (status == "SUCCESS")
+                    detection_complete = status == "SUCCESS"
                     break
             time.sleep(0.5)
 
@@ -423,9 +423,7 @@ class TestBurstAPIHealth:
         # Test with invalid catalog ID format
         invalid_id = "not-a-uuid"
 
-        response = requests.get(
-            f"{self.BASE_URL}/api/catalogs/{invalid_id}/bursts"
-        )
+        response = requests.get(f"{self.BASE_URL}/api/catalogs/{invalid_id}/bursts")
         # Should return 422 (validation error) or handle gracefully
         assert response.status_code in [422, 400, 404, 500]
 

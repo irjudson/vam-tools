@@ -14,7 +14,9 @@ from vam_tools.db.models import Catalog
 pytestmark = pytest.mark.integration
 
 
-def _create_test_image(db_session, catalog_id, burst_id=None, sequence=None, status="active"):
+def _create_test_image(
+    db_session, catalog_id, burst_id=None, sequence=None, status="active"
+):
     """Helper to create a test image with required fields."""
     img_id = str(uuid.uuid4())
     db_session.execute(
@@ -41,7 +43,7 @@ def _create_test_image(db_session, catalog_id, burst_id=None, sequence=None, sta
             "burst_id": burst_id,
             "seq": sequence,
             "status": status,
-        }
+        },
     )
     return img_id
 
@@ -80,7 +82,7 @@ class TestBurstManagementAPI:
                 "start_time": datetime.now(),
                 "end_time": datetime.now() + timedelta(seconds=2),
                 "best_id": str(uuid.uuid4()),
-            }
+            },
         )
 
         # Add 3 rejected images for burst 1
@@ -105,7 +107,7 @@ class TestBurstManagementAPI:
                 "start_time": datetime.now(),
                 "end_time": datetime.now() + timedelta(seconds=2),
                 "best_id": str(uuid.uuid4()),
-            }
+            },
         )
 
         # Add 2 active and 1 rejected image for burst 2
@@ -126,7 +128,9 @@ class TestBurstManagementAPI:
         assert len(data["bursts"]) == 1
         assert data["bursts"][0]["id"] == burst_id_2
 
-    def test_list_bursts_includes_fully_rejected_when_requested(self, client, db_session):
+    def test_list_bursts_includes_fully_rejected_when_requested(
+        self, client, db_session
+    ):
         """Test that bursts where all images are rejected are included when show_rejected=true."""
         # Create a catalog
         catalog_id = uuid.uuid4()
@@ -157,7 +161,7 @@ class TestBurstManagementAPI:
                 "start_time": datetime.now(),
                 "end_time": datetime.now() + timedelta(seconds=2),
                 "best_id": str(uuid.uuid4()),
-            }
+            },
         )
 
         # Add 3 rejected images for burst 1
@@ -168,8 +172,7 @@ class TestBurstManagementAPI:
 
         # Make the request with show_rejected=true
         response = client.get(
-            f"/api/catalogs/{catalog_id}/bursts",
-            params={"show_rejected": True}
+            f"/api/catalogs/{catalog_id}/bursts", params={"show_rejected": True}
         )
 
         assert response.status_code == 200
@@ -218,7 +221,7 @@ class TestBurstManagementAPI:
                     "start_time": base_time + timedelta(days=i),
                     "end_time": base_time + timedelta(days=i, seconds=2),
                     "best_id": str(uuid.uuid4()),
-                }
+                },
             )
 
             # Add active images to each burst
@@ -229,8 +232,7 @@ class TestBurstManagementAPI:
 
         # Test sorting by newest (default)
         response = client.get(
-            f"/api/catalogs/{catalog_id}/bursts",
-            params={"sort": "newest"}
+            f"/api/catalogs/{catalog_id}/bursts", params={"sort": "newest"}
         )
         assert response.status_code == 200
         data = response.json()
@@ -239,8 +241,7 @@ class TestBurstManagementAPI:
 
         # Test sorting by oldest
         response = client.get(
-            f"/api/catalogs/{catalog_id}/bursts",
-            params={"sort": "oldest"}
+            f"/api/catalogs/{catalog_id}/bursts", params={"sort": "oldest"}
         )
         assert response.status_code == 200
         data = response.json()
@@ -249,8 +250,7 @@ class TestBurstManagementAPI:
 
         # Test sorting by largest
         response = client.get(
-            f"/api/catalogs/{catalog_id}/bursts",
-            params={"sort": "largest"}
+            f"/api/catalogs/{catalog_id}/bursts", params={"sort": "largest"}
         )
         assert response.status_code == 200
         data = response.json()
@@ -289,7 +289,7 @@ class TestBurstManagementAPI:
                     "start_time": datetime.now(),
                     "end_time": datetime.now() + timedelta(seconds=2),
                     "best_id": str(uuid.uuid4()),
-                }
+                },
             )
 
             # Add active images to each burst
@@ -299,10 +299,7 @@ class TestBurstManagementAPI:
         db_session.commit()
 
         # Test limit
-        response = client.get(
-            f"/api/catalogs/{catalog_id}/bursts",
-            params={"limit": 2}
-        )
+        response = client.get(f"/api/catalogs/{catalog_id}/bursts", params={"limit": 2})
         assert response.status_code == 200
         data = response.json()
         assert len(data["bursts"]) == 2
@@ -310,8 +307,7 @@ class TestBurstManagementAPI:
 
         # Test offset
         response = client.get(
-            f"/api/catalogs/{catalog_id}/bursts",
-            params={"limit": 2, "offset": 2}
+            f"/api/catalogs/{catalog_id}/bursts", params={"limit": 2, "offset": 2}
         )
         assert response.status_code == 200
         data = response.json()
@@ -322,7 +318,9 @@ class TestBurstManagementAPI:
 class TestGetBurstDetailEndpoint:
     """Tests for GET /api/catalogs/{catalog_id}/bursts/{burst_id} endpoint."""
 
-    def test_get_burst_detail_returns_burst_with_images_sorted_by_quality(self, client, db_session):
+    def test_get_burst_detail_returns_burst_with_images_sorted_by_quality(
+        self, client, db_session
+    ):
         """Test that burst detail endpoint returns burst metadata and images sorted by quality_score DESC."""
         # Create a catalog
         catalog_id = uuid.uuid4()
@@ -357,7 +355,7 @@ class TestGetBurstDetailEndpoint:
                 "start_time": start_time,
                 "end_time": end_time,
                 "best_id": best_image_id,
-            }
+            },
         )
 
         # Create 3 images with different quality scores (integer 0-100)
@@ -391,7 +389,7 @@ class TestGetBurstDetailEndpoint:
                     "burst_id": burst_id,
                     "seq": i,
                     "quality": quality_score,
-                }
+                },
             )
 
         db_session.commit()
@@ -460,7 +458,7 @@ class TestGetBurstDetailEndpoint:
                 "start_time": start_time,
                 "end_time": end_time,
                 "best_id": best_image_id,
-            }
+            },
         )
 
         # Create 3 images: quality=90, quality=NULL (seq=1), quality=70 (seq=2)
@@ -496,7 +494,7 @@ class TestGetBurstDetailEndpoint:
                     "burst_id": burst_id,
                     "seq": data_item["seq"],
                     "quality": data_item["quality"],
-                }
+                },
             )
 
         db_session.commit()
@@ -523,7 +521,9 @@ class TestGetBurstDetailEndpoint:
         assert data["images"][2]["sequence"] == 1
         assert data["images"][2]["is_best"] is False
 
-    def test_get_burst_detail_returns_404_when_burst_not_found(self, client, db_session):
+    def test_get_burst_detail_returns_404_when_burst_not_found(
+        self, client, db_session
+    ):
         """Test that endpoint returns 404 when burst does not exist."""
         # Create a catalog
         catalog_id = uuid.uuid4()
@@ -538,7 +538,9 @@ class TestGetBurstDetailEndpoint:
 
         # Request a non-existent burst
         non_existent_burst_id = str(uuid.uuid4())
-        response = client.get(f"/api/catalogs/{catalog_id}/bursts/{non_existent_burst_id}")
+        response = client.get(
+            f"/api/catalogs/{catalog_id}/bursts/{non_existent_burst_id}"
+        )
 
         # Verify 404 response
         assert response.status_code == 404
@@ -548,7 +550,9 @@ class TestGetBurstDetailEndpoint:
 class TestApplySelectionEndpoint:
     """Tests for POST /api/catalogs/{catalog_id}/bursts/{burst_id}/apply-selection endpoint."""
 
-    def test_apply_selection_sets_selected_active_others_rejected(self, client, db_session):
+    def test_apply_selection_sets_selected_active_others_rejected(
+        self, client, db_session
+    ):
         """Test that applying selection sets selected image to active and others to rejected."""
         # Create a catalog
         catalog_id = uuid.uuid4()
@@ -582,7 +586,7 @@ class TestApplySelectionEndpoint:
                 "start_time": start_time,
                 "end_time": end_time,
                 "best_id": str(uuid.uuid4()),
-            }
+            },
         )
 
         # Create 4 active images in the burst
@@ -599,7 +603,7 @@ class TestApplySelectionEndpoint:
         # Make the request
         response = client.post(
             f"/api/catalogs/{catalog_id}/bursts/{burst_id}/apply-selection",
-            json={"selected_image_id": selected_image_id}
+            json={"selected_image_id": selected_image_id},
         )
 
         # Verify response
@@ -611,7 +615,7 @@ class TestApplySelectionEndpoint:
         # Verify database state - selected image is active
         result = db_session.execute(
             text("SELECT status_id FROM images WHERE id = :image_id"),
-            {"image_id": selected_image_id}
+            {"image_id": selected_image_id},
         ).fetchone()
         assert result[0] == "active"
 
@@ -620,7 +624,7 @@ class TestApplySelectionEndpoint:
             if img_id != selected_image_id:
                 result = db_session.execute(
                     text("SELECT status_id FROM images WHERE id = :image_id"),
-                    {"image_id": img_id}
+                    {"image_id": img_id},
                 ).fetchone()
                 assert result[0] == "rejected"
 
@@ -643,14 +647,16 @@ class TestApplySelectionEndpoint:
 
         response = client.post(
             f"/api/catalogs/{catalog_id}/bursts/{non_existent_burst_id}/apply-selection",
-            json={"selected_image_id": selected_image_id}
+            json={"selected_image_id": selected_image_id},
         )
 
         # Verify 404 response
         assert response.status_code == 404
         assert "Burst not found" in response.json()["detail"]
 
-    def test_apply_selection_returns_400_when_image_not_in_burst(self, client, db_session):
+    def test_apply_selection_returns_400_when_image_not_in_burst(
+        self, client, db_session
+    ):
         """Test that endpoint returns 400 when selected_image_id is not in the burst."""
         # Create a catalog
         catalog_id = uuid.uuid4()
@@ -684,7 +690,7 @@ class TestApplySelectionEndpoint:
                 "start_time": start_time,
                 "end_time": end_time,
                 "best_id": str(uuid.uuid4()),
-            }
+            },
         )
 
         # Create 3 images in the burst
@@ -698,7 +704,7 @@ class TestApplySelectionEndpoint:
 
         response = client.post(
             f"/api/catalogs/{catalog_id}/bursts/{burst_id}/apply-selection",
-            json={"selected_image_id": non_member_image_id}
+            json={"selected_image_id": non_member_image_id},
         )
 
         # Verify 400 response
@@ -746,7 +752,7 @@ class TestBatchApplyEndpoint:
                 "start_time": datetime(2024, 1, 1, 12, 0, 0),
                 "end_time": datetime(2024, 1, 1, 12, 0, 3),
                 "best_id": best_image_id_1,
-            }
+            },
         )
 
         # Create 4 images for burst 1, one is the best image
@@ -756,8 +762,15 @@ class TestBatchApplyEndpoint:
             # Update the image ID for the best image
             if i == 1:
                 db_session.execute(
-                    text("UPDATE images SET id = :new_id WHERE catalog_id = :catalog_id AND burst_id = :burst_id AND burst_sequence = :seq"),
-                    {"new_id": best_image_id_1, "catalog_id": str(catalog_id), "burst_id": burst_id_1, "seq": i}
+                    text(
+                        "UPDATE images SET id = :new_id WHERE catalog_id = :catalog_id AND burst_id = :burst_id AND burst_sequence = :seq"
+                    ),
+                    {
+                        "new_id": best_image_id_1,
+                        "catalog_id": str(catalog_id),
+                        "burst_id": burst_id_1,
+                        "seq": i,
+                    },
                 )
 
         # Burst 2 with best_image_id
@@ -779,7 +792,7 @@ class TestBatchApplyEndpoint:
                 "start_time": datetime(2024, 1, 1, 13, 0, 0),
                 "end_time": datetime(2024, 1, 1, 13, 0, 2),
                 "best_id": best_image_id_2,
-            }
+            },
         )
 
         # Create 3 images for burst 2
@@ -789,8 +802,15 @@ class TestBatchApplyEndpoint:
             # Update the image ID for the best image
             if i == 0:
                 db_session.execute(
-                    text("UPDATE images SET id = :new_id WHERE catalog_id = :catalog_id AND burst_id = :burst_id AND burst_sequence = :seq"),
-                    {"new_id": best_image_id_2, "catalog_id": str(catalog_id), "burst_id": burst_id_2, "seq": i}
+                    text(
+                        "UPDATE images SET id = :new_id WHERE catalog_id = :catalog_id AND burst_id = :burst_id AND burst_sequence = :seq"
+                    ),
+                    {
+                        "new_id": best_image_id_2,
+                        "catalog_id": str(catalog_id),
+                        "burst_id": burst_id_2,
+                        "seq": i,
+                    },
                 )
 
         # Burst 3 without best_image_id (NULL)
@@ -810,7 +830,7 @@ class TestBatchApplyEndpoint:
                 "catalog_id": str(catalog_id),
                 "start_time": datetime(2024, 1, 1, 14, 0, 0),
                 "end_time": datetime(2024, 1, 1, 14, 0, 2),
-            }
+            },
         )
 
         # Create 3 images for burst 3
@@ -826,41 +846,49 @@ class TestBatchApplyEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["bursts_processed"] == 2  # Only burst 1 and 2 processed
-        assert data["images_rejected"] == 5  # 3 rejected from burst 1 + 2 rejected from burst 2
+        assert (
+            data["images_rejected"] == 5
+        )  # 3 rejected from burst 1 + 2 rejected from burst 2
 
         # Verify database state - best images are active, others are rejected
         # Burst 1
         result = db_session.execute(
             text("SELECT status_id FROM images WHERE id = :image_id"),
-            {"image_id": best_image_id_1}
+            {"image_id": best_image_id_1},
         ).fetchone()
         assert result[0] == "active"
 
         # Other images in burst 1 should be rejected
         result = db_session.execute(
-            text("SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND id != :best_id AND status_id = 'rejected'"),
-            {"burst_id": burst_id_1, "best_id": best_image_id_1}
+            text(
+                "SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND id != :best_id AND status_id = 'rejected'"
+            ),
+            {"burst_id": burst_id_1, "best_id": best_image_id_1},
         ).fetchone()
         assert result[0] == 3
 
         # Burst 2
         result = db_session.execute(
             text("SELECT status_id FROM images WHERE id = :image_id"),
-            {"image_id": best_image_id_2}
+            {"image_id": best_image_id_2},
         ).fetchone()
         assert result[0] == "active"
 
         # Other images in burst 2 should be rejected
         result = db_session.execute(
-            text("SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND id != :best_id AND status_id = 'rejected'"),
-            {"burst_id": burst_id_2, "best_id": best_image_id_2}
+            text(
+                "SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND id != :best_id AND status_id = 'rejected'"
+            ),
+            {"burst_id": burst_id_2, "best_id": best_image_id_2},
         ).fetchone()
         assert result[0] == 2
 
         # Burst 3 images should still be active (not processed)
         result = db_session.execute(
-            text("SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND status_id = 'active'"),
-            {"burst_id": burst_id_3}
+            text(
+                "SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND status_id = 'active'"
+            ),
+            {"burst_id": burst_id_3},
         ).fetchone()
         assert result[0] == 3
 
@@ -896,7 +924,7 @@ class TestBatchApplyEndpoint:
                 "start_time": datetime(2024, 1, 1, 12, 0, 0),
                 "end_time": datetime(2024, 1, 1, 12, 0, 2),
                 "best_id": best_image_id,
-            }
+            },
         )
 
         # Create 3 images for the burst
@@ -906,8 +934,15 @@ class TestBatchApplyEndpoint:
             # Update the image ID for the best image
             if i == 0:
                 db_session.execute(
-                    text("UPDATE images SET id = :new_id WHERE catalog_id = :catalog_id AND burst_id = :burst_id AND burst_sequence = :seq"),
-                    {"new_id": best_image_id, "catalog_id": str(catalog_id), "burst_id": burst_id, "seq": i}
+                    text(
+                        "UPDATE images SET id = :new_id WHERE catalog_id = :catalog_id AND burst_id = :burst_id AND burst_sequence = :seq"
+                    ),
+                    {
+                        "new_id": best_image_id,
+                        "catalog_id": str(catalog_id),
+                        "burst_id": burst_id,
+                        "seq": i,
+                    },
                 )
 
         db_session.commit()
@@ -915,7 +950,7 @@ class TestBatchApplyEndpoint:
         # Make the request with use_recommendations=false
         response = client.post(
             f"/api/catalogs/{catalog_id}/bursts/batch-apply",
-            json={"use_recommendations": False}
+            json={"use_recommendations": False},
         )
 
         # Verify response - should not process any bursts
@@ -926,7 +961,9 @@ class TestBatchApplyEndpoint:
 
         # Verify all images are still active
         result = db_session.execute(
-            text("SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND status_id = 'active'"),
-            {"burst_id": burst_id}
+            text(
+                "SELECT COUNT(*) FROM images WHERE burst_id = :burst_id AND status_id = 'active'"
+            ),
+            {"burst_id": burst_id},
         ).fetchone()
         assert result[0] == 3

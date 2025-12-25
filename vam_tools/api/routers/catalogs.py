@@ -2486,8 +2486,14 @@ def list_bursts(
     camera_make: str = None,
     camera_model: str = None,
     min_images: int = Query(None, ge=2, description="Minimum images in burst"),
-    show_rejected: bool = Query(False, description="Include bursts where all images are rejected"),
-    sort: str = Query("newest", regex="^(newest|oldest|largest)$", description="Sort order: newest, oldest, or largest"),
+    show_rejected: bool = Query(
+        False, description="Include bursts where all images are rejected"
+    ),
+    sort: str = Query(
+        "newest",
+        regex="^(newest|oldest|largest)$",
+        description="Sort order: newest, oldest, or largest",
+    ),
     db: Session = Depends(get_db),
 ):
     """
@@ -2531,13 +2537,15 @@ def list_bursts(
 
     # Exclude bursts where ALL images are rejected (unless show_rejected=True)
     if not show_rejected:
-        conditions.append("""
+        conditions.append(
+            """
             EXISTS (
                 SELECT 1 FROM images i
                 WHERE i.burst_id::uuid = b.id
                 AND (i.status_id IS NULL OR i.status_id != 'rejected')
             )
-        """)
+        """
+        )
 
     where_clause = " AND ".join(conditions)
 
@@ -2766,7 +2774,9 @@ def get_burst(
         "duration_seconds": row_dict["duration_seconds"],
         "camera_make": row_dict["camera_make"],
         "camera_model": row_dict["camera_model"],
-        "best_image_id": str(row_dict["best_image_id"]) if row_dict["best_image_id"] else None,
+        "best_image_id": (
+            str(row_dict["best_image_id"]) if row_dict["best_image_id"] else None
+        ),
         "selection_method": row_dict["selection_method"],
         "created_at": (
             row_dict["created_at"].isoformat() if row_dict["created_at"] else None
@@ -2777,7 +2787,7 @@ def get_burst(
 
 @router.post(
     "/{catalog_id}/bursts/{burst_id}/apply-selection",
-    response_model=ApplySelectionResponse
+    response_model=ApplySelectionResponse,
 )
 def apply_burst_selection(
     catalog_id: uuid.UUID,
@@ -2831,14 +2841,13 @@ def apply_burst_selection(
         """
     )
     image_result = db.execute(
-        image_check_query,
-        {"image_id": request.selected_image_id, "burst_id": burst_id}
+        image_check_query, {"image_id": request.selected_image_id, "burst_id": burst_id}
     ).fetchone()
 
     if not image_result:
         raise HTTPException(
             status_code=400,
-            detail=f"Image {request.selected_image_id} is not in burst {burst_id}"
+            detail=f"Image {request.selected_image_id} is not in burst {burst_id}",
         )
 
     # Set selected image to active
@@ -2861,22 +2870,18 @@ def apply_burst_selection(
     )
     result = db.execute(
         update_others_query,
-        {"burst_id": burst_id, "selected_id": request.selected_image_id}
+        {"burst_id": burst_id, "selected_id": request.selected_image_id},
     )
     rejected_count = result.rowcount
 
     db.commit()
 
     return ApplySelectionResponse(
-        selected_image_id=request.selected_image_id,
-        rejected_count=rejected_count
+        selected_image_id=request.selected_image_id, rejected_count=rejected_count
     )
 
 
-@router.post(
-    "/{catalog_id}/bursts/batch-apply",
-    response_model=BatchApplyResponse
-)
+@router.post("/{catalog_id}/bursts/batch-apply", response_model=BatchApplyResponse)
 def batch_apply_burst_selections(
     catalog_id: uuid.UUID,
     request: BatchApplyRequest = BatchApplyRequest(),
@@ -2909,10 +2914,7 @@ def batch_apply_burst_selections(
 
     # If use_recommendations is False, return immediately without processing
     if not request.use_recommendations:
-        return BatchApplyResponse(
-            bursts_processed=0,
-            images_rejected=0
-        )
+        return BatchApplyResponse(bursts_processed=0, images_rejected=0)
 
     # Find all bursts in this catalog that have best_image_id set
     bursts_query = text(
@@ -2951,8 +2953,7 @@ def batch_apply_burst_selections(
             """
         )
         result = db.execute(
-            update_others_query,
-            {"burst_id": burst_id, "best_id": best_image_id}
+            update_others_query, {"burst_id": burst_id, "best_id": best_image_id}
         )
         images_rejected += result.rowcount
         bursts_processed += 1
@@ -2960,8 +2961,7 @@ def batch_apply_burst_selections(
     db.commit()
 
     return BatchApplyResponse(
-        bursts_processed=bursts_processed,
-        images_rejected=images_rejected
+        bursts_processed=bursts_processed, images_rejected=images_rejected
     )
 
 

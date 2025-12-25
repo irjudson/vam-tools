@@ -1,6 +1,9 @@
 """Tests for duplicate detection utility functions."""
+
 from datetime import datetime, timedelta
+
 import pytest
+
 from vam_tools.jobs.duplicate_utils import (
     calculate_recommendation_score,
     find_recommended_image,

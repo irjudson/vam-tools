@@ -124,12 +124,27 @@ class CatalogDB:
 
             # Populate ImageStatus lookup table FIRST (before adding foreign key)
             from .models import ImageStatus
+
             if self.session.query(ImageStatus).count() == 0:
                 statuses = [
-                    ImageStatus(id='active', name='Active', description='Normal visible image'),
-                    ImageStatus(id='rejected', name='Rejected', description='Rejected from burst/duplicate review'),
-                    ImageStatus(id='archived', name='Archived', description='Manually archived by user'),
-                    ImageStatus(id='flagged', name='Flagged', description='Flagged for review or special attention'),
+                    ImageStatus(
+                        id="active", name="Active", description="Normal visible image"
+                    ),
+                    ImageStatus(
+                        id="rejected",
+                        name="Rejected",
+                        description="Rejected from burst/duplicate review",
+                    ),
+                    ImageStatus(
+                        id="archived",
+                        name="Archived",
+                        description="Manually archived by user",
+                    ),
+                    ImageStatus(
+                        id="flagged",
+                        name="Flagged",
+                        description="Flagged for review or special attention",
+                    ),
                 ]
                 self.session.add_all(statuses)
                 self.session.commit()
@@ -137,25 +152,34 @@ class CatalogDB:
             # Apply status_id column migration if not already applied
             # This is needed for backward compatibility with existing databases
             from sqlalchemy import text
+
             conn = self.session.connection()
-            result = conn.execute(text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'images' AND column_name = 'status_id'"
-            ))
+            result = conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'images' AND column_name = 'status_id'"
+                )
+            )
             if not result.fetchone():
                 # Add the column and constraints
-                conn.execute(text(
-                    "ALTER TABLE images ADD COLUMN status_id VARCHAR(50) "
-                    "DEFAULT 'active' NOT NULL"
-                ))
-                conn.execute(text(
-                    "ALTER TABLE images ADD CONSTRAINT fk_images_status_id "
-                    "FOREIGN KEY (status_id) REFERENCES image_statuses(id) "
-                    "ON DELETE RESTRICT"
-                ))
-                conn.execute(text(
-                    "CREATE INDEX IF NOT EXISTS idx_images_status_id ON images(status_id)"
-                ))
+                conn.execute(
+                    text(
+                        "ALTER TABLE images ADD COLUMN status_id VARCHAR(50) "
+                        "DEFAULT 'active' NOT NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE images ADD CONSTRAINT fk_images_status_id "
+                        "FOREIGN KEY (status_id) REFERENCES image_statuses(id) "
+                        "ON DELETE RESTRICT"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_images_status_id ON images(status_id)"
+                    )
+                )
                 self.session.commit()
 
         # Ensure session is in a clean state (rollback any aborted transaction)

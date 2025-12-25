@@ -165,6 +165,7 @@ class TestBurstsStatusFiltering:
 
 # Fixture helpers for future implementation
 
+
 @pytest.fixture
 def catalog_with_mixed_statuses(db_session):
     """Create a catalog with images in various status states.

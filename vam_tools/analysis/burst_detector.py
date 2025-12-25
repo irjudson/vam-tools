@@ -38,7 +38,7 @@ class ImageInfo:
         """Get just the filename from the source path."""
         if not self.source_path:
             return ""
-        return self.source_path.split('/')[-1]
+        return self.source_path.split("/")[-1]
 
     @property
     def has_gps(self) -> bool:
@@ -191,7 +191,11 @@ class BurstDetector:
             # Fall through to Haversine check
 
         # Precise check: Calculate distance using Haversine formula
-        from math import radians, sin, cos, sqrt, atan2
+        from math import atan2, cos, radians, sin, sqrt
+
+        # has_gps check above guarantees these are not None
+        assert img1.latitude is not None and img1.longitude is not None
+        assert img2.latitude is not None and img2.longitude is not None
 
         lat1, lon1 = radians(img1.latitude), radians(img1.longitude)
         lat2, lon2 = radians(img2.latitude), radians(img2.longitude)
@@ -226,8 +230,8 @@ class BurstDetector:
         # Extract base name and number from filenames
         # Examples: IMG_1234.JPG -> IMG_, 1234
         #           DSC00123.ARW -> DSC, 123
-        match1 = re.match(r'([A-Za-z_]+)(\d+)', name1)
-        match2 = re.match(r'([A-Za-z_]+)(\d+)', name2)
+        match1 = re.match(r"([A-Za-z_]+)(\d+)", name1)
+        match2 = re.match(r"([A-Za-z_]+)(\d+)", name2)
 
         if not match1 or not match2:
             return True  # Can't parse - allow it

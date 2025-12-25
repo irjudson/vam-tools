@@ -448,9 +448,9 @@ def generic_worker_task(
             "batch_id": batch_id,
             "batch_number": batch_number,
             "status": "cancelled",
-            "success_count": result.success_count if 'result' in locals() else 0,
-            "error_count": result.error_count if 'result' in locals() else 0,
-            "processed_count": result.processed_count if 'result' in locals() else 0,
+            "success_count": result.success_count if "result" in locals() else 0,
+            "error_count": result.error_count if "result" in locals() else 0,
+            "processed_count": result.processed_count if "result" in locals() else 0,
             "message": str(e),
         }
 
