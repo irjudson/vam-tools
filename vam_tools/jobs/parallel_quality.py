@@ -11,7 +11,7 @@ Updates the quality_score column in the database.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from sqlalchemy import text
 
@@ -115,31 +115,40 @@ def quality_coordinator_task(
                 phase="starting",
             )
 
-        # Dispatch worker tasks (6 workers with concurrency 2 = 12 slots)
-        from celery import group
+        # Dispatch worker tasks using chord pattern
+        # Chord runs all workers in parallel, then calls finalizer when all complete
+        from celery import chord
 
-        worker_tasks = []
-        for batch_id in batch_ids:
-            worker_tasks.append(
-                quality_worker_task.s(
-                    catalog_id=catalog_id,
-                    batch_id=batch_id,
-                    parent_job_id=parent_job_id,
-                    force=force,
-                )
+        worker_tasks = [
+            quality_worker_task.s(
+                catalog_id=catalog_id,
+                batch_id=batch_id,
+                parent_job_id=parent_job_id,
+                force=force,
             )
+            for batch_id in batch_ids
+        ]
 
-        # Execute workers in parallel and wait for completion
-        job = group(worker_tasks)
-        result = job.apply_async()
-        result.get()  # Wait for all workers to complete
-
-        # Run finalizer
-        finalizer_result = quality_finalizer_task.delay(
+        # Execute workers in parallel, then run finalizer
+        finalizer_callback = quality_finalizer_task.s(
             catalog_id=catalog_id,
             parent_job_id=parent_job_id,
         )
-        return finalizer_result.get()
+
+        chord(worker_tasks)(finalizer_callback)
+
+        logger.info(
+            f"[{parent_job_id}] Quality chord dispatched: {total_batches} batches"
+        )
+
+        # Return immediately - workers will run asynchronously
+        return {
+            "status": "processing",
+            "job_type": "quality",
+            "catalog_id": catalog_id,
+            "total_batches": total_batches,
+            "message": f"Processing {total_images:,} images",
+        }
 
     except Exception as e:
         logger.error(f"[{parent_job_id}] Coordinator failed: {e}", exc_info=True)
@@ -284,11 +293,21 @@ def quality_worker_task(
 @app.task(bind=True, base=ProgressTask, name="quality_finalizer")
 def quality_finalizer_task(
     self: ProgressTask,
+    worker_results: List[Dict[str, Any]],
     catalog_id: str,
     parent_job_id: str,
 ) -> Dict[str, Any]:
     """Finalizer task that aggregates results and marks job complete."""
     logger.info(f"[{parent_job_id}] Running quality finalizer")
+
+    # Log worker results summary
+    total_workers = len(worker_results)
+    successful_workers = sum(
+        1 for r in worker_results if r.get("status") == "completed"
+    )
+    logger.info(
+        f"[{parent_job_id}] Worker results: {successful_workers}/{total_workers} completed"
+    )
 
     batch_manager = BatchManager(catalog_id, parent_job_id, "quality")
 
