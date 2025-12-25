@@ -92,6 +92,19 @@ def burst_coordinator_task(
         # Clear existing bursts for this catalog
         with CatalogDatabase(catalog_id) as db:
             assert db.session is not None
+            # First clear burst_id and burst_sequence from all images
+            db.session.execute(
+                text(
+                    """
+                    UPDATE images
+                    SET burst_id = NULL, burst_sequence = NULL
+                    WHERE catalog_id = :catalog_id
+                """
+                ),
+                {"catalog_id": catalog_id},
+            )
+            # Then delete all burst records
+            assert db.session is not None
             db.session.execute(
                 text("DELETE FROM bursts WHERE catalog_id = :catalog_id"),
                 {"catalog_id": catalog_id},
