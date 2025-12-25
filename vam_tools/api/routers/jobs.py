@@ -30,6 +30,7 @@ from ...jobs.job_recovery import job_recovery_check_task, job_recovery_task
 from ...jobs.parallel_bursts import burst_coordinator_task
 from ...jobs.parallel_duplicates import duplicates_coordinator_task
 from ...jobs.parallel_jobs import generic_coordinator_task
+from ...jobs.parallel_quality import quality_coordinator_task
 from ...jobs.parallel_scan import scan_coordinator_task, scan_recovery_task
 from ...jobs.tasks import organize_catalog_task
 
@@ -145,6 +146,7 @@ JOB_TYPE_TO_TASK = {
     "auto_tag": generic_coordinator_task,  # Now uses generic parallel coordinator
     "detect_bursts": burst_coordinator_task,  # Now uses coordinator pattern
     "generate_thumbnails": generic_coordinator_task,  # Now uses generic parallel coordinator
+    "quality": quality_coordinator_task,  # Uses coordinator pattern
     "organize": organize_catalog_task,  # TODO: Parallelize in future
 }
 
@@ -294,6 +296,14 @@ class GenericJobRequest(BaseModel):
     catalog_id: uuid.UUID
 
 
+class BulkDeleteJobsRequest(BaseModel):
+    """Request to bulk delete jobs."""
+
+    job_ids: Optional[List[str]] = None  # Specific job IDs to delete
+    status: Optional[List[str]] = None  # Delete jobs with these statuses
+    limit: Optional[int] = None  # Maximum number of jobs to delete
+
+
 class JobResponse(BaseModel):
     """Job status response."""
 
@@ -312,6 +322,7 @@ def start_job(request: GenericJobRequest, db: Session = Depends(get_db)):
     - detect_duplicates: Detect duplicate images (parallel)
     - auto_tag: Auto-tag images using AI (parallel)
     - detect_bursts: Detect burst photo sequences (parallel)
+    - quality: Compute quality scores for images (parallel)
     """
     job_type = request.job_type
     catalog_id = str(request.catalog_id)
@@ -1398,6 +1409,12 @@ def restart_job(job_id: str, db: Session = Depends(get_db)):
                 min_burst_size=params.get("min_burst_size", 3),
                 batch_size=params.get("batch_size", 5000),
             )
+        elif job.job_type == "quality":
+            # Uses quality_coordinator_task
+            new_task = task_func.delay(
+                catalog_id=str(job.catalog_id),
+                force=params.get("force", False),
+            )
         elif job.job_type == "generate_thumbnails":
             # Now uses thumbnail_coordinator_task
             new_task = task_func.delay(
@@ -1580,3 +1597,103 @@ def recover_stale_jobs(
         ),
         "message": f"Found {len(stale_jobs)} potentially stale jobs",
     }
+
+
+@router.post("/bulk-delete")
+def bulk_delete_jobs(
+    request: BulkDeleteJobsRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """
+    Bulk delete jobs from the database.
+
+    This endpoint allows deleting multiple jobs at once based on filters:
+    - job_ids: Delete specific job IDs
+    - status: Delete all jobs with specified statuses (standardized: queued, running, completed, failed, killed)
+    - limit: Maximum number of jobs to delete
+
+    When multiple filters are provided, they are combined with AND logic.
+
+    Args:
+        request: Bulk delete request with filters
+        background_tasks: FastAPI background tasks for async Celery revocation
+        db: Database session
+
+    Returns:
+        Summary of deletion: deleted_count and deleted_jobs list
+
+    Raises:
+        HTTPException: If no filters provided or other errors
+    """
+    # Validate at least one filter is provided
+    if not request.job_ids and not request.status:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one filter must be provided (job_ids or status)",
+        )
+
+    try:
+        # Start with all jobs
+        query = db.query(Job)
+
+        # Apply job_ids filter if provided
+        if request.job_ids:
+            query = query.filter(Job.id.in_(request.job_ids))
+
+        # Apply status filter if provided (using effective status mapping)
+        if request.status:
+            # Map standardized statuses to Celery statuses
+            # This is the reverse of get_effective_status()
+            status_map = {
+                "queued": ["PENDING"],
+                "running": ["STARTED", "PROGRESS"],
+                "completed": ["SUCCESS"],
+                "failed": ["FAILURE", "STALE"],
+                "killed": ["REVOKED", "TERMINATED"],
+            }
+
+            celery_statuses = []
+            for effective_status in request.status:
+                celery_statuses.extend(status_map.get(effective_status.lower(), []))
+
+            if celery_statuses:
+                query = query.filter(Job.status.in_(celery_statuses))
+
+        # Apply limit if provided
+        if request.limit and request.limit > 0:
+            query = query.limit(request.limit)
+
+        # Get jobs to delete
+        jobs_to_delete = query.all()
+        deleted_job_ids = [job.id for job in jobs_to_delete]
+
+        # Delete batches and revoke Celery tasks for each job
+        for job in jobs_to_delete:
+            # Delete associated batches
+            _delete_job_batches(job.id)
+
+            # Revoke Celery task in background
+            background_tasks.add_task(_revoke_celery_task, job.id, False)
+
+            # Delete the job from database
+            db.delete(job)
+
+        # Commit all deletions
+        db.commit()
+
+        logger.info(f"Bulk deleted {len(deleted_job_ids)} jobs")
+
+        return {
+            "deleted_count": len(deleted_job_ids),
+            "deleted_jobs": deleted_job_ids,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error bulk deleting jobs: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Failed to bulk delete jobs: {str(e)}"
+        )

@@ -249,6 +249,13 @@ createApp({
                     handler: 'startAnalyzeCatalog'
                 },
                 {
+                    id: 'quality',
+                    icon: '⭐',
+                    label: 'Compute Quality Scores',
+                    description: 'Calculate quality scores for images based on format (RAW > JPEG), resolution, file size, and EXIF completeness. Helps identify best images in bursts.',
+                    handler: 'startQualityScoring'
+                },
+                {
                     id: 'tag',
                     icon: '🏷️',
                     label: 'Auto-Tag Images',
@@ -1188,6 +1195,49 @@ createApp({
                 console.error(`Failed to delete job ${jobId}:`, error);
                 this.addNotification('Failed to delete job', 'error');
             }
+        },
+
+        async bulkDeleteJobs(status = null, limit = null) {
+            // Build request payload
+            const payload = {};
+            if (status && status.length > 0) {
+                payload.status = Array.isArray(status) ? status : [status];
+            }
+            if (limit && limit > 0) {
+                payload.limit = limit;
+            }
+
+            // Validate we have at least one filter
+            if (!payload.status && !payload.limit) {
+                this.addNotification('Must specify status or limit for bulk delete', 'error');
+                return;
+            }
+
+            // Confirm with user
+            const statusText = payload.status ? payload.status.join(', ') : 'all';
+            const limitText = payload.limit ? ` (limit: ${payload.limit})` : '';
+            if (!confirm(`Delete ${statusText} jobs${limitText}?`)) {
+                return;
+            }
+
+            try {
+                const response = await axios.post('/api/jobs/bulk-delete', payload);
+                const { deleted_count, deleted_jobs } = response.data;
+
+                // Remove deleted jobs from tracked list
+                deleted_jobs.forEach(jobId => this.removeJob(jobId));
+
+                this.addNotification(`Deleted ${deleted_count} job(s) from history`, 'success');
+            } catch (error) {
+                console.error('Failed to bulk delete jobs:', error);
+                const detail = error.response?.data?.detail || error.message;
+                this.addNotification(`Failed to bulk delete: ${detail}`, 'error');
+            }
+        },
+
+        async clearCompletedJobs() {
+            // Helper to clear all completed jobs
+            await this.bulkDeleteJobs(['completed', 'failed', 'killed']);
         },
 
         async loadImages(reset = false) {
@@ -2443,6 +2493,35 @@ createApp({
             } catch (error) {
                 console.error('Failed to start catalog analysis:', error);
                 this.addNotification('Failed to start catalog analysis: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
+        async startQualityScoring() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog first', 'error');
+                return;
+            }
+
+            try {
+                const response = await axios.post('/api/jobs/start', {
+                    job_type: 'quality',
+                    catalog_id: this.currentCatalog.id
+                });
+
+                this.addNotification('Quality scoring started', 'success');
+
+                if (response.data.job_id) {
+                    this.allJobs.unshift(response.data.job_id);
+                    this.jobMetadata[response.data.job_id] = {
+                        name: `Quality Scoring: ${this.currentCatalog.name}`,
+                        started: new Date().toISOString()
+                    };
+                    this.persistJobs();
+                    this.loadJobDetails(response.data.job_id);
+                }
+            } catch (error) {
+                console.error('Failed to start quality scoring:', error);
+                this.addNotification('Failed to start quality scoring: ' + (error.response?.data?.detail || error.message), 'error');
             }
         },
 

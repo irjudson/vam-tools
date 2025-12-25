@@ -4,8 +4,8 @@ A professional collection of Python tools for managing and organizing photo/vide
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-580%20passing-success.svg)](https://github.com/irjudson/vam-tools)
-[![Coverage](https://img.shields.io/badge/coverage-78%25-green.svg)](https://github.com/irjudson/vam-tools)
+[![Tests](https://img.shields.io/badge/tests-616%20passing-success.svg)](https://github.com/irjudson/vam-tools)
+[![Coverage](https://img.shields.io/badge/coverage-79%25-green.svg)](https://github.com/irjudson/vam-tools)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ## Quick Links
@@ -19,22 +19,21 @@ A professional collection of Python tools for managing and organizing photo/vide
 Comprehensive documentation is available in the **[docs](./docs)** directory:
 
 ### Getting Started
-- **[User Guide](./docs/USER_GUIDE.md)** - Complete user documentation and tutorials
+- **[User Guide](./docs/guides/USER_GUIDE.md)** - Complete user documentation and tutorials
 - **[Installation](#installation)** - Get up and running (see below)
 - **[Quick Start](#quick-start)** - Basic workflow in 5 minutes
 
 ### Technical Guides
-- **[How It Works](./docs/HOW_IT_WORKS.md)** - Analysis pipeline and processing details
-- **[Date Extraction Guide](./docs/DATE_EXTRACTION_GUIDE.md)** - Date detection and confidence levels
-- **[Architecture](./docs/ARCHITECTURE.md)** - System design and components
-- **[GPU Setup Guide](./docs/GPU_SETUP_GUIDE.md)** - GPU acceleration configuration
-- **[Performance & GPU Summary](./docs/PERFORMANCE_AND_GPU_SUMMARY.md)** - Optimization guide
+- **[How It Works](./docs/technical/HOW_IT_WORKS.md)** - Analysis pipeline and processing details
+- **[Date Extraction Guide](./docs/technical/DATE_EXTRACTION_GUIDE.md)** - Date detection and confidence levels
+- **[Architecture](./docs/technical/ARCHITECTURE.md)** - System design and components
+- **[GPU Setup Guide](./docs/guides/GPU_SETUP_GUIDE.md)** - GPU acceleration configuration
 
 ### Help & Reference
-- **[Troubleshooting](./docs/TROUBLESHOOTING.md)** - Common problems and solutions
-- **[Roadmap](./docs/ROADMAP.md)** - Planned features and priorities
-- **[Contributing Guide](./docs/CONTRIBUTING.md)** - Development setup and guidelines
-- **[Development Approach](./docs/DEVELOPMENT_APPROACH.md)** - Human-AI collaboration story
+- **[Troubleshooting](./docs/guides/TROUBLESHOOTING.md)** - Common problems and solutions
+- **[Roadmap](./docs/roadmap/ROADMAP.md)** - Planned features and priorities
+- **[Contributing Guide](./docs/guides/CONTRIBUTING.md)** - Development setup and guidelines
+- **[Development Approach](./docs/technical/DEVELOPMENT_APPROACH.md)** - Human-AI collaboration story
 
 ---
 
@@ -45,9 +44,10 @@ Comprehensive documentation is available in the **[docs](./docs)** directory:
 - **Comprehensive Metadata Extraction** - Extract dates from EXIF, XMP, filenames, and directory structure
 - **RAW File Support** - Native RAW metadata extraction during scanning (no conversion required)
 - **Duplicate Detection** - Find exact and similar duplicates using checksums and perceptual hashing
-- **Quality Scoring** - Automatically select the best copy among duplicates
+- **Quality Scoring** - Multi-factor scoring based on format, resolution, file size, and EXIF completeness
 - **Burst Management** - Automatically detect continuous shooting sequences and select the best image from each burst
-- **Corruption Tracking** - Automatically detect and report corrupted/truncated image files
+- **Image Status System** - Track active/archived/flagged/rejected/selected states for workflow management
+- **Corruption Detection** - Automatically identify and flag corrupt/empty files to prevent processing errors
 - **Date-Based Reorganization** - Reorganize libraries into date-based directory structures
 
 ### Advanced Features
@@ -59,7 +59,7 @@ Comprehensive documentation is available in the **[docs](./docs)** directory:
 - **Beautiful CLI** - Rich terminal interface with progress bars and formatted output
 
 ### Quality & Testing
-- **Fully Tested** - Comprehensive test suite with **580 passing tests** and **78% coverage**
+- **Fully Tested** - Comprehensive test suite with **616 passing tests** and **79% coverage**
 - **Type Safe** - Full type hints throughout the codebase with Pydantic v2
 - **Fast Tests** - Parallel test execution with pytest-xdist (62.5% faster)
 
@@ -118,7 +118,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 pip install faiss-gpu
 ```
 
-See **[GPU Setup Guide](./docs/GPU_SETUP_GUIDE.md)** for detailed instructions.
+See **[GPU Setup Guide](./docs/guides/GPU_SETUP_GUIDE.md)** for detailed instructions.
 
 ---
 
@@ -207,7 +207,7 @@ vam-analyze /path/to/catalog --repair
 vam-analyze /path/to/catalog -s /path/to/photos -v
 ```
 
-For detailed workflows, see the **[User Guide](./docs/USER_GUIDE.md)**.
+For detailed workflows, see the **[User Guide](./docs/guides/USER_GUIDE.md)**.
 
 ---
 
@@ -221,7 +221,7 @@ For detailed workflows, see the **[User Guide](./docs/USER_GUIDE.md)**.
 
 ## Contributing
 
-We welcome contributions! Please see our **[Contributing Guide](./docs/CONTRIBUTING.md)** for details on:
+We welcome contributions! Please see our **[Contributing Guide](./docs/guides/CONTRIBUTING.md)** for details on:
 
 - Setting up your development environment
 - Running tests
@@ -288,6 +288,6 @@ VAM Tools builds on excellent open-source projects:
 
 ## Development Story
 
-This project was developed using human-AI pair programming with Claude. The collaboration followed established engineering principles to ensure code quality without requiring exhaustive human review. Read more about the **[Development Approach](./docs/DEVELOPMENT_APPROACH.md)**.
+This project was developed using human-AI pair programming with Claude. The collaboration followed established engineering principles to ensure code quality without requiring exhaustive human review. Read more about the **[Development Approach](./docs/technical/DEVELOPMENT_APPROACH.md)**.
 
 **Result**: Production-ready tool with continuous improvements, 616 passing tests and 79% coverage.

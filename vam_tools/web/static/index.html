@@ -1902,9 +1902,19 @@
 
                 <!-- Job History -->
                 <div class="panel-section">
-                    <div class="panel-section-header" @click="toggleSection('jobHistory')">
-                        <h4>Job History</h4>
-                        <span class="collapse-icon">{{ sections.jobHistory ? '▼' : '▶' }}</span>
+                    <div class="panel-section-header">
+                        <div @click="toggleSection('jobHistory')" style="display: flex; align-items: center; flex: 1; cursor: pointer;">
+                            <h4>Job History</h4>
+                            <span class="collapse-icon" style="margin-left: auto;">{{ sections.jobHistory ? '▼' : '▶' }}</span>
+                        </div>
+                        <button
+                            v-if="completedJobs.length > 0"
+                            class="job-action-btn"
+                            @click.stop="clearCompletedJobs()"
+                            title="Clear all completed, failed, and killed jobs"
+                            style="font-size: 11px; padding: 4px 8px; margin-left: 8px;">
+                            Clear
+                        </button>
                     </div>
                     <div class="panel-section-content" v-show="sections.jobHistory">
                         <div class="panel-jobs-list">

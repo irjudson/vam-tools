@@ -14,10 +14,10 @@ This directory contains comprehensive documentation for the VAM Tools project.
 docs/
 ├── guides/           # User and setup guides
 ├── technical/        # Architecture and implementation details
-├── plans/            # Design documents and roadmaps
+├── plans/            # Design documents and implementation plans
+├── roadmap/          # Feature roadmap and improvement proposals
 ├── research/         # Research and investigations
 ├── archive/          # Historical documents
-├── FEATURES.md       # Feature summaries
 └── README.md         # This file
 ```
 
@@ -48,25 +48,34 @@ Architecture and implementation details:
 
 ## Plans & Design
 
-Design documents and roadmaps:
+Design documents and implementation plans:
 
-- **[Roadmap](plans/ROADMAP.md)** - Feature roadmap and priorities
+- **[Duplicate Management Features (2025-12-22)](plans/2025-12-22-duplicate-management-features-design.md)** - Duplicate workflow design
+- **[Fix Duplicate Detection Transitive Closure (2025-12-21)](plans/2025-12-21-fix-duplicate-detection-transitive-closure.md)** - Duplicate detection fix
+- **[Edit Mode Design (2025-12-12)](plans/2025-12-12-edit-mode-design.md)** - Image editing interface
+- **[Task Status Design (2025-12-12)](plans/2025-12-12-task-status-design.md)** - Task status system
+- **[Semantic Search (2025-12-06)](plans/2025-12-06-semantic-search.md)** - CLIP-based search design
+- **[Burst Detection (2025-12-06)](plans/2025-12-06-burst-detection.md)** - Burst detection implementation
+- **[PostgreSQL ORM Layer (2025-11-15)](plans/2025-11-15-postgres-pydantic-orm-layer.md)** - ORM migration plan
+- **[VAM Tools Redesign (2025-11-10)](plans/2025-11-10-vam-tools-redesign.md)** - Major redesign plan
 - **[Auto-Tagging Design](plans/AUTO_TAGGING_DESIGN.md)** - AI tagging system design
 - **[GPU Acceleration Plan](plans/GPU_ACCELERATION_PLAN.md)** - GPU implementation plan
 - **[Catalog Browsing Optimization](plans/CATALOG_BROWSING_OPTIMIZATION_PLAN.md)** - UI optimization plan
 - **[UI Redesign](plans/UI_REDESIGN_PLAN.md)** - UI redesign plan
-- **[VAM Tools Redesign (2025-11-10)](plans/2025-11-10-vam-tools-redesign.md)** - Major redesign plan
-- **[PostgreSQL ORM Layer (2025-11-15)](plans/2025-11-15-postgres-pydantic-orm-layer.md)** - ORM migration plan
+
+## Roadmap
+
+Feature roadmap and improvement proposals:
+
+- **[Roadmap](roadmap/ROADMAP.md)** - Feature priorities and future plans
+- **[Composition Quality Scoring](roadmap/composition-quality-scoring.md)** - Future quality scoring enhancements
+- **[Improvements](roadmap/improvements/)** - Proposed improvements and optimizations
 
 ## Research
 
 Research and investigations:
 
 - **[Video Perceptual Hashing](research/VIDEO_HASHING.md)** - Video hashing research
-
-## Features
-
-- **[Features Summary](FEATURES.md)** - Overview of implemented features
 
 ## Archive
 

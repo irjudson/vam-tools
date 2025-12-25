@@ -1,4 +1,19 @@
-# Test Isolation Scripts
+# VAM Tools Scripts
+
+Utility scripts for development, testing, and maintenance.
+
+## Directory Structure
+
+```
+scripts/
+├── dev/              # Development utilities
+├── migrations/       # One-off migration scripts
+├── run_tests.sh      # Test runner with isolation
+├── kill_tests.sh     # Safely kill test processes
+└── iphone-mount.sh   # iPhone mounting helper
+```
+
+## Test Isolation Scripts
 
 These scripts provide **triple-layer isolation** for vam-tools pytest processes, preventing interference with other projects on the same machine.
 
