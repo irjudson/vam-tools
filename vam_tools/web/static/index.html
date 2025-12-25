@@ -944,7 +944,7 @@
                                 <!-- Large Preview Image -->
                                 <div class="burst-preview-area">
                                     <div v-if="selectedBurstImage" class="burst-preview-container">
-                                        <img :src="getBurstImageLarge(selectedBurstImage)" :alt="selectedBurstImage.source_path" />
+                                        <img :src="getBurstImageThumbnail(selectedBurstImage)" :alt="selectedBurstImage.source_path" />
                                         <div class="burst-preview-info">
                                             <div class="preview-details">
                                                 <span class="filename">{{ getFileName(selectedBurstImage.source_path) }}</span>
