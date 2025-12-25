@@ -44,8 +44,8 @@ def sample_catalog_with_images(db_session, temp_dir):
     db_session.execute(
         text(
             """
-            INSERT INTO images (id, catalog_id, source_path, file_type, checksum, size_bytes, dates, metadata, created_at, updated_at, status)
-            VALUES (:id, :catalog_id, :source_path, :file_type, :checksum, :size_bytes, CAST(:dates AS jsonb), CAST(:metadata AS jsonb), :created_at, :updated_at, :status)
+            INSERT INTO images (id, catalog_id, source_path, file_type, checksum, size_bytes, dates, metadata, created_at, updated_at, status_id)
+            VALUES (:id, :catalog_id, :source_path, :file_type, :checksum, :size_bytes, CAST(:dates AS jsonb), CAST(:metadata AS jsonb), :created_at, :updated_at, :status_id)
         """
         ),
         {
@@ -59,7 +59,7 @@ def sample_catalog_with_images(db_session, temp_dir):
             "metadata": json.dumps({}),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
-            "status": "ready",
+            "status_id": "active",
         },
     )
     db_session.commit()

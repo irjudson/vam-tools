@@ -151,7 +151,7 @@ def test_images_table_structure(test_catalog_id):
                 """
             INSERT INTO images
             (id, catalog_id, source_path, file_type, checksum, size_bytes, dates, metadata,
-             dhash, ahash, quality_score, status, created_at, updated_at)
+             dhash, ahash, quality_score, status_id, created_at, updated_at)
             VALUES (
                 'test_id',
                 :catalog_id,
@@ -164,7 +164,7 @@ def test_images_table_structure(test_catalog_id):
                 'dhash123',
                 'ahash123',
                 85,
-                'complete',
+                'active',
                 NOW(),
                 NOW()
             )
