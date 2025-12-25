@@ -940,13 +940,13 @@
                                     </div>
                                 </div>
                                 <div class="burst-images-grid">
-                                    <div v-for="image in burstImages" :key="image.id"
+                                    <div v-for="image in burstImages" :key="image.image_id"
                                          class="burst-image-item"
-                                         :class="{ 'is-best': image.id === selectedBurst.best_image_id }"
+                                         :class="{ 'is-best': image.image_id === selectedBurst.best_image_id }"
                                          @click="selectBurstImage(image)">
-                                        <img :src="image.thumbnail_url" :alt="image.source_path" loading="lazy" />
+                                        <img :src="getBurstImageThumbnail(image)" :alt="image.source_path" loading="lazy" />
                                         <div class="burst-image-overlay">
-                                            <span v-if="image.id === selectedBurst.best_image_id" class="best-badge">BEST</span>
+                                            <span v-if="image.image_id === selectedBurst.best_image_id" class="best-badge">BEST</span>
                                             <span class="sequence-badge">#{{ (image.sequence || 0) + 1 }}</span>
                                             <span v-if="image.quality_score" class="quality-score">
                                                 Q: {{ (image.quality_score * 100).toFixed(0) }}%
@@ -964,7 +964,7 @@
                         <div class="bursts-detail-panel">
                             <div v-if="selectedBurstImage" class="burst-image-detail">
                                 <div class="detail-image">
-                                    <img :src="selectedBurstImage.thumbnail_url" :alt="selectedBurstImage.source_path" />
+                                    <img :src="getBurstImageThumbnail(selectedBurstImage)" :alt="selectedBurstImage.source_path" />
                                 </div>
                                 <div class="detail-info">
                                     <h4>Image Details</h4>
@@ -985,8 +985,8 @@
                                         <span>{{ formatFileSize(selectedBurstImage.size_bytes) }}</span>
                                     </div>
                                     <div class="detail-actions">
-                                        <button v-if="selectedBurstImage.id !== selectedBurst.best_image_id"
-                                                @click="setBestImage(selectedBurst.id, selectedBurstImage.id)"
+                                        <button v-if="selectedBurstImage.image_id !== selectedBurst.best_image_id"
+                                                @click="setBestImage(selectedBurst.id, selectedBurstImage.image_id)"
                                                 class="btn-primary btn-small">
                                             Set as Best
                                         </button>

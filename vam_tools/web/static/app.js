@@ -2263,6 +2263,11 @@ createApp({
             this.selectedBurstImage = image;
         },
 
+        getBurstImageThumbnail(image) {
+            if (!this.currentCatalog || !image.image_id) return '';
+            return `/api/catalogs/${this.currentCatalog.id}/images/${image.image_id}/thumbnail?size=medium`;
+        },
+
         hasMoreBursts() {
             return this.bursts.length < this.burstsTotal;
         },
