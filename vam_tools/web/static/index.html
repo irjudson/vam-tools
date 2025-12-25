@@ -949,7 +949,7 @@
                                             <span v-if="image.image_id === selectedBurst.best_image_id" class="best-badge">BEST</span>
                                             <span class="sequence-badge">#{{ (image.sequence || 0) + 1 }}</span>
                                             <span v-if="image.quality_score" class="quality-score">
-                                                Q: {{ (image.quality_score * 100).toFixed(0) }}%
+                                                Q: {{ image.quality_score.toFixed(0) }}%
                                             </span>
                                         </div>
                                     </div>
@@ -978,7 +978,7 @@
                                     </div>
                                     <div class="detail-field" v-if="selectedBurstImage.quality_score">
                                         <label>Quality Score:</label>
-                                        <span>{{ (selectedBurstImage.quality_score * 100).toFixed(1) }}%</span>
+                                        <span>{{ selectedBurstImage.quality_score.toFixed(1) }}%</span>
                                     </div>
                                     <div class="detail-field" v-if="selectedBurstImage.size_bytes">
                                         <label>File Size:</label>
@@ -1700,7 +1700,7 @@
                             <div class="burst-image-overlay">
                                 <span v-if="image.is_best" class="best-badge">BEST</span>
                                 <span v-if="image.quality_score !== null && image.quality_score !== undefined" class="quality-score">
-                                    Q: {{ (image.quality_score * 100).toFixed(0) }}%
+                                    Q: {{ image.quality_score.toFixed(0) }}%
                                 </span>
                             </div>
                         </div>
