@@ -77,6 +77,7 @@ def test_exact_duplicates_still_group():
     assert set(groups[0]) == {"A", "B", "C"}
 
 
+@pytest.mark.integration
 def test_auto_create_tags_for_duplicate_groups(db_session):
     """Test that tags are automatically created for duplicate groups with dhash metadata."""
     import uuid

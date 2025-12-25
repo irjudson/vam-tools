@@ -4,6 +4,8 @@ import pytest
 
 from vam_tools.db.models import Image, ImageStatus
 
+pytestmark = pytest.mark.integration
+
 
 class TestImageStatusLookup:
     """Tests for ImageStatus lookup table."""
