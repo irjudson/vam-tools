@@ -39,6 +39,12 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+class JobCancelledException(Exception):
+    """Raised when a worker detects that its job has been cancelled."""
+
+    pass
+
+
 @dataclass
 class BatchResult:
     """Result from processing a single batch."""
@@ -322,6 +328,60 @@ class BatchManager:
 
         logger.warning(f"Batch {batch_id} failed: {error_message}")
 
+    def is_cancelled(
+        self, batch_id: Optional[str] = None, db: Optional[CatalogDatabase] = None
+    ) -> bool:
+        """
+        Check if a batch or the parent job has been cancelled.
+
+        Workers should call this periodically to check if they should stop processing.
+
+        Args:
+            batch_id: Optional batch UUID to check. If None, checks parent job.
+            db: Optional database connection
+
+        Returns:
+            True if cancelled, False otherwise
+        """
+
+        def _check(session: Any) -> bool:
+            if batch_id:
+                # Check specific batch status
+                result = session.execute(
+                    text(
+                        """
+                        SELECT status FROM job_batches
+                        WHERE id = :batch_id
+                    """
+                    ),
+                    {"batch_id": batch_id},
+                )
+                row = result.fetchone()
+                if row and row[0] == "CANCELLED":
+                    return True
+
+            # Check parent job status
+            result = session.execute(
+                text(
+                    """
+                    SELECT status FROM jobs
+                    WHERE id = :parent_job_id
+                """
+                ),
+                {"parent_job_id": self.parent_job_id},
+            )
+            row = result.fetchone()
+            if row and row[0] in ("REVOKED", "CANCELLED"):
+                return True
+
+            return False
+
+        if db:
+            return _check(db.session)
+        else:
+            with CatalogDatabase(self.catalog_id) as db_conn:
+                return _check(db_conn.session)
+
     def get_progress(self, db: Optional[CatalogDatabase] = None) -> JobProgress:
         """
         Get aggregated progress for the parent job.
@@ -521,12 +581,33 @@ def publish_job_progress(
     """
     Publish aggregated job progress to Redis for UI updates.
 
+    This function ensures monotonically increasing progress by checking the current
+    progress in Redis before publishing. If the new progress shows fewer completed
+    batches than what's already in Redis, the update is skipped to prevent the
+    frontend from seeing progress go backwards due to out-of-order worker updates.
+
     Args:
         parent_job_id: The coordinator's task ID
         progress: Aggregated progress from BatchManager.get_progress()
         message: Human-readable status message (used as sub_message)
         phase: Current phase (discovery, processing, finalizing, complete)
     """
+    from .progress_publisher import get_last_progress
+
+    # Check current progress in Redis to prevent publishing stale updates
+    # This prevents race conditions where Worker A completes batch 5 and publishes,
+    # but then Worker B's delayed update for batch 3 overwrites it
+    last_progress = get_last_progress(parent_job_id)
+    if last_progress:
+        last_completed = last_progress.get("progress", {}).get("batches_completed", 0)
+        if progress.completed_batches < last_completed:
+            # Skip this update - it's older than what's already published
+            logger.debug(
+                f"[{parent_job_id}] Skipping stale progress update: "
+                f"current={last_completed} batches, new={progress.completed_batches} batches"
+            )
+            return
+
     # Build a consistent aggregate message
     if progress.total_items > 0:
         aggregate_message = (
