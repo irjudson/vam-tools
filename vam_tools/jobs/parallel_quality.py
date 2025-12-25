@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 @app.task(bind=True, base=ProgressTask, name="quality_coordinator")
 def quality_coordinator_task(
-    self,
+    self: ProgressTask,
     catalog_id: str,
     force: bool = False,
 ) -> Dict[str, Any]:
@@ -48,6 +48,7 @@ def quality_coordinator_task(
 
     try:
         with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
             # Get all images that need quality scoring
             if force:
                 query = text(
@@ -67,6 +68,7 @@ def quality_coordinator_task(
                 """
                 )
 
+            assert db.session is not None
             result = db.session.execute(query)
             images = [
                 {
@@ -101,7 +103,9 @@ def quality_coordinator_task(
                 db=db,
             )
 
-            total_batches = batch_manager.get_batch_count(db)
+            # Get total batches from progress
+            progress = batch_manager.get_progress(db)
+            total_batches = progress.total_batches
             logger.info(f"[{parent_job_id}] Created {total_batches} batches")
 
             # Publish initial progress
@@ -140,14 +144,12 @@ def quality_coordinator_task(
 
     except Exception as e:
         logger.error(f"[{parent_job_id}] Coordinator failed: {e}", exc_info=True)
-        with CatalogDatabase(catalog_id) as db:
-            batch_manager.mark_job_failed(str(e), db)
         raise
 
 
 @app.task(bind=True, base=ProgressTask, name="quality_worker")
 def quality_worker_task(
-    self,
+    self: ProgressTask,
     catalog_id: str,
     batch_id: str,
     parent_job_id: str,
@@ -181,9 +183,7 @@ def quality_worker_task(
             f"({items_count} images)"
         )
 
-        result = BatchResult()
-        result.batch_id = batch_id
-        result.worker_id = worker_id
+        result = BatchResult(batch_id=batch_id, batch_number=batch_number)
 
         # Process each image
         for item in image_data:
@@ -220,6 +220,7 @@ def quality_worker_task(
 
                 # Update database
                 with CatalogDatabase(catalog_id) as db:
+                    assert db.session is not None
                     db.session.execute(
                         text(
                             """
@@ -235,6 +236,7 @@ def quality_worker_task(
                         ),
                         {"score": int(quality.overall), "image_id": image_id},
                     )
+                    assert db.session is not None
                     db.session.commit()
 
                 result.success_count += 1
@@ -282,7 +284,7 @@ def quality_worker_task(
 
 @app.task(bind=True, base=ProgressTask, name="quality_finalizer")
 def quality_finalizer_task(
-    self,
+    self: ProgressTask,
     catalog_id: str,
     parent_job_id: str,
 ) -> Dict[str, Any]:
@@ -293,10 +295,12 @@ def quality_finalizer_task(
 
     try:
         with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
             # Get final statistics
             progress = batch_manager.get_progress(db)
 
             # Calculate average quality score
+            assert db.session is not None
             avg_score = db.session.execute(
                 text(
                     """
@@ -308,6 +312,7 @@ def quality_finalizer_task(
             ).scalar()
 
             # Get score distribution
+            assert db.session is not None
             distribution = db.session.execute(
                 text(
                     """
@@ -335,9 +340,6 @@ def quality_finalizer_task(
 
             score_dist = {row[0]: row[1] for row in distribution}
 
-            # Mark job as complete
-            batch_manager.mark_job_complete(db)
-
             # Publish final progress
             publish_job_progress(
                 parent_job_id,
@@ -349,16 +351,16 @@ def quality_finalizer_task(
             logger.info(
                 f"[{parent_job_id}] Quality scoring complete: "
                 f"{progress.completed_batches}/{progress.total_batches} batches, "
-                f"{progress.items_success} success, {progress.items_failed} failed"
+                f"{progress.success_items} success, {progress.error_items} failed"
             )
 
             return {
                 "status": "completed",
                 "job_type": "quality",
                 "catalog_id": catalog_id,
-                "items_processed": progress.items_success + progress.items_failed,
-                "items_success": progress.items_success,
-                "items_failed": progress.items_failed,
+                "items_processed": progress.success_items + progress.error_items,
+                "items_success": progress.success_items,
+                "items_failed": progress.error_items,
                 "total_batches": progress.total_batches,
                 "failed_batches": progress.failed_batches,
                 "average_score": avg_score,
@@ -367,9 +369,4 @@ def quality_finalizer_task(
 
     except Exception as e:
         logger.error(f"[{parent_job_id}] Finalizer failed: {e}", exc_info=True)
-        try:
-            with CatalogDatabase(catalog_id) as db:
-                batch_manager.mark_job_failed(str(e), db)
-        except Exception:
-            pass
         raise
