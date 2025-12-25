@@ -37,6 +37,11 @@ from .parallel_jobs import (
     generic_worker_task,
     start_parallel_job,
 )
+from .parallel_quality import (
+    quality_coordinator_task,
+    quality_finalizer_task,
+    quality_worker_task,
+)
 from .parallel_scan import (
     scan_coordinator_task,
     scan_finalizer_task,
@@ -77,6 +82,10 @@ __all__ = [
     "thumbnail_coordinator_task",
     "thumbnail_worker_task",
     "thumbnail_finalizer_task",
+    # Parallel quality scoring tasks
+    "quality_coordinator_task",
+    "quality_worker_task",
+    "quality_finalizer_task",
     # Parallel tagging tasks
     "tagging_coordinator_task",
     "tagging_worker_task",
