@@ -166,6 +166,7 @@ class ImageMetadata(BaseModel):
     gps_latitude: Optional[float] = None
     gps_longitude: Optional[float] = None
     gps_altitude: Optional[float] = None
+    geohash: Optional[str] = None  # Geohash for efficient location queries
 
     # Additional EXIF fields
     orientation: Optional[int] = None

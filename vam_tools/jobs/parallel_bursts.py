@@ -30,6 +30,7 @@ from .coordinator import (
     CONSECUTIVE_FAILURE_THRESHOLD,
     BatchManager,
     BatchResult,
+    JobCancelledException,
     cancel_and_requeue_job,
     publish_job_progress,
 )
@@ -109,8 +110,9 @@ def burst_coordinator_task(
                            metadata->>'camera_model' as camera_model,
                            quality_score,
                            source_path,
-                           (metadata->>'latitude')::double precision as latitude,
-                           (metadata->>'longitude')::double precision as longitude
+                           (metadata->>'gps_latitude')::double precision as latitude,
+                           (metadata->>'gps_longitude')::double precision as longitude,
+                           metadata->>'geohash' as geohash
                     FROM images
                     WHERE catalog_id = :catalog_id
                     AND dates->>'selected_date' IS NOT NULL
@@ -121,7 +123,7 @@ def burst_coordinator_task(
                 {"catalog_id": catalog_id},
             )
 
-            # Build image data list: (id, timestamp_str, camera_make, camera_model, quality, source_path, lat, lon)
+            # Build image data list: (id, timestamp_str, camera_make, camera_model, quality, source_path, lat, lon, geohash)
             image_data = []
             for row in result.fetchall():
                 image_data.append(
@@ -134,6 +136,7 @@ def burst_coordinator_task(
                         row[5],  # source_path
                         row[6],  # latitude
                         row[7],  # longitude
+                        row[8],  # geohash
                     )
                 )
 
@@ -270,7 +273,7 @@ def burst_worker_task(
         total_batches = batch_data["total_batches"]
         image_data = batch_data[
             "work_items"
-        ]  # List of (id, timestamp, camera_make, camera_model, quality)
+        ]  # List of (id, timestamp, camera_make, camera_model, quality, source_path, lat, lon, geohash)
         items_count = batch_data["items_count"]
 
         logger.info(
@@ -291,6 +294,7 @@ def burst_worker_task(
                 source_path,
                 latitude,
                 longitude,
+                geohash,
             ) = item
             if timestamp_str:
                 try:
@@ -305,12 +309,18 @@ def burst_worker_task(
                             source_path=source_path,
                             latitude=latitude,
                             longitude=longitude,
+                            geohash=geohash,
                         )
                     )
                 except ValueError:
                     logger.warning(
                         f"Invalid timestamp for image {img_id}: {timestamp_str}"
                     )
+
+        # Check for cancellation before processing
+        if batch_manager.is_cancelled(batch_id):
+            logger.warning(f"[{worker_id}] Batch {batch_id} cancelled before burst detection")
+            raise JobCancelledException(f"Job cancelled before processing batch {batch_number + 1}")
 
         # Detect bursts within this batch
         detector = BurstDetector(
@@ -370,6 +380,17 @@ def burst_worker_task(
             "bursts_count": len(bursts),
             "images_processed": len(images),
             "bursts": burst_data,
+        }
+
+    except JobCancelledException as e:
+        logger.warning(f"[{worker_id}] Worker cancelled: {e}")
+        return {
+            "batch_id": batch_id,
+            "batch_number": batch_number if 'batch_number' in locals() else 0,
+            "status": "cancelled",
+            "bursts_count": 0,
+            "images_processed": 0,
+            "message": str(e),
         }
 
     except Exception as e:

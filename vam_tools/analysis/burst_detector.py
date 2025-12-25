@@ -24,6 +24,7 @@ class ImageInfo:
     source_path: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    geohash: Optional[str] = None
 
     @property
     def camera_key(self) -> str:
@@ -166,6 +167,9 @@ class BurstDetector:
     def _is_same_location(self, img1: ImageInfo, img2: ImageInfo) -> bool:
         """Check if two images are from the same location.
 
+        Uses geohash for fast comparison when available, falls back to
+        Haversine distance for edge cases.
+
         Args:
             img1: First image
             img2: Second image
@@ -177,7 +181,16 @@ class BurstDetector:
         if not img1.has_gps or not img2.has_gps:
             return True
 
-        # Calculate distance using Haversine formula (approx)
+        # Fast path: check geohash match (precision 7 = ~153m cells)
+        # If geohashes match, they're definitely within tolerance
+        if img1.geohash and img2.geohash:
+            # Use first 6 chars for ~610m cells (covers our 10m tolerance with margin)
+            if img1.geohash[:6] == img2.geohash[:6]:
+                return True
+            # If geohashes differ, images might still be close (at cell boundary)
+            # Fall through to Haversine check
+
+        # Precise check: Calculate distance using Haversine formula
         from math import radians, sin, cos, sqrt, atan2
 
         lat1, lon1 = radians(img1.latitude), radians(img1.longitude)

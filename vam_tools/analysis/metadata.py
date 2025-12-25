@@ -117,6 +117,19 @@ class MetadataExtractor:
                     or exif_data.get("GPSAltitude")
                 )
 
+                # Generate geohash for efficient location queries
+                if metadata.gps_latitude is not None and metadata.gps_longitude is not None:
+                    try:
+                        import pygeohash as pgh
+                        # Precision 7 gives ~153m resolution, good for burst detection
+                        metadata.geohash = pgh.encode(
+                            metadata.gps_latitude, metadata.gps_longitude, precision=7
+                        )
+                    except ImportError:
+                        logger.debug("pygeohash not available, skipping geohash generation")
+                    except Exception as e:
+                        logger.debug(f"Error generating geohash: {e}")
+
                 # Extract additional useful metadata
                 metadata.orientation = self._parse_int(
                     exif_data.get("EXIF:Orientation") or exif_data.get("Orientation")
