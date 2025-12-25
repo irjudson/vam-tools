@@ -178,7 +178,7 @@ class Image(Base):
 
     # Relationships
     catalog = relationship("Catalog", backref="images")
-    status = relationship("ImageStatus")
+    status = relationship("ImageStatus", foreign_keys=[status_id], lazy="joined")
     tags = relationship(
         "ImageTag", back_populates="image", cascade="all, delete-orphan"
     )

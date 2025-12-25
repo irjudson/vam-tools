@@ -336,6 +336,18 @@ class ImageScannerORM:
                 and processing_flags["dates_extracted"]
             )
 
+            # Map workflow status to database status
+            # Most workflow states (pending, analyzing, etc.) -> active
+            # Only user actions change status to rejected/archived/flagged
+            status_str = image_record.status.value
+            status_mapping = {
+                "complete": "archived",
+                "rejected": "rejected",
+                "archived": "archived",
+                "flagged": "flagged",
+            }
+            db_status = status_mapping.get(status_str, "active")
+
             # Create ORM object
             image = Image(
                 id=unique_id,
@@ -357,7 +369,7 @@ class ImageScannerORM:
                     else {}
                 ),
                 thumbnail_path=thumbnail_path,
-                status=image_record.status.value,
+                status_id=db_status,
                 processing_flags=processing_flags,
             )
 
