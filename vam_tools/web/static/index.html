@@ -73,8 +73,9 @@
                 <button class="panel-toggle-btn" @click="showLeftPanel = false" title="Hide panel (F6)">◀</button>
             </div>
             <div class="panel-content">
+                <!-- Library/Map View Sections -->
                 <!-- Search Section -->
-                <div class="panel-section">
+                <div v-if="currentView === 'browse' || currentView === 'maptime'" class="panel-section">
                     <div class="panel-section-header" @click="toggleSection('search')">
                         <h4>Search</h4>
                         <span class="collapse-icon">{{ sections.search ? '▼' : '▶' }}</span>
@@ -114,7 +115,7 @@
                 </div>
 
                 <!-- Tags Section -->
-                <div class="panel-section">
+                <div v-if="currentView === 'browse' || currentView === 'maptime'" class="panel-section">
                     <div class="panel-section-header" @click="toggleSection('tags')">
                         <h4>Tags</h4>
                         <span class="collapse-icon">{{ sections.tags ? '▼' : '▶' }}</span>
@@ -138,7 +139,7 @@
                 </div>
 
                 <!-- Filters Section -->
-                <div class="panel-section">
+                <div v-if="currentView === 'browse' || currentView === 'maptime'" class="panel-section">
                     <div class="panel-section-header" @click="toggleSection('filters')">
                         <h4>Filters</h4>
                         <span class="collapse-icon">{{ sections.filters ? '▼' : '▶' }}</span>
