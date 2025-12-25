@@ -37,6 +37,7 @@ from .coordinator import (
     CONSECUTIVE_FAILURE_THRESHOLD,
     BatchManager,
     BatchResult,
+    JobCancelledException,
     cancel_and_requeue_job,
     publish_job_progress,
 )
@@ -702,8 +703,24 @@ def duplicates_compare_worker_task(
                 logger.warning(f"Failed to save duplicate pairs batch: {e}")
                 # Don't fail the whole task, just log the error
 
+        # Create batch manager for cancellation checking
+        # (duplicates don't use job_batches, so we check parent job only)
+        batch_manager = BatchManager(catalog_id, parent_job_id, "detect_duplicates")
+
         # Process each block pair in the batch
-        for block_i, block_j in block_pairs:
+        for pair_idx, (block_i, block_j) in enumerate(block_pairs):
+            # Check for cancellation every 10 block pairs
+            if pair_idx % 10 == 0:
+                if batch_manager.is_cancelled():
+                    logger.warning(
+                        f"[{worker_id}] Job cancelled, stopping after {pair_idx}/{num_pairs} block pairs"
+                    )
+                    # Flush any remaining pairs before stopping
+                    _flush_pairs_to_db()
+                    raise JobCancelledException(
+                        f"Job cancelled after processing {pair_idx}/{num_pairs} block pairs"
+                    )
+
             # Get images for each block
             start_i = block_i * block_size
             end_i = min(start_i + block_size, len(images))
@@ -840,6 +857,15 @@ def duplicates_compare_worker_task(
             "status": "completed",
             "block_pairs_processed": num_pairs,
             "pairs_found": pairs_found,
+        }
+
+    except JobCancelledException as e:
+        logger.warning(f"[{worker_id}] Comparison worker cancelled: {e}")
+        return {
+            "status": "cancelled",
+            "block_pairs_processed": pairs_processed if 'pairs_processed' in locals() else 0,
+            "pairs_found": pairs_found if 'pairs_found' in locals() else 0,
+            "message": str(e),
         }
 
     except Exception as e:

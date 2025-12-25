@@ -38,6 +38,7 @@ from .celery_app import app
 from .coordinator import (
     BatchManager,
     BatchResult,
+    JobCancelledException,
     get_item_processor,
     publish_job_progress,
 )
@@ -376,7 +377,17 @@ def generic_worker_task(
         result = BatchResult(batch_id=batch_id, batch_number=batch_number)
 
         # Process each item
-        for work_item in work_items:
+        for idx, work_item in enumerate(work_items):
+            # Check for cancellation every 10 items
+            if idx % 10 == 0:
+                if batch_manager.is_cancelled(batch_id):
+                    logger.warning(
+                        f"[{worker_id}] Batch {batch_id} cancelled, stopping after {idx} items"
+                    )
+                    raise JobCancelledException(
+                        f"Job cancelled after processing {idx}/{len(work_items)} items"
+                    )
+
             try:
                 item_result = process_item(
                     catalog_id=catalog_id,
@@ -428,6 +439,19 @@ def generic_worker_task(
             "success_count": result.success_count,
             "error_count": result.error_count,
             "processed_count": result.processed_count,
+        }
+
+    except JobCancelledException as e:
+        logger.warning(f"[{worker_id}] Worker cancelled: {e}")
+        # Don't mark as failed - job was intentionally cancelled
+        return {
+            "batch_id": batch_id,
+            "batch_number": batch_number,
+            "status": "cancelled",
+            "success_count": result.success_count if 'result' in locals() else 0,
+            "error_count": result.error_count if 'result' in locals() else 0,
+            "processed_count": result.processed_count if 'result' in locals() else 0,
+            "message": str(e),
         }
 
     except Exception as e:
