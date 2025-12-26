@@ -436,3 +436,42 @@ class TestOrganizationStrategy:
 
         # Should use mtime and create 2023/06-15 directory
         assert target_dir == output_dir / "2023" / "06-15"
+
+    def test_full_checksum_conflict_resolution(self, tmp_path):
+        """Test that conflicts are resolved using full checksum."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.FLAT,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        # Create first image at specific time
+        image1 = ImageRecord(
+            id="test123",
+            source_path=Path("/source/IMG_1234.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="abc123def456",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        # Create conflicting image - same time, different checksum
+        image2 = ImageRecord(
+            id="test456",
+            source_path=Path("/source/IMG_5678.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="xyz789fedcba",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        # Create first file to simulate conflict
+        existing_file = tmp_path / "143022_abc123de.jpg"
+        existing_file.write_text("existing")
+
+        # Resolve conflict for second image
+        resolved_path = strategy.resolve_conflict_with_full_checksum(
+            tmp_path, image2, existing_file
+        )
+
+        # Should use full checksum
+        assert resolved_path.name == "143022_xyz789fedcba.jpg"

@@ -178,6 +178,32 @@ class OrganizationStrategy(BaseModel):
         filename = self.get_target_filename(image)
         return target_dir / filename
 
+    def resolve_conflict_with_full_checksum(
+        self, base_path: Path, image: ImageRecord, conflicting_path: Path
+    ) -> Path:
+        """
+        Resolve naming conflict by using full checksum instead of short checksum.
+
+        Args:
+            base_path: Base output directory
+            image: Image record
+            conflicting_path: Path that already exists
+
+        Returns:
+            New path with full checksum
+        """
+        # Get directory and extension
+        target_dir = conflicting_path.parent
+        suffix = image.source_path.suffix
+
+        # Generate filename with full checksum
+        if image.dates and image.dates.selected_date:
+            time_str = image.dates.selected_date.strftime("%H%M%S")
+            return target_dir / f"{time_str}_{image.checksum}{suffix}"
+        else:
+            # No date - use checksum only
+            return target_dir / f"{image.checksum}{suffix}"
+
     def resolve_naming_conflict(
         self, target_path: Path, image: ImageRecord
     ) -> Optional[Path]:
