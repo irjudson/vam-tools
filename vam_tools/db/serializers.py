@@ -193,12 +193,15 @@ def serialize_image_record(record: ImageRecord) -> Dict[str, Any]:
     Returns:
         Dictionary suitable for JSONB storage
     """
+    # Prefer status_id (FK to image_statuses), fall back to status enum
+    status_value = record.status_id if record.status_id else (record.status.value if record.status else None)
+
     return {
         "id": record.id,
         "source_path": str(record.source_path),
         "file_type": record.file_type.value if record.file_type else None,
         "checksum": record.checksum,
-        "status": record.status.value if record.status else None,
+        "status": status_value,
         "dates": serialize_date_info(record.dates) if record.dates else {},
         "metadata": (
             serialize_image_metadata(record.metadata) if record.metadata else {}
@@ -230,29 +233,38 @@ def deserialize_image_record(data: Dict[str, Any]) -> ImageRecord:
     if data.get("file_type"):
         file_type = FileType(data["file_type"])
 
-    status = None
-    if data.get("status"):
-        # Map database status_id values to ImageStatus enum
-        # Database uses: active, rejected, archived, flagged
-        # Enum uses: pending, analyzing, needs_review, approved, executed, complete
-        status_str = data["status"]
-        status_mapping = {
-            "active": ImageStatus.PENDING,  # Default to PENDING for active images
-            "rejected": ImageStatus.PENDING,  # Rejected maps to PENDING for compatibility
-            "archived": ImageStatus.COMPLETE,  # Archived maps to COMPLETE
-            "flagged": ImageStatus.NEEDS_REVIEW,  # Flagged maps to NEEDS_REVIEW
-        }
-        # Try direct enum conversion first, fall back to mapping
-        try:
-            status = ImageStatus(status_str)
-        except ValueError:
+    # Handle status - can be either:
+    # 1. status_id (FK to image_statuses: active, rejected, archived, flagged)
+    # 2. Old ImageStatus enum value (pending, analyzing, etc.)
+    status_str = data.get("status")
+    status_id = None
+    status = ImageStatus.PENDING  # Default
+
+    if status_str:
+        # Check if it's a valid status_id (database FK value)
+        if status_str in ("active", "rejected", "archived", "flagged"):
+            status_id = status_str
+            # For backward compatibility, also set status enum
+            status_mapping = {
+                "active": ImageStatus.PENDING,
+                "rejected": ImageStatus.PENDING,
+                "archived": ImageStatus.COMPLETE,
+                "flagged": ImageStatus.NEEDS_REVIEW,
+            }
             status = status_mapping.get(status_str, ImageStatus.PENDING)
+        else:
+            # It's an old ImageStatus enum value
+            try:
+                status = ImageStatus(status_str)
+            except ValueError:
+                status = ImageStatus.PENDING
 
     return ImageRecord(
         id=data["id"],
         source_path=Path(data["source_path"]),
         file_type=file_type,
         checksum=data["checksum"],
+        status_id=status_id,
         status=status,
         dates=dates,
         metadata=metadata,
