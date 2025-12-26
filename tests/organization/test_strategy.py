@@ -404,3 +404,35 @@ class TestOrganizationStrategy:
 
         # Should route to main directory (default)
         assert target_path == tmp_path / "2023" / "06-15" / "143022_abc123de.jpg"
+
+    def test_mtime_fallback(self, tmp_path):
+        """Test that mtime is used when EXIF date is missing."""
+        import os
+
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+        )
+
+        # Create temp file with known mtime
+        test_file = tmp_path / "test.jpg"
+        test_file.write_bytes(b"test content")
+
+        # Set mtime to specific timestamp (June 15, 2023 14:30:22)
+        target_time = datetime(2023, 6, 15, 14, 30, 22).timestamp()
+        os.utime(test_file, (target_time, target_time))
+
+        # Create image without dates (EXIF missing)
+        image = ImageRecord(
+            id="test123",
+            source_path=test_file,
+            file_type=FileType.IMAGE,
+            checksum="abc123",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            # dates not specified - will use default empty DateInfo
+        )
+
+        output_dir = tmp_path / "output"
+        target_dir = strategy.get_target_directory(output_dir, image, use_mtime_fallback=True)
+
+        # Should use mtime and create 2023/06-15 directory
+        assert target_dir == output_dir / "2023" / "06-15"

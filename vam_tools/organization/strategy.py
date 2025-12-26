@@ -60,7 +60,7 @@ class OrganizationStrategy(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     def get_target_directory(
-        self, base_path: Path, image: ImageRecord
+        self, base_path: Path, image: ImageRecord, use_mtime_fallback: bool = False
     ) -> Optional[Path]:
         """
         Get target directory for an image based on the strategy.
@@ -68,14 +68,23 @@ class OrganizationStrategy(BaseModel):
         Args:
             base_path: Base output directory
             image: Image record with metadata
+            use_mtime_fallback: If True, fall back to file mtime when EXIF date missing
 
         Returns:
-            Target directory path, or None if image has no date
+            Target directory path, or None if image has no date and fallback disabled
         """
-        if not image.dates or not image.dates.selected_date:
-            return None
+        import os
+        from datetime import datetime as dt
 
-        date = image.dates.selected_date
+        # Try to get date from EXIF
+        if image.dates and image.dates.selected_date:
+            date = image.dates.selected_date
+        elif use_mtime_fallback and image.source_path.exists():
+            # Fall back to file modification time
+            mtime = os.path.getmtime(image.source_path)
+            date = dt.fromtimestamp(mtime)
+        else:
+            return None
 
         if self.directory_structure == DirectoryStructure.YEAR_MONTH:
             return base_path / date.strftime("%Y-%m")
@@ -142,7 +151,9 @@ class OrganizationStrategy(BaseModel):
         # All enum cases covered - this is for type checker
         return original_name  # type: ignore[unreachable]  # Defensive fallback
 
-    def get_target_path(self, base_path: Path, image: ImageRecord) -> Optional[Path]:
+    def get_target_path(
+        self, base_path: Path, image: ImageRecord, use_mtime_fallback: bool = False
+    ) -> Optional[Path]:
         """
         Get complete target path for an image.
 
@@ -151,6 +162,7 @@ class OrganizationStrategy(BaseModel):
         Args:
             base_path: Base output directory
             image: Image record
+            use_mtime_fallback: If True, fall back to file mtime when EXIF date missing
 
         Returns:
             Complete target path, or None if image has no date
@@ -159,7 +171,7 @@ class OrganizationStrategy(BaseModel):
         if hasattr(image, 'status_id') and image.status_id == 'rejected':
             base_path = base_path / "_rejected"
 
-        target_dir = self.get_target_directory(base_path, image)
+        target_dir = self.get_target_directory(base_path, image, use_mtime_fallback)
         if not target_dir:
             return None
 
