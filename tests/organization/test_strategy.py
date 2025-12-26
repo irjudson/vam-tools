@@ -182,6 +182,18 @@ class TestNamingStrategy:
 
         assert filename == "2023-06-15_143022_IMG_1234.jpg"
 
+    def test_time_checksum_naming(self, sample_image_with_date):
+        """Test TIME_CHECKSUM naming strategy: HHMMSS_shortchecksum.ext"""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.FLAT,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        filename = strategy.get_target_filename(sample_image_with_date)
+
+        # Expected: 143022_abc123.jpg (8 char checksum short)
+        assert filename == "143022_abc123.jpg"
+
     def test_date_naming_without_date(self, sample_image_no_date):
         """Test date-based naming falls back when no date available."""
         strategy = OrganizationStrategy(

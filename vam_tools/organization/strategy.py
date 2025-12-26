@@ -31,6 +31,7 @@ class NamingStrategy(str, Enum):
     DATE_TIME_ORIGINAL = "date_time_original"  # 2023-06-15_143022_IMG_1234.jpg
     ORIGINAL = "original"  # IMG_1234.jpg (keep original name)
     CHECKSUM = "checksum"  # abc123def456.jpg
+    TIME_CHECKSUM = "time_checksum"  # 143022_abc12345.jpg
 
 
 class OrganizationStrategy(BaseModel):
@@ -111,6 +112,15 @@ class OrganizationStrategy(BaseModel):
 
         elif self.naming_strategy == NamingStrategy.CHECKSUM:
             return f"{image.checksum}{suffix}"
+
+        elif self.naming_strategy == NamingStrategy.TIME_CHECKSUM:
+            if image.dates and image.dates.selected_date:
+                time_str = image.dates.selected_date.strftime("%H%M%S")
+                checksum_short = image.checksum[:8]
+                return f"{time_str}_{checksum_short}{suffix}"
+            else:
+                # Fall back to checksum if no date
+                return f"{image.checksum}{suffix}"
 
         elif self.naming_strategy == NamingStrategy.DATE_TIME_CHECKSUM:
             if image.dates and image.dates.selected_date:
