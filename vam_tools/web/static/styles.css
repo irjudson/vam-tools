@@ -3583,8 +3583,9 @@ section h3 {
 
 .burst-list-item-compact {
     display: flex;
+    align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem;
+    padding: 0.375rem 0.5rem;
     background: #0f172a;
     border-radius: 0.375rem;
     cursor: pointer;
@@ -3604,8 +3605,8 @@ section h3 {
 
 .burst-thumbnail-compact {
     position: relative;
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     flex-shrink: 0;
 }
 
@@ -3619,23 +3620,27 @@ section h3 {
 .burst-info-compact {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
     min-width: 0;
+    font-size: 0.75rem;
 }
 
 .burst-camera-compact {
-    font-size: 0.75rem;
     color: #e2e8f0;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
 }
 
-.burst-metadata-compact {
-    font-size: 0.7rem;
+.burst-duration-compact {
     color: #94a3b8;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .bursts-two-panel {

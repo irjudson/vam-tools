@@ -279,12 +279,8 @@
                                     <div class="burst-count-badge">{{ burst.image_count }}</div>
                                 </div>
                                 <div class="burst-info-compact">
-                                    <div class="burst-camera-compact">
-                                        {{ burst.camera_make }} {{ burst.camera_model }}
-                                    </div>
-                                    <div class="burst-metadata-compact">
-                                        <span>{{ burst.duration_seconds ? burst.duration_seconds.toFixed(1) + 's' : 'N/A' }}</span>
-                                    </div>
+                                    <span class="burst-camera-compact">{{ burst.camera_make }} {{ burst.camera_model }}</span>
+                                    <span class="burst-duration-compact">{{ burst.duration_seconds ? burst.duration_seconds.toFixed(1) + 's' : 'N/A' }}</span>
                                 </div>
                             </div>
                         </div>
