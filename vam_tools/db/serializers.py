@@ -194,7 +194,11 @@ def serialize_image_record(record: ImageRecord) -> Dict[str, Any]:
         Dictionary suitable for JSONB storage
     """
     # Prefer status_id (FK to image_statuses), fall back to status enum
-    status_value = record.status_id if record.status_id else (record.status.value if record.status else None)
+    status_value = (
+        record.status_id
+        if record.status_id
+        else (record.status.value if record.status else None)
+    )
 
     return {
         "id": record.id,

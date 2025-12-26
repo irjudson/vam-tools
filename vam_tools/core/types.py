@@ -247,7 +247,9 @@ class ImageRecord(BaseModel):
     duplicate_role: Optional[DuplicateRole] = None
     burst_group_id: Optional[str] = None
     burst_role: Optional[BurstRole] = None
-    status_id: Optional[str] = None  # FK to image_statuses: active, rejected, archived, flagged
+    status_id: Optional[str] = (
+        None  # FK to image_statuses: active, rejected, archived, flagged
+    )
     status: ImageStatus = ImageStatus.PENDING  # Deprecated: use status_id
     issues: List[str] = Field(default_factory=list)
     plan: Optional[ExecutionPlan] = None

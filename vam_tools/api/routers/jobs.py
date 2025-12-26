@@ -352,7 +352,12 @@ def start_job(request: GenericJobRequest, db: Session = Depends(get_db)):
     parallel_config = GENERIC_PARALLEL_JOB_TYPES.get(job_type)
 
     # Jobs that use the coordinator pattern (even if not generic)
-    COORDINATOR_JOB_TYPES = {"detect_duplicates", "detect_bursts", "quality", "reorganize"}
+    COORDINATOR_JOB_TYPES = {
+        "detect_duplicates",
+        "detect_bursts",
+        "quality",
+        "reorganize",
+    }
     is_parallel = job_type in COORDINATOR_JOB_TYPES
 
     if parallel_config:

@@ -358,7 +358,10 @@ class TestOrganizationStrategy:
         target_path = strategy.get_target_path(tmp_path, image)
 
         # Should route to _rejected/ subdirectory
-        assert target_path == tmp_path / "_rejected" / "2023" / "06-15" / "143022_abc123de.jpg"
+        assert (
+            target_path
+            == tmp_path / "_rejected" / "2023" / "06-15" / "143022_abc123de.jpg"
+        )
 
     def test_status_based_routing_active(self, tmp_path):
         """Test that active images route to main directory."""
@@ -432,7 +435,9 @@ class TestOrganizationStrategy:
         )
 
         output_dir = tmp_path / "output"
-        target_dir = strategy.get_target_directory(output_dir, image, use_mtime_fallback=True)
+        target_dir = strategy.get_target_directory(
+            output_dir, image, use_mtime_fallback=True
+        )
 
         # Should use mtime and create 2023/06-15 directory
         assert target_dir == output_dir / "2023" / "06-15"

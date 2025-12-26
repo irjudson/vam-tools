@@ -49,6 +49,7 @@ createApp({
             showScanConfirmModal: false,
             showAutoTagConfirmModal: false,
             showDuplicatesConfirmModal: false,
+            showOrganizeForm: false,
 
             // Pipeline options
             scanContinuePipeline: false,
@@ -61,6 +62,12 @@ createApp({
                 catalog_id: null,
                 detect_duplicates: false,
                 force_reanalyze: false
+            },
+
+            organizeForm: {
+                output_directory: '',
+                operation: 'copy',
+                dry_run: false
             },
 
             // Notifications
@@ -282,6 +289,13 @@ createApp({
                     label: 'Detect Bursts',
                     description: 'Find burst photo sequences (rapid consecutive shots). Helps identify sets where you can keep the best and archive the rest.',
                     handler: 'startBurstDetection'
+                },
+                {
+                    id: 'reorganize',
+                    icon: '📁',
+                    label: 'Reorganize Files',
+                    description: 'Reorganize your entire library into a clean date-based structure (YYYY/MM-DD). Files are organized by date with time+checksum filenames. Safe to run multiple times.',
+                    handler: 'startReorganize'
                 }
             ],
         };
@@ -2469,6 +2483,64 @@ createApp({
             } catch (error) {
                 console.error('Failed to start burst detection:', error);
                 this.addNotification('Failed to start burst detection: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
+        async startReorganize() {
+            if (!this.currentCatalog) {
+                this.addNotification('Please select a catalog first', 'error');
+                return;
+            }
+
+            // Load catalog stats for the modal
+            try {
+                const response = await axios.get(`/api/catalogs/${this.currentCatalog.id}/stats`);
+                this.catalogStats = response.data;
+            } catch (error) {
+                console.error('Failed to load catalog stats:', error);
+            }
+
+            // Show the reorganize modal
+            this.showOrganizeForm = true;
+        },
+
+        async submitReorganizeJob() {
+            try {
+                if (!this.currentCatalog) {
+                    this.addNotification('Please select a catalog', 'error');
+                    return;
+                }
+
+                if (!this.organizeForm.output_directory) {
+                    this.addNotification('Please specify output directory', 'error');
+                    return;
+                }
+
+                const response = await axios.post('/api/jobs/reorganize', {
+                    catalog_id: this.currentCatalog.id,
+                    output_directory: this.organizeForm.output_directory,
+                    operation: this.organizeForm.operation,
+                    dry_run: this.organizeForm.dry_run
+                });
+
+                this.addNotification('Reorganization job submitted successfully', 'success');
+                this.showOrganizeForm = false;
+
+                if (response.data.job_id) {
+                    this.allJobs.unshift(response.data.job_id);
+                    // Store job metadata
+                    this.jobMetadata[response.data.job_id] = {
+                        name: `Reorganize: ${this.currentCatalog.name}`,
+                        started: new Date().toISOString()
+                    };
+                    this.persistJobs(); // Save to localStorage
+                    this.loadJobDetails(response.data.job_id);
+                }
+
+                // Jobs are displayed in the right sidebar panel
+            } catch (error) {
+                this.addNotification('Failed to submit reorganization job: ' + (error.response?.data?.detail || error.message), 'error');
+                console.error(error);
             }
         },
 

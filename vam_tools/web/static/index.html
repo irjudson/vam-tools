@@ -1048,32 +1048,37 @@
         <!-- Organize Form Modal -->
         <div v-if="showOrganizeForm" class="modal-overlay" @click="showOrganizeForm = false">
             <div class="modal-content" @click.stop>
-                <h3>Organize Files</h3>
-                <form @submit.prevent="submitOrganizeJob">
+                <h3>Reorganize Files</h3>
+                <p style="color: #666; margin-bottom: 20px;">
+                    Reorganize your entire library into a clean date-based structure (YYYY/MM-DD).
+                    Files are organized by date with time+checksum filenames for uniqueness.
+                </p>
+
+                <!-- Stats Summary -->
+                <div v-if="catalogStats" style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+                    <h4 style="margin-top: 0;">Catalog Summary</h4>
+                    <p><strong>Total Files:</strong> {{ catalogStats.statistics.total_files.toLocaleString() }}</p>
+                    <p><strong>Total Size:</strong> {{ catalogStats.statistics.total_gb }} GB</p>
+                    <p v-if="catalogStats.statistics.date_range.earliest">
+                        <strong>Date Range:</strong>
+                        {{ new Date(catalogStats.statistics.date_range.earliest).toLocaleDateString() }}
+                        to
+                        {{ new Date(catalogStats.statistics.date_range.latest).toLocaleDateString() }}
+                    </p>
+                </div>
+
+                <form @submit.prevent="submitReorganizeJob">
                     <div class="form-group">
-                        <label>Select Catalog</label>
-                        <select v-model="organizeForm.catalog_id" required>
-                            <option :value="null" disabled>Choose a catalog...</option>
-                            <option v-for="catalog in catalogs" :key="catalog.id" :value="catalog.id">
-                                {{ catalog.name }}
-                            </option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Output Directory</label>
-                        <input v-model="organizeForm.output_directory" type="text" required 
-                               placeholder="/app/organized" />
-                    </div>
-                    <div class="form-group">
-                        <label>Pattern</label>
-                        <input v-model="organizeForm.pattern" type="text" 
-                               placeholder="{year}/{month}" />
+                        <label>Output Directory (absolute path)</label>
+                        <input v-model="organizeForm.output_directory" type="text"
+                               placeholder="/path/to/organized" required />
+                        <small>Example: /mnt/photos/organized</small>
                     </div>
                     <div class="form-group">
                         <label>Operation</label>
                         <select v-model="organizeForm.operation">
-                            <option value="copy">Copy (Safe - keeps originals)</option>
-                            <option value="move">Move (Deletes originals)</option>
+                            <option value="copy">Copy (Recommended - keeps originals)</option>
+                            <option value="move">Move (Removes from original location)</option>
                         </select>
                     </div>
                     <div class="form-group checkbox">
@@ -1082,12 +1087,16 @@
                             Dry Run (Preview only, no changes)
                         </label>
                     </div>
+                    <div style="background: #fff3cd; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
+                        <strong>Note:</strong> This operation is idempotent - safe to run multiple times.
+                        Files already in the output directory will be skipped.
+                    </div>
                     <div class="form-actions">
                         <button type="button" @click="showOrganizeForm = false" class="btn-secondary">
                             Cancel
                         </button>
                         <button type="submit" class="btn-primary">
-                            Start Organization
+                            {{ organizeForm.dry_run ? 'Preview Organization' : 'Start Reorganization' }}
                         </button>
                     </div>
                 </form>

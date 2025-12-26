@@ -168,7 +168,7 @@ class OrganizationStrategy(BaseModel):
             Complete target path, or None if image has no date
         """
         # Adjust base path for rejected images
-        if hasattr(image, 'status_id') and image.status_id == 'rejected':
+        if hasattr(image, "status_id") and image.status_id == "rejected":
             base_path = base_path / "_rejected"
 
         target_dir = self.get_target_directory(base_path, image, use_mtime_fallback)

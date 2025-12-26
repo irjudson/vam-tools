@@ -13,11 +13,10 @@ Architecture:
 
 import json
 import logging
-import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from celery import chord, group
 from sqlalchemy import text
@@ -34,7 +33,7 @@ from ..organization.strategy import (
 )
 from ..shared.media_utils import compute_checksum
 from .celery_app import app
-from .coordinator import BatchManager
+from .coordinator import BatchManager, BatchResult
 from .progress_publisher import publish_completion, publish_progress
 from .tasks import ProgressTask
 
@@ -70,10 +69,12 @@ def reorganize_coordinator_task(
         with CatalogDatabase(catalog_id) as db:
             assert db.session is not None
             result = db.session.execute(
-                text("""
+                text(
+                    """
                     SELECT id FROM images
                     WHERE catalog_id = :catalog_id
-                """),
+                """
+                ),
                 {"catalog_id": catalog_id},
             )
             image_ids = [row[0] for row in result.fetchall()]
@@ -201,10 +202,19 @@ def reorganize_worker_task(
     worker_id = self.request.id or "unknown"
     logger.info(f"[{worker_id}] Processing batch {batch_id}")
 
+    batch_manager = BatchManager(catalog_id, parent_job_id, "reorganize")
+
     try:
-        # Load batch
-        batch_manager = BatchManager(catalog_id, parent_job_id, "reorganize")
-        work_items = batch_manager.get_batch_work_items(batch_id)
+        # Claim batch
+        with CatalogDatabase(catalog_id) as db:
+            batch_data = batch_manager.claim_batch(batch_id, worker_id, db)
+
+        if not batch_data:
+            logger.warning(f"[{worker_id}] Batch {batch_id} already claimed")
+            return {"status": "skipped", "message": "Batch already claimed"}
+
+        work_items = batch_data["work_items"]
+        batch_number = batch_data["batch_number"]
         image_ids = [item[0] for item in work_items]
 
         # Create strategy
@@ -230,11 +240,13 @@ def reorganize_worker_task(
                 try:
                     # Load image
                     result = db.session.execute(
-                        text("""
+                        text(
+                            """
                             SELECT id, source_path, checksum, status_id, dates, metadata
                             FROM images
                             WHERE id = :image_id
-                        """),
+                        """
+                        ),
                         {"image_id": image_id},
                     )
                     row = result.fetchone()
@@ -248,15 +260,13 @@ def reorganize_worker_task(
 
                     # Parse dates
                     dates_dict = row.dates if row.dates else {}
-                    selected_date = None
+                    dates = DateInfo()
                     if dates_dict and "selected_date" in dates_dict:
-                        from dateutil.parser import parse
+                        from dateutil.parser import parse  # type: ignore
 
-                        selected_date = parse(dates_dict["selected_date"])
-
-                    dates = (
-                        DateInfo(selected_date=selected_date) if selected_date else None
-                    )
+                        dates = DateInfo(
+                            selected_date=parse(dates_dict["selected_date"])
+                        )
 
                     image = ImageRecord(
                         id=row.id,
@@ -274,9 +284,7 @@ def reorganize_worker_task(
                         continue
 
                     # Get target path (with mtime fallback)
-                    used_mtime = False
                     if not image.dates or not image.dates.selected_date:
-                        used_mtime = True
                         mtime_fallback_count += 1
 
                     target_path = strategy.get_target_path(
@@ -284,7 +292,9 @@ def reorganize_worker_task(
                     )
 
                     if not target_path:
-                        logger.warning(f"Could not determine target path for {image_id}")
+                        logger.warning(
+                            f"Could not determine target path for {image_id}"
+                        )
                         skipped += 1
                         continue
 
@@ -327,12 +337,14 @@ def reorganize_worker_task(
 
                         # Update database
                         db.session.execute(
-                            text("""
+                            text(
+                                """
                                 UPDATE images
                                 SET source_path = :new_path
                                 WHERE id = :image_id
                                   AND source_path != :new_path
-                            """),
+                            """
+                            ),
                             {"image_id": image_id, "new_path": str(target_path)},
                         )
 
@@ -348,8 +360,23 @@ def reorganize_worker_task(
             if not dry_run:
                 db.session.commit()
 
-        # Update batch status
-        batch_manager.update_batch_status(batch_id, "SUCCESS")
+        # Mark batch as complete
+        batch_result = BatchResult(
+            batch_id=batch_id,
+            batch_number=batch_number,
+            processed_count=organized + skipped + failed,
+            success_count=organized,
+            error_count=failed,
+            results={
+                "organized": organized,
+                "skipped": skipped,
+                "mtime_fallback_count": mtime_fallback_count,
+            },
+            errors=[{"message": e} for e in errors[:100]],
+        )
+
+        with CatalogDatabase(catalog_id) as db:
+            batch_manager.complete_batch(batch_id, batch_result, db)
 
         logger.info(
             f"[{worker_id}] Batch {batch_id} complete: {organized} organized, {skipped} skipped, {failed} failed"
@@ -367,7 +394,10 @@ def reorganize_worker_task(
 
     except Exception as e:
         logger.error(f"[{worker_id}] Batch {batch_id} failed: {e}", exc_info=True)
-        batch_manager.update_batch_status(batch_id, "FAILED", str(e))
+
+        with CatalogDatabase(catalog_id) as db:
+            batch_manager.fail_batch(batch_id, str(e), db)
+
         raise
 
 
