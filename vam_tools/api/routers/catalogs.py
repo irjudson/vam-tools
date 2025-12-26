@@ -127,6 +127,7 @@ def create_catalog(catalog: CatalogCreate, db: Session = Depends(get_db)):
         name=catalog.name,
         schema_name=f"deprecated_{catalog_id}",  # Unique to satisfy constraint
         source_directories=catalog.source_directories,
+        organized_directory=catalog.organized_directory,
     )
 
     db.add(db_catalog)
@@ -159,6 +160,7 @@ def update_catalog(
     # Update catalog fields
     catalog.name = catalog_update.name
     catalog.source_directories = catalog_update.source_directories
+    catalog.organized_directory = catalog_update.organized_directory
 
     db.commit()
     db.refresh(catalog)

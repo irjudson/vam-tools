@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS catalogs (
     name VARCHAR(255) NOT NULL,
     schema_name VARCHAR(255) NOT NULL UNIQUE,
     source_directories TEXT[] NOT NULL,
+    organized_directory TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );

@@ -1068,6 +1068,10 @@
                 </div>
 
                 <form @submit.prevent="submitReorganizeJob">
+                    <div v-if="currentCatalog && currentCatalog.organized_directory" style="background: #d4edda; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #155724;">
+                        <strong>✓ Configured:</strong> This catalog uses {{ currentCatalog.organized_directory }} for organized files.
+                        You can change it below if needed.
+                    </div>
                     <div class="form-group">
                         <label>Output Directory (absolute path)</label>
                         <input v-model="organizeForm.output_directory" type="text"

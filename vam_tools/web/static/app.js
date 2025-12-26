@@ -2492,6 +2492,11 @@ createApp({
                 return;
             }
 
+            // Pre-populate output directory from catalog configuration
+            if (this.currentCatalog.organized_directory) {
+                this.organizeForm.output_directory = this.currentCatalog.organized_directory;
+            }
+
             // Load catalog stats for the modal
             try {
                 const response = await axios.get(`/api/catalogs/${this.currentCatalog.id}/stats`);

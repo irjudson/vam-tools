@@ -432,6 +432,15 @@ def start_reorganize(request: ReorganizeJobRequest, db: Session = Depends(get_db
         dry_run=request.dry_run,
     )
 
+    # Save output directory to catalog for future use
+    from ..db.models import Catalog
+
+    catalog = db.query(Catalog).filter(Catalog.id == request.catalog_id).first()
+    if catalog and not request.dry_run:
+        # Only save if not a dry run
+        catalog.organized_directory = request.output_directory
+        db.commit()
+
     # Save job to database
     job = Job(
         id=task.id,
