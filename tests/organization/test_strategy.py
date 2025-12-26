@@ -336,3 +336,71 @@ class TestOrganizationStrategy:
         new_path = strategy.resolve_naming_conflict(target_path, sample_image_with_date)
 
         assert new_path is None
+
+    def test_status_based_routing_rejected(self, tmp_path):
+        """Test that rejected images route to _rejected/ subdirectory."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        # Create rejected image
+        image = ImageRecord(
+            id="test123",
+            source_path=Path("/source/IMG_1234.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="abc123def456",
+            status_id="rejected",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        target_path = strategy.get_target_path(tmp_path, image)
+
+        # Should route to _rejected/ subdirectory
+        assert target_path == tmp_path / "_rejected" / "2023" / "06-15" / "143022_abc123de.jpg"
+
+    def test_status_based_routing_active(self, tmp_path):
+        """Test that active images route to main directory."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        # Create active image
+        image = ImageRecord(
+            id="test123",
+            source_path=Path("/source/IMG_1234.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="abc123def456",
+            status_id="active",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        target_path = strategy.get_target_path(tmp_path, image)
+
+        # Should route to main directory (no _rejected/)
+        assert target_path == tmp_path / "2023" / "06-15" / "143022_abc123de.jpg"
+
+    def test_status_based_routing_no_status(self, tmp_path):
+        """Test that images without status_id route to main directory."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        # Create image without status_id
+        image = ImageRecord(
+            id="test123",
+            source_path=Path("/source/IMG_1234.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="abc123def456",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        target_path = strategy.get_target_path(tmp_path, image)
+
+        # Should route to main directory (default)
+        assert target_path == tmp_path / "2023" / "06-15" / "143022_abc123de.jpg"

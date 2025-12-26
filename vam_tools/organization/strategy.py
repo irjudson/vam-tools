@@ -146,6 +146,8 @@ class OrganizationStrategy(BaseModel):
         """
         Get complete target path for an image.
 
+        Routes rejected images to _rejected/ subdirectory.
+
         Args:
             base_path: Base output directory
             image: Image record
@@ -153,6 +155,10 @@ class OrganizationStrategy(BaseModel):
         Returns:
             Complete target path, or None if image has no date
         """
+        # Adjust base path for rejected images
+        if hasattr(image, 'status_id') and image.status_id == 'rejected':
+            base_path = base_path / "_rejected"
+
         target_dir = self.get_target_directory(base_path, image)
         if not target_dir:
             return None
