@@ -110,6 +110,18 @@ class TestDirectoryStructure:
 
         assert target_dir == base_dir
 
+    def test_year_slash_month_day_structure(self, sample_image_with_date):
+        """Test YYYY/MM-DD directory structure."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+            naming_strategy=NamingStrategy.ORIGINAL,
+        )
+        base_dir = Path("/output")
+
+        target_dir = strategy.get_target_directory(base_dir, sample_image_with_date)
+
+        assert target_dir == Path("/output/2023/06-15")
+
     def test_no_date_returns_none(self, sample_image_no_date):
         """Test that images without dates return None for directory."""
         strategy = OrganizationStrategy(

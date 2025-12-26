@@ -20,6 +20,7 @@ class DirectoryStructure(str, Enum):
     YEAR_SLASH_MONTH = "YYYY/MM"  # 2023/06
     YEAR_MONTH_DAY = "YYYY-MM-DD"  # 2023-06-15
     YEAR_ONLY = "YYYY"  # 2023
+    YEAR_SLASH_MONTH_DAY = "YYYY/MM-DD"  # 2023/06-15
     FLAT = "FLAT"  # All files in one directory
 
 
@@ -83,6 +84,8 @@ class OrganizationStrategy(BaseModel):
             return base_path / date.strftime("%Y-%m-%d")
         elif self.directory_structure == DirectoryStructure.YEAR_ONLY:
             return base_path / date.strftime("%Y")
+        elif self.directory_structure == DirectoryStructure.YEAR_SLASH_MONTH_DAY:
+            return base_path / date.strftime("%Y") / date.strftime("%m-%d")
         elif self.directory_structure == DirectoryStructure.FLAT:
             return base_path
 
