@@ -340,6 +340,10 @@ def start_job(request: GenericJobRequest, db: Session = Depends(get_db)):
     # Check if this is a generic parallel job type
     parallel_config = GENERIC_PARALLEL_JOB_TYPES.get(job_type)
 
+    # Jobs that use the coordinator pattern (even if not generic)
+    COORDINATOR_JOB_TYPES = {"detect_duplicates", "detect_bursts", "quality"}
+    is_parallel = job_type in COORDINATOR_JOB_TYPES
+
     if parallel_config:
         # Use generic parallel coordinator
         task = generic_coordinator_task.delay(
@@ -356,7 +360,10 @@ def start_job(request: GenericJobRequest, db: Session = Depends(get_db)):
     else:
         # Submit Celery task directly
         task = task_func.delay(catalog_id=catalog_id)
-        parameters = {"catalog_id": catalog_id}
+        parameters = {
+            "catalog_id": catalog_id,
+            "parallel": is_parallel,  # Mark coordinator-based jobs as parallel
+        }
 
     # Save job to database
     job = Job(
@@ -372,7 +379,7 @@ def start_job(request: GenericJobRequest, db: Session = Depends(get_db)):
     return JobResponse(
         job_id=task.id,
         status="pending",
-        progress={"parallel": parallel_config is not None},
+        progress={"parallel": (parallel_config is not None) or is_parallel},
         result={},
     )
 
