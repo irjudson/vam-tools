@@ -32,6 +32,7 @@ from ...jobs.parallel_duplicates import duplicates_coordinator_task
 from ...jobs.parallel_jobs import generic_coordinator_task
 from ...jobs.parallel_quality import quality_coordinator_task
 from ...jobs.parallel_scan import scan_coordinator_task, scan_recovery_task
+from ...jobs.reorganize import reorganize_coordinator_task
 from ...jobs.tasks import organize_catalog_task
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,7 @@ JOB_TYPE_TO_TASK = {
     "generate_thumbnails": generic_coordinator_task,  # Now uses generic parallel coordinator
     "quality": quality_coordinator_task,  # Uses coordinator pattern
     "organize": organize_catalog_task,  # TODO: Parallelize in future
+    "reorganize": reorganize_coordinator_task,  # Parallel file reorganization
 }
 
 # Job types that use the generic parallel coordinator
@@ -296,6 +298,15 @@ class GenericJobRequest(BaseModel):
     catalog_id: uuid.UUID
 
 
+class ReorganizeJobRequest(BaseModel):
+    """Request to start reorganization job."""
+
+    catalog_id: uuid.UUID
+    output_directory: str
+    operation: str = "copy"  # "copy" or "move"
+    dry_run: bool = False
+
+
 class BulkDeleteJobsRequest(BaseModel):
     """Request to bulk delete jobs."""
 
@@ -341,7 +352,12 @@ def start_job(request: GenericJobRequest, db: Session = Depends(get_db)):
     parallel_config = GENERIC_PARALLEL_JOB_TYPES.get(job_type)
 
     # Jobs that use the coordinator pattern (even if not generic)
-    COORDINATOR_JOB_TYPES = {"detect_duplicates", "detect_bursts", "quality"}
+    COORDINATOR_JOB_TYPES = {
+        "detect_duplicates",
+        "detect_bursts",
+        "quality",
+        "reorganize",
+    }
     is_parallel = job_type in COORDINATOR_JOB_TYPES
 
     if parallel_config:
@@ -380,6 +396,72 @@ def start_job(request: GenericJobRequest, db: Session = Depends(get_db)):
         job_id=task.id,
         status="pending",
         progress={"parallel": (parallel_config is not None) or is_parallel},
+        result={},
+    )
+
+
+@router.post("/reorganize", response_model=JobResponse, status_code=202)
+def start_reorganize(request: ReorganizeJobRequest, db: Session = Depends(get_db)):
+    """Start a file reorganization job.
+
+    Args:
+        request: Reorganization parameters
+
+    Returns:
+        Job response with job ID
+    """
+    from pathlib import Path
+
+    logger.info(
+        f"Starting reorganize for catalog {request.catalog_id} "
+        f"to {request.output_directory} ({request.operation}, dry_run={request.dry_run})"
+    )
+
+    # Validate output directory
+    output_path = Path(request.output_directory)
+    if not output_path.is_absolute():
+        raise HTTPException(
+            status_code=400, detail="Output directory must be an absolute path"
+        )
+
+    # Start task
+    task = reorganize_coordinator_task.delay(
+        catalog_id=str(request.catalog_id),
+        output_directory=request.output_directory,
+        operation=request.operation,
+        dry_run=request.dry_run,
+    )
+
+    # Save output directory to catalog for future use
+    from ..db.models import Catalog
+
+    catalog = db.query(Catalog).filter(Catalog.id == request.catalog_id).first()
+    if catalog and not request.dry_run:
+        # Only save if not a dry run
+        catalog.organized_directory = request.output_directory
+        db.commit()
+
+    # Save job to database
+    job = Job(
+        id=task.id,
+        catalog_id=request.catalog_id,
+        job_type="reorganize",
+        status="PENDING",
+        parameters={
+            "catalog_id": str(request.catalog_id),
+            "output_directory": request.output_directory,
+            "operation": request.operation,
+            "dry_run": request.dry_run,
+            "parallel": True,
+        },
+    )
+    db.add(job)
+    db.commit()
+
+    return JobResponse(
+        job_id=task.id,
+        status="pending",
+        progress={"parallel": True},
         result={},
     )
 

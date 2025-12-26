@@ -110,6 +110,18 @@ class TestDirectoryStructure:
 
         assert target_dir == base_dir
 
+    def test_year_slash_month_day_structure(self, sample_image_with_date):
+        """Test YYYY/MM-DD directory structure."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+            naming_strategy=NamingStrategy.ORIGINAL,
+        )
+        base_dir = Path("/output")
+
+        target_dir = strategy.get_target_directory(base_dir, sample_image_with_date)
+
+        assert target_dir == Path("/output/2023/06-15")
+
     def test_no_date_returns_none(self, sample_image_no_date):
         """Test that images without dates return None for directory."""
         strategy = OrganizationStrategy(
@@ -169,6 +181,18 @@ class TestNamingStrategy:
         filename = strategy.get_target_filename(sample_image_with_date)
 
         assert filename == "2023-06-15_143022_IMG_1234.jpg"
+
+    def test_time_checksum_naming(self, sample_image_with_date):
+        """Test TIME_CHECKSUM naming strategy: HHMMSS_shortchecksum.ext"""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.FLAT,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        filename = strategy.get_target_filename(sample_image_with_date)
+
+        # Expected: 143022_abc123.jpg (8 char checksum short)
+        assert filename == "143022_abc123.jpg"
 
     def test_date_naming_without_date(self, sample_image_no_date):
         """Test date-based naming falls back when no date available."""
@@ -312,3 +336,147 @@ class TestOrganizationStrategy:
         new_path = strategy.resolve_naming_conflict(target_path, sample_image_with_date)
 
         assert new_path is None
+
+    def test_status_based_routing_rejected(self, tmp_path):
+        """Test that rejected images route to _rejected/ subdirectory."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        # Create rejected image
+        image = ImageRecord(
+            id="test123",
+            source_path=Path("/source/IMG_1234.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="abc123def456",
+            status_id="rejected",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        target_path = strategy.get_target_path(tmp_path, image)
+
+        # Should route to _rejected/ subdirectory
+        assert (
+            target_path
+            == tmp_path / "_rejected" / "2023" / "06-15" / "143022_abc123de.jpg"
+        )
+
+    def test_status_based_routing_active(self, tmp_path):
+        """Test that active images route to main directory."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        # Create active image
+        image = ImageRecord(
+            id="test123",
+            source_path=Path("/source/IMG_1234.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="abc123def456",
+            status_id="active",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        target_path = strategy.get_target_path(tmp_path, image)
+
+        # Should route to main directory (no _rejected/)
+        assert target_path == tmp_path / "2023" / "06-15" / "143022_abc123de.jpg"
+
+    def test_status_based_routing_no_status(self, tmp_path):
+        """Test that images without status_id route to main directory."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        # Create image without status_id
+        image = ImageRecord(
+            id="test123",
+            source_path=Path("/source/IMG_1234.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="abc123def456",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        target_path = strategy.get_target_path(tmp_path, image)
+
+        # Should route to main directory (default)
+        assert target_path == tmp_path / "2023" / "06-15" / "143022_abc123de.jpg"
+
+    def test_mtime_fallback(self, tmp_path):
+        """Test that mtime is used when EXIF date is missing."""
+        import os
+
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.YEAR_SLASH_MONTH_DAY,
+        )
+
+        # Create temp file with known mtime
+        test_file = tmp_path / "test.jpg"
+        test_file.write_bytes(b"test content")
+
+        # Set mtime to specific timestamp (June 15, 2023 14:30:22)
+        target_time = datetime(2023, 6, 15, 14, 30, 22).timestamp()
+        os.utime(test_file, (target_time, target_time))
+
+        # Create image without dates (EXIF missing)
+        image = ImageRecord(
+            id="test123",
+            source_path=test_file,
+            file_type=FileType.IMAGE,
+            checksum="abc123",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            # dates not specified - will use default empty DateInfo
+        )
+
+        output_dir = tmp_path / "output"
+        target_dir = strategy.get_target_directory(
+            output_dir, image, use_mtime_fallback=True
+        )
+
+        # Should use mtime and create 2023/06-15 directory
+        assert target_dir == output_dir / "2023" / "06-15"
+
+    def test_full_checksum_conflict_resolution(self, tmp_path):
+        """Test that conflicts are resolved using full checksum."""
+        strategy = OrganizationStrategy(
+            directory_structure=DirectoryStructure.FLAT,
+            naming_strategy=NamingStrategy.TIME_CHECKSUM,
+        )
+
+        # Create first image at specific time
+        image1 = ImageRecord(
+            id="test123",
+            source_path=Path("/source/IMG_1234.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="abc123def456",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        # Create conflicting image - same time, different checksum
+        image2 = ImageRecord(
+            id="test456",
+            source_path=Path("/source/IMG_5678.jpg"),
+            file_type=FileType.IMAGE,
+            checksum="xyz789fedcba",
+            metadata=ImageMetadata(size_bytes=1024, format="JPEG"),
+            dates=DateInfo(selected_date=datetime(2023, 6, 15, 14, 30, 22)),
+        )
+
+        # Create first file to simulate conflict
+        existing_file = tmp_path / "143022_abc123de.jpg"
+        existing_file.write_text("existing")
+
+        # Resolve conflict for second image
+        resolved_path = strategy.resolve_conflict_with_full_checksum(
+            tmp_path, image2, existing_file
+        )
+
+        # Should use full checksum
+        assert resolved_path.name == "143022_xyz789fedcba.jpg"

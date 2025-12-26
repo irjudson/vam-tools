@@ -20,6 +20,7 @@ class DirectoryStructure(str, Enum):
     YEAR_SLASH_MONTH = "YYYY/MM"  # 2023/06
     YEAR_MONTH_DAY = "YYYY-MM-DD"  # 2023-06-15
     YEAR_ONLY = "YYYY"  # 2023
+    YEAR_SLASH_MONTH_DAY = "YYYY/MM-DD"  # 2023/06-15
     FLAT = "FLAT"  # All files in one directory
 
 
@@ -30,6 +31,7 @@ class NamingStrategy(str, Enum):
     DATE_TIME_ORIGINAL = "date_time_original"  # 2023-06-15_143022_IMG_1234.jpg
     ORIGINAL = "original"  # IMG_1234.jpg (keep original name)
     CHECKSUM = "checksum"  # abc123def456.jpg
+    TIME_CHECKSUM = "time_checksum"  # 143022_abc12345.jpg
 
 
 class OrganizationStrategy(BaseModel):
@@ -58,7 +60,7 @@ class OrganizationStrategy(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     def get_target_directory(
-        self, base_path: Path, image: ImageRecord
+        self, base_path: Path, image: ImageRecord, use_mtime_fallback: bool = False
     ) -> Optional[Path]:
         """
         Get target directory for an image based on the strategy.
@@ -66,14 +68,23 @@ class OrganizationStrategy(BaseModel):
         Args:
             base_path: Base output directory
             image: Image record with metadata
+            use_mtime_fallback: If True, fall back to file mtime when EXIF date missing
 
         Returns:
-            Target directory path, or None if image has no date
+            Target directory path, or None if image has no date and fallback disabled
         """
-        if not image.dates or not image.dates.selected_date:
-            return None
+        import os
+        from datetime import datetime as dt
 
-        date = image.dates.selected_date
+        # Try to get date from EXIF
+        if image.dates and image.dates.selected_date:
+            date = image.dates.selected_date
+        elif use_mtime_fallback and image.source_path.exists():
+            # Fall back to file modification time
+            mtime = os.path.getmtime(image.source_path)
+            date = dt.fromtimestamp(mtime)
+        else:
+            return None
 
         if self.directory_structure == DirectoryStructure.YEAR_MONTH:
             return base_path / date.strftime("%Y-%m")
@@ -83,6 +94,8 @@ class OrganizationStrategy(BaseModel):
             return base_path / date.strftime("%Y-%m-%d")
         elif self.directory_structure == DirectoryStructure.YEAR_ONLY:
             return base_path / date.strftime("%Y")
+        elif self.directory_structure == DirectoryStructure.YEAR_SLASH_MONTH_DAY:
+            return base_path / date.strftime("%Y") / date.strftime("%m-%d")
         elif self.directory_structure == DirectoryStructure.FLAT:
             return base_path
 
@@ -109,6 +122,15 @@ class OrganizationStrategy(BaseModel):
         elif self.naming_strategy == NamingStrategy.CHECKSUM:
             return f"{image.checksum}{suffix}"
 
+        elif self.naming_strategy == NamingStrategy.TIME_CHECKSUM:
+            if image.dates and image.dates.selected_date:
+                time_str = image.dates.selected_date.strftime("%H%M%S")
+                checksum_short = image.checksum[:8]
+                return f"{time_str}_{checksum_short}{suffix}"
+            else:
+                # Fall back to checksum if no date
+                return f"{image.checksum}{suffix}"
+
         elif self.naming_strategy == NamingStrategy.DATE_TIME_CHECKSUM:
             if image.dates and image.dates.selected_date:
                 date_str = image.dates.selected_date.strftime("%Y-%m-%d_%H%M%S")
@@ -129,23 +151,58 @@ class OrganizationStrategy(BaseModel):
         # All enum cases covered - this is for type checker
         return original_name  # type: ignore[unreachable]  # Defensive fallback
 
-    def get_target_path(self, base_path: Path, image: ImageRecord) -> Optional[Path]:
+    def get_target_path(
+        self, base_path: Path, image: ImageRecord, use_mtime_fallback: bool = False
+    ) -> Optional[Path]:
         """
         Get complete target path for an image.
+
+        Routes rejected images to _rejected/ subdirectory.
 
         Args:
             base_path: Base output directory
             image: Image record
+            use_mtime_fallback: If True, fall back to file mtime when EXIF date missing
 
         Returns:
             Complete target path, or None if image has no date
         """
-        target_dir = self.get_target_directory(base_path, image)
+        # Adjust base path for rejected images
+        if hasattr(image, "status_id") and image.status_id == "rejected":
+            base_path = base_path / "_rejected"
+
+        target_dir = self.get_target_directory(base_path, image, use_mtime_fallback)
         if not target_dir:
             return None
 
         filename = self.get_target_filename(image)
         return target_dir / filename
+
+    def resolve_conflict_with_full_checksum(
+        self, base_path: Path, image: ImageRecord, conflicting_path: Path
+    ) -> Path:
+        """
+        Resolve naming conflict by using full checksum instead of short checksum.
+
+        Args:
+            base_path: Base output directory
+            image: Image record
+            conflicting_path: Path that already exists
+
+        Returns:
+            New path with full checksum
+        """
+        # Get directory and extension
+        target_dir = conflicting_path.parent
+        suffix = image.source_path.suffix
+
+        # Generate filename with full checksum
+        if image.dates and image.dates.selected_date:
+            time_str = image.dates.selected_date.strftime("%H%M%S")
+            return target_dir / f"{time_str}_{image.checksum}{suffix}"
+        else:
+            # No date - use checksum only
+            return target_dir / f"{image.checksum}{suffix}"
 
     def resolve_naming_conflict(
         self, target_path: Path, image: ImageRecord

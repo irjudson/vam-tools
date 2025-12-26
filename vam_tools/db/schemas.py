@@ -14,6 +14,9 @@ class CatalogCreate(BaseModel):
     source_directories: List[str] = Field(
         ..., min_length=1, description="Source directories to scan"
     )
+    organized_directory: Optional[str] = Field(
+        None, description="Default output directory for file reorganization"
+    )
 
 
 class CatalogResponse(BaseModel):
@@ -23,6 +26,7 @@ class CatalogResponse(BaseModel):
     name: str
     schema_name: str
     source_directories: List[str]
+    organized_directory: Optional[str]
     created_at: datetime
     updated_at: datetime
 
