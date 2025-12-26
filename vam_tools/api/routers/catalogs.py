@@ -2618,6 +2618,13 @@ def list_bursts(
                 }
             )
 
+        # Build thumbnail URL for best image
+        best_thumbnail_url = None
+        if row_dict["best_image_id"]:
+            best_thumbnail_url = (
+                f"/api/catalogs/{catalog_id}/images/{row_dict['best_image_id']}/thumbnail?size=small"
+            )
+
         bursts.append(
             {
                 "id": burst_id,
@@ -2634,6 +2641,7 @@ def list_bursts(
                 "camera_make": row_dict["camera_make"],
                 "camera_model": row_dict["camera_model"],
                 "best_image_id": row_dict["best_image_id"],
+                "best_thumbnail_url": best_thumbnail_url,
                 "selection_method": row_dict["selection_method"],
                 "created_at": (
                     row_dict["created_at"].isoformat()
