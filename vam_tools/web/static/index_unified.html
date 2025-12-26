@@ -303,29 +303,40 @@
             </div>
         </div>
 
-        <!-- Organize Form Modal -->
+        <!-- Reorganize Form Modal -->
         <div v-if="showOrganizeForm" class="modal-overlay" @click="showOrganizeForm = false">
             <div class="modal-content" @click.stop>
-                <h3>Organize Files</h3>
-                <form @submit.prevent="submitOrganizeJob">
+                <h3>Reorganize Files</h3>
+                <p style="color: #666; margin-bottom: 20px;">
+                    Reorganize your entire library into a clean date-based structure (YYYY/MM-DD).
+                    Files are organized by date with time+checksum filenames for uniqueness.
+                </p>
+
+                <!-- Stats Summary -->
+                <div v-if="catalogStats" style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+                    <h4 style="margin-top: 0;">Catalog Summary</h4>
+                    <p><strong>Total Files:</strong> {{ catalogStats.statistics.total_files.toLocaleString() }}</p>
+                    <p><strong>Total Size:</strong> {{ catalogStats.statistics.total_gb }} GB</p>
+                    <p v-if="catalogStats.statistics.date_range.earliest">
+                        <strong>Date Range:</strong>
+                        {{ new Date(catalogStats.statistics.date_range.earliest).toLocaleDateString() }}
+                        to
+                        {{ new Date(catalogStats.statistics.date_range.latest).toLocaleDateString() }}
+                    </p>
+                </div>
+
+                <form @submit.prevent="submitReorganizeJob">
                     <div class="form-group">
-                        <label>Catalog Path</label>
-                        <input v-model="organizeForm.catalogPath" type="text" required />
-                    </div>
-                    <div class="form-group">
-                        <label>Output Directory</label>
-                        <input v-model="organizeForm.outputDirectory" type="text" required />
-                    </div>
-                    <div class="form-group">
-                        <label>Pattern</label>
-                        <input v-model="organizeForm.pattern" type="text" 
-                               placeholder="{year}/{month}" />
+                        <label>Output Directory (absolute path)</label>
+                        <input v-model="organizeForm.outputDirectory" type="text"
+                               placeholder="/path/to/organized" required />
+                        <small>Example: /mnt/photos/organized</small>
                     </div>
                     <div class="form-group">
                         <label>Operation</label>
                         <select v-model="organizeForm.operation">
-                            <option value="copy">Copy (Safe - keeps originals)</option>
-                            <option value="move">Move (Deletes originals)</option>
+                            <option value="copy">Copy (Recommended - keeps originals)</option>
+                            <option value="move">Move (Removes from original location)</option>
                         </select>
                     </div>
                     <div class="form-group checkbox">
@@ -334,12 +345,16 @@
                             Dry Run (Preview only, no changes)
                         </label>
                     </div>
+                    <div style="background: #fff3cd; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
+                        <strong>Note:</strong> This operation is idempotent - safe to run multiple times.
+                        Files already in the output directory will be skipped.
+                    </div>
                     <div class="form-actions">
                         <button type="button" @click="showOrganizeForm = false" class="btn-secondary">
                             Cancel
                         </button>
                         <button type="submit" class="btn-primary">
-                            Start Organization
+                            {{ organizeForm.dryRun ? 'Preview Organization' : 'Start Reorganization' }}
                         </button>
                     </div>
                 </form>
@@ -385,5 +400,71 @@
     </div>
 
     <script src="/static/app.js"></script>
+    <script>
+    // Reorganization functionality
+    document.addEventListener('DOMContentLoaded', function() {
+        const app = window.vueApp; // Assuming app.js exports the Vue app instance
+        if (app && app.$data) {
+            // Add reactive data properties
+            if (!app.$data.catalogStats) {
+                app.$data.catalogStats = null;
+            }
+            if (!app.$data.organizeForm) {
+                app.$data.organizeForm = {
+                    outputDirectory: '',
+                    operation: 'copy',
+                    dryRun: false
+                };
+            }
+
+            // Add method to submit reorganize job
+            app.submitReorganizeJob = async function() {
+                const catalogId = this.selectedCatalog; // Assumes app has selected catalog
+
+                try {
+                    const response = await fetch(`/api/jobs/reorganize`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            catalog_id: catalogId,
+                            output_directory: this.organizeForm.outputDirectory,
+                            operation: this.organizeForm.operation,
+                            dry_run: this.organizeForm.dryRun
+                        })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        alert(`Reorganization job started! Job ID: ${result.job_id}`);
+                        this.showOrganizeForm = false;
+
+                        // Redirect to jobs page to monitor progress
+                        window.location.href = `/jobs.html`;
+                    } else {
+                        const error = await response.json();
+                        alert(`Error: ${error.detail || 'Failed to start reorganization'}`);
+                    }
+                } catch (error) {
+                    console.error('Reorganize error:', error);
+                    alert(`Error starting reorganization: ${error.message}`);
+                }
+            };
+
+            // Load catalog stats when modal opens
+            const originalShowOrganize = app.$watch ? app.$watch('showOrganizeForm', async function(newVal) {
+                if (newVal && this.selectedCatalog) {
+                    try {
+                        const response = await fetch(`/api/catalogs/${this.selectedCatalog}/stats`);
+                        if (response.ok) {
+                            this.catalogStats = await response.json();
+                        }
+                    } catch (error) {
+                        console.error('Error loading catalog stats:', error);
+                    }
+                }
+            }) : null;
+        }
+    });
+    </script>
 </body>
 </html>
