@@ -13,12 +13,11 @@ Exit codes:
   1 - Unhealthy
 """
 
-import os
 import sys
 from datetime import datetime, timedelta
 
 
-def check_celery_worker():
+def check_celery_worker() -> bool:
     """Check if Celery worker is responsive."""
     try:
         from vam_tools.celery_app import app
@@ -55,7 +54,7 @@ def check_celery_worker():
         return False
 
 
-def check_redis():
+def check_redis() -> bool:
     """Check if Redis is accessible."""
     try:
         import redis
@@ -74,7 +73,7 @@ def check_redis():
         return False
 
 
-def check_postgres():
+def check_postgres() -> bool:
     """Check if PostgreSQL is accessible."""
     try:
         from sqlalchemy import create_engine, text
@@ -98,7 +97,7 @@ def check_postgres():
         return False
 
 
-def main():
+def main() -> None:
     """Run all health checks."""
     checks = [
         ("Redis", check_redis),

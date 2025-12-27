@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,7 +60,7 @@ def create_app() -> FastAPI:
 
     # Worker health monitoring endpoint
     @app.get("/api/workers/status")
-    async def worker_status():
+    async def worker_status() -> dict[str, Any]:
         """Get status of all Celery workers."""
         from datetime import datetime, timedelta
 
