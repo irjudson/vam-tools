@@ -230,8 +230,10 @@ def reorganize_worker_task(
         skipped = 0
         failed = 0
         mtime_fallback_count = 0
-        errors = []
-        operations = []  # Sample operations for output display (max 100 per batch)
+        errors: list[str] = []
+        operations: list[dict[str, str]] = (
+            []
+        )  # Sample operations for output display (max 100 per batch)
 
         # Load images from database
         with CatalogDatabase(catalog_id) as db:
@@ -319,11 +321,13 @@ def reorganize_worker_task(
                         )
                         # Capture operation for output (limit to 100 per batch)
                         if len(operations) < 100:
-                            operations.append({
-                                "action": f"[DRY RUN] Would {operation}",
-                                "source": str(image.source_path),
-                                "target": str(target_path),
-                            })
+                            operations.append(
+                                {
+                                    "action": f"[DRY RUN] Would {operation}",
+                                    "source": str(image.source_path),
+                                    "target": str(target_path),
+                                }
+                            )
                         organized += 1
                     else:
                         # Create target directory
@@ -359,11 +363,13 @@ def reorganize_worker_task(
                         organized += 1
                         # Capture operation for output (limit to 100 per batch)
                         if len(operations) < 100:
-                            operations.append({
-                                "action": operation.capitalize(),
-                                "source": str(image.source_path),
-                                "target": str(target_path),
-                            })
+                            operations.append(
+                                {
+                                    "action": operation.capitalize(),
+                                    "source": str(image.source_path),
+                                    "target": str(target_path),
+                                }
+                            )
                         logger.info(f"Reorganized {image.source_path} → {target_path}")
 
                 except Exception as e:
@@ -450,11 +456,11 @@ def reorganize_finalizer_task(
         all_errors = [e for r in worker_results for e in r.get("errors", [])]
 
         # Aggregate sample operations (first 100 across all workers)
-        all_operations = []
+        all_operations: list[dict[str, str]] = []
         for r in worker_results:
             ops = r.get("operations", [])
             if all_operations and len(all_operations) < 100:
-                all_operations.extend(ops[:100 - len(all_operations)])
+                all_operations.extend(ops[: 100 - len(all_operations)])
             elif not all_operations:
                 all_operations.extend(ops[:100])
             if len(all_operations) >= 100:

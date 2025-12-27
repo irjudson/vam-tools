@@ -28,8 +28,8 @@ app = Celery(
 )
 
 # Import tasks to register them
-from .jobs import tasks  # noqa: E402, F401
 from .jobs import reorganize  # noqa: E402, F401
+from .jobs import tasks  # noqa: E402, F401
 
 # Celery configuration
 app.conf.update(

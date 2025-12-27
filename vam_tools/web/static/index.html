@@ -2009,8 +2009,8 @@
                                             {{ formatJobStatus(job.status) }}
                                         </span>
                                         <div class="job-actions">
-                                            <button v-if="job.result && job.result.operations" class="job-action-btn job-view-btn" @click.stop="viewJobOutput(job)" title="View job output">View Output</button>
-                                            <button class="job-action-btn job-delete-btn" @click.stop="deleteJob(job.id)" title="Delete job from history">Delete</button>
+                                            <button v-if="job.result && job.result.operations" class="job-action-btn job-view-btn" @click.stop="viewJobOutput(job)" title="View job output">👁️</button>
+                                            <button class="job-action-btn job-delete-btn" @click.stop="deleteJob(job.id)" title="Delete job from history">🗑️</button>
                                         </div>
                                     </div>
                                     <div class="panel-job-meta">
