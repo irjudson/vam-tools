@@ -58,6 +58,11 @@ from .parallel_thumbnails import (
     thumbnail_finalizer_task,
     thumbnail_worker_task,
 )
+from .reorganize import (
+    reorganize_coordinator_task,
+    reorganize_finalizer_task,
+    reorganize_worker_task,
+)
 from .serial_descriptions import generate_descriptions_task
 from .tasks import (  # generate_thumbnails_task, # Commented out for debugging; organize_catalog_task, # Commented out for debugging
     analyze_catalog_task,
@@ -102,6 +107,10 @@ __all__ = [
     "duplicates_finalizer_task",
     # Serial description generation (Ollama)
     "generate_descriptions_task",
+    # Parallel file reorganization tasks
+    "reorganize_coordinator_task",
+    "reorganize_worker_task",
+    "reorganize_finalizer_task",
     # Coordinator utilities
     "BatchManager",
     "BatchResult",
