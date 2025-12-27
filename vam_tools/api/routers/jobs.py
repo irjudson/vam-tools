@@ -433,7 +433,7 @@ def start_reorganize(request: ReorganizeJobRequest, db: Session = Depends(get_db
     )
 
     # Save output directory to catalog for future use
-    from ..db.models import Catalog
+    from ...db.models import Catalog
 
     catalog = db.query(Catalog).filter(Catalog.id == request.catalog_id).first()
     if catalog and not request.dry_run:
