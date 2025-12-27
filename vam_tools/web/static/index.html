@@ -1829,6 +1829,14 @@
                                     <span class="folder-name" :title="dir">{{ displayPath(dir) }}</span>
                                 </div>
                             </div>
+                            <!-- Output Directory -->
+                            <div class="catalog-folders" v-if="currentCatalog.organized_directory">
+                                <div class="folders-header">Output Directory</div>
+                                <div class="folder-item compact">
+                                    <span class="folder-icon">📦</span>
+                                    <span class="folder-name" :title="currentCatalog.organized_directory">{{ displayPath(currentCatalog.organized_directory) }}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
