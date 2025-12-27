@@ -1361,6 +1361,69 @@
             </div>
         </div>
 
+        <!-- Job Output Modal -->
+        <div v-if="showJobOutputModal" class="modal-overlay" @click="showJobOutputModal = false">
+            <div class="modal" @click.stop style="max-width: 900px; max-height: 80vh;">
+                <div class="modal-header">
+                    <h3>Job Output: {{ selectedJob?.name || 'Job' }}</h3>
+                    <button @click="showJobOutputModal = false" class="btn" style="padding: 4px 12px;">×</button>
+                </div>
+                <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
+                    <!-- Statistics -->
+                    <div v-if="selectedJob?.result?.statistics" class="card mb-md">
+                        <h4 class="mb-sm">Summary</h4>
+                        <div class="metadata-group">
+                            <div class="metadata-row">
+                                <span class="metadata-label">Total Files</span>
+                                <span class="metadata-value">{{ formatNumber(selectedJob.result.statistics.total_files) }}</span>
+                            </div>
+                            <div class="metadata-row">
+                                <span class="metadata-label">Organized</span>
+                                <span class="metadata-value" style="color: var(--accent-success);">{{ formatNumber(selectedJob.result.statistics.organized) }}</span>
+                            </div>
+                            <div class="metadata-row">
+                                <span class="metadata-label">Skipped</span>
+                                <span class="metadata-value" style="color: var(--text-muted);">{{ formatNumber(selectedJob.result.statistics.skipped) }}</span>
+                            </div>
+                            <div class="metadata-row" v-if="selectedJob.result.statistics.failed">
+                                <span class="metadata-label">Failed</span>
+                                <span class="metadata-value" style="color: var(--accent-danger);">{{ formatNumber(selectedJob.result.statistics.failed) }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Operations -->
+                    <div v-if="selectedJob?.result?.operations" class="card">
+                        <h4 class="mb-sm">Operations (first {{ selectedJob.result.operations.length }})</h4>
+                        <div style="background-color: var(--bg-primary); padding: 12px; border-radius: var(--radius-sm); font-family: monospace; font-size: 11px; max-height: 400px; overflow-y: auto;">
+                            <div v-for="(op, idx) in selectedJob.result.operations" :key="idx" style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+                                <div style="color: var(--accent-primary); font-weight: 600; margin-bottom: 4px;">{{ op.action }}</div>
+                                <div style="color: var(--text-muted); margin-bottom: 2px;">
+                                    <span style="color: var(--text-secondary);">From:</span> {{ op.source }}
+                                </div>
+                                <div style="color: var(--text-muted);">
+                                    <span style="color: var(--text-secondary);">To:</span> {{ op.target }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Errors -->
+                    <div v-if="selectedJob?.result?.errors && selectedJob.result.errors.length > 0" class="card" style="margin-top: 16px;">
+                        <h4 class="mb-sm" style="color: var(--accent-danger);">Errors ({{ selectedJob.result.errors.length }})</h4>
+                        <div style="background-color: var(--bg-primary); padding: 12px; border-radius: var(--radius-sm); font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto;">
+                            <div v-for="(error, idx) in selectedJob.result.errors" :key="idx" style="margin-bottom: 8px; color: var(--accent-danger);">
+                                {{ error }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button @click="showJobOutputModal = false" class="btn primary">Close</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Scan Confirmation Modal -->
         <div v-if="showScanConfirmModal" class="modal-overlay" @click="showScanConfirmModal = false">
             <div class="modal-content" @click.stop>
@@ -1945,7 +2008,10 @@
                                         <span :class="['status-badge', getJobStatusClass(job.status)]">
                                             {{ formatJobStatus(job.status) }}
                                         </span>
-                                        <button class="job-action-btn job-delete-btn" @click.stop="deleteJob(job.id)" title="Delete job from history">Delete</button>
+                                        <div class="job-actions">
+                                            <button v-if="job.result && job.result.operations" class="job-action-btn job-view-btn" @click.stop="viewJobOutput(job)" title="View job output">View Output</button>
+                                            <button class="job-action-btn job-delete-btn" @click.stop="deleteJob(job.id)" title="Delete job from history">Delete</button>
+                                        </div>
                                     </div>
                                     <div class="panel-job-meta">
                                         <span class="job-date">{{ formatDate(job.started) }}</span>

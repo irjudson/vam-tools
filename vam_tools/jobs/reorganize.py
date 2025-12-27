@@ -231,6 +231,7 @@ def reorganize_worker_task(
         failed = 0
         mtime_fallback_count = 0
         errors = []
+        operations = []  # Sample operations for output display (max 100 per batch)
 
         # Load images from database
         with CatalogDatabase(catalog_id) as db:
@@ -316,6 +317,13 @@ def reorganize_worker_task(
                         logger.info(
                             f"[DRY RUN] Would {operation} {image.source_path} → {target_path}"
                         )
+                        # Capture operation for output (limit to 100 per batch)
+                        if len(operations) < 100:
+                            operations.append({
+                                "action": f"[DRY RUN] Would {operation}",
+                                "source": str(image.source_path),
+                                "target": str(target_path),
+                            })
                         organized += 1
                     else:
                         # Create target directory
@@ -349,6 +357,13 @@ def reorganize_worker_task(
                         )
 
                         organized += 1
+                        # Capture operation for output (limit to 100 per batch)
+                        if len(operations) < 100:
+                            operations.append({
+                                "action": operation.capitalize(),
+                                "source": str(image.source_path),
+                                "target": str(target_path),
+                            })
                         logger.info(f"Reorganized {image.source_path} → {target_path}")
 
                 except Exception as e:
@@ -390,6 +405,7 @@ def reorganize_worker_task(
             "failed": failed,
             "mtime_fallback_count": mtime_fallback_count,
             "errors": errors,
+            "operations": operations,  # Sample operations for output display
         }
 
     except Exception as e:
@@ -432,6 +448,17 @@ def reorganize_finalizer_task(
             r.get("mtime_fallback_count", 0) for r in worker_results
         )
         all_errors = [e for r in worker_results for e in r.get("errors", [])]
+
+        # Aggregate sample operations (first 100 across all workers)
+        all_operations = []
+        for r in worker_results:
+            ops = r.get("operations", [])
+            if all_operations and len(all_operations) < 100:
+                all_operations.extend(ops[:100 - len(all_operations)])
+            elif not all_operations:
+                all_operations.extend(ops[:100])
+            if len(all_operations) >= 100:
+                break
 
         total_files = total_organized + total_skipped + total_failed
 
@@ -484,6 +511,7 @@ def reorganize_finalizer_task(
                     "statistics": transaction_log["statistics"],
                     "transaction_log": str(log_path),
                     "errors": all_errors[:100],
+                    "operations": all_operations,  # Sample operations for UI display
                 }
                 session.commit()
 

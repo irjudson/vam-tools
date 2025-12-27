@@ -51,6 +51,8 @@ createApp({
             showAutoTagConfirmModal: false,
             showDuplicatesConfirmModal: false,
             showOrganizeForm: false,
+            showJobOutputModal: false,
+            selectedJob: null,
 
             // Pipeline options
             scanContinuePipeline: false,
@@ -1213,6 +1215,11 @@ createApp({
                 console.error(`Failed to delete job ${jobId}:`, error);
                 this.addNotification('Failed to delete job', 'error');
             }
+        },
+
+        viewJobOutput(job) {
+            this.selectedJob = job;
+            this.showJobOutputModal = true;
         },
 
         async bulkDeleteJobs(status = null, limit = null) {
