@@ -1215,6 +1215,12 @@
                                   placeholder="/host/home/username/Pictures&#10;/host/synology/photos"></textarea>
                         <small>Container paths to your image directories. Click "Path Help" above for examples.</small>
                     </div>
+                    <div class="form-group">
+                        <label>Output Directory (for reorganized files)</label>
+                        <input v-model="editCatalogForm.organized_directory" type="text"
+                               placeholder="/host/synology/organized" />
+                        <small>Default destination for reorganized files. Leave empty to specify each time.</small>
+                    </div>
                     <div class="form-actions">
                         <button type="button" @click="showEditCatalogForm = false" class="btn-secondary">
                             Cancel

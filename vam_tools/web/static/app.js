@@ -22,7 +22,8 @@ createApp({
             editCatalogForm: {
                 id: null,
                 name: '',
-                source_directories: ''
+                source_directories: '',
+                organized_directory: ''
             },
 
             // Jobs data
@@ -555,7 +556,8 @@ createApp({
             this.editCatalogForm = {
                 id: catalog.id,
                 name: catalog.name,
-                source_directories: catalog.source_directories.join('\n')
+                source_directories: catalog.source_directories.join('\n'),
+                organized_directory: catalog.organized_directory || ''
             };
             this.showEditCatalogForm = true;
             this.showCatalogManager = false;
@@ -570,7 +572,8 @@ createApp({
 
                 await axios.put(`/api/catalogs/${this.editCatalogForm.id}`, {
                     name: this.editCatalogForm.name,
-                    source_directories: sourceDirs
+                    source_directories: sourceDirs,
+                    organized_directory: this.editCatalogForm.organized_directory || null
                 });
 
                 this.addNotification('Catalog updated successfully', 'success');
@@ -580,7 +583,8 @@ createApp({
                 this.editCatalogForm = {
                     id: null,
                     name: '',
-                    source_directories: ''
+                    source_directories: '',
+                    organized_directory: ''
                 };
 
                 await this.loadCatalogs();
