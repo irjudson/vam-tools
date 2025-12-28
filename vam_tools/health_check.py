@@ -14,7 +14,6 @@ Exit codes:
 """
 
 import sys
-from datetime import datetime, timedelta
 
 
 def check_celery_worker() -> bool:
@@ -31,21 +30,9 @@ def check_celery_worker() -> bool:
             print("ERROR: No workers responded to ping", file=sys.stderr)
             return False
 
-        # Check active tasks - warn if tasks are taking too long
-        active = inspect.active()
-        if active:
-            for _worker, tasks in active.items():
-                for task in tasks:
-                    # Check if task has been running for more than 2 hours
-                    time_start = task.get("time_start")
-                    if time_start:
-                        start_time = datetime.fromtimestamp(time_start)
-                        duration = datetime.now() - start_time
-                        if duration > timedelta(hours=2):
-                            print(
-                                f"WARNING: Task {task['id']} has been running for {duration}",
-                                file=sys.stderr,
-                            )
+        # Skip inspect.active() check as it can timeout when workers are busy
+        # Long-running tasks are not a health issue, they're expected for large jobs
+        # active = inspect.active()  # Disabled: can hang when workers under load
 
         return True
 
