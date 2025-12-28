@@ -34,7 +34,7 @@ def check_celery_worker() -> bool:
         # Check active tasks - warn if tasks are taking too long
         active = inspect.active()
         if active:
-            for worker, tasks in active.items():
+            for _worker, tasks in active.items():
                 for task in tasks:
                     # Check if task has been running for more than 2 hours
                     time_start = task.get("time_start")
