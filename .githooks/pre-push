@@ -6,6 +6,29 @@
 
 set -e
 
+# Acquire lock to prevent concurrent pre-push hooks
+# This ensures only one push runs tests at a time
+LOCK_FILE="/tmp/vam-tools-pre-push.lock"
+LOCK_FD=200
+
+# Cleanup lock on exit
+cleanup() {
+    flock -u $LOCK_FD 2>/dev/null || true
+    rm -f "$LOCK_FILE" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Try to acquire lock (wait if another push is running)
+exec {LOCK_FD}>"$LOCK_FILE"
+if ! flock -n $LOCK_FD; then
+    echo "⏳ Another git push is running tests, waiting..."
+    if ! flock -w 600 $LOCK_FD; then
+        echo "❌ Could not acquire lock after 10 minutes. Another push may be stuck."
+        echo "   Run: rm -f $LOCK_FILE"
+        exit 1
+    fi
+fi
+
 echo "🔍 Running pre-push checks..."
 echo ""
 
