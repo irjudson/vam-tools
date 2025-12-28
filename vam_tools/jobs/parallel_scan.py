@@ -43,7 +43,7 @@ from .coordinator import (
 )
 from .progress_publisher import publish_completion, publish_progress
 from .scan_stats import ScanStatistics
-from .tasks import ProgressTask
+from .tasks import CoordinatorTask, ProgressTask
 
 logger = logging.getLogger(__name__)
 
@@ -150,9 +150,9 @@ def _discover_media_files(
     return all_files, stats
 
 
-@app.task(bind=True, base=ProgressTask, name="scan_coordinator")
+@app.task(bind=True, base=CoordinatorTask, name="scan_coordinator")
 def scan_coordinator_task(
-    self: ProgressTask,
+    self: CoordinatorTask,
     catalog_id: str,
     source_directories: List[str],
     force_rescan: bool = False,

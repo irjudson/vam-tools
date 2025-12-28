@@ -42,7 +42,7 @@ from .coordinator import (
     publish_job_progress,
 )
 from .progress_publisher import publish_completion, publish_progress
-from .tasks import ProgressTask
+from .tasks import CoordinatorTask, ProgressTask
 
 logger = logging.getLogger(__name__)
 
@@ -123,9 +123,9 @@ def _increment_job_failure_count(job_id: str) -> None:
         logger.warning(f"Failed to increment failure count for {job_id}: {e}")
 
 
-@app.task(bind=True, base=ProgressTask, name="duplicates_coordinator")
+@app.task(bind=True, base=CoordinatorTask, name="duplicates_coordinator")
 def duplicates_coordinator_task(
-    self: ProgressTask,
+    self: CoordinatorTask,
     catalog_id: str,
     similarity_threshold: int = 5,
     recompute_hashes: bool = False,

@@ -35,14 +35,14 @@ from ..shared.media_utils import compute_checksum
 from .celery_app import app
 from .coordinator import BatchManager, BatchResult
 from .progress_publisher import publish_completion, publish_progress
-from .tasks import ProgressTask
+from .tasks import CoordinatorTask, ProgressTask
 
 logger = logging.getLogger(__name__)
 
 
-@app.task(bind=True, base=ProgressTask, name="reorganize_coordinator")
+@app.task(bind=True, base=CoordinatorTask, name="reorganize_coordinator")
 def reorganize_coordinator_task(
-    self: ProgressTask,
+    self: CoordinatorTask,
     catalog_id: str,
     output_directory: str,
     operation: str = "copy",

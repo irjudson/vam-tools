@@ -29,7 +29,7 @@ from .coordinator import (
     publish_job_progress,
 )
 from .progress_publisher import publish_completion, publish_progress
-from .tasks import ProgressTask
+from .tasks import CoordinatorTask, ProgressTask
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +58,9 @@ def _update_job_status(
         logger.warning(f"Failed to update job status for {job_id}: {e}")
 
 
-@app.task(bind=True, base=ProgressTask, name="thumbnail_coordinator")
+@app.task(bind=True, base=CoordinatorTask, name="thumbnail_coordinator")
 def thumbnail_coordinator_task(
-    self: ProgressTask,
+    self: CoordinatorTask,
     catalog_id: str,
     sizes: Optional[List[int]] = None,
     quality: int = 85,

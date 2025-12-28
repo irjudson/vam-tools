@@ -187,6 +187,26 @@ class ProgressTask(Task):
             logger.debug(f"Failed to publish progress to Redis: {e}")
 
 
+class CoordinatorTask(ProgressTask):
+    """
+    Base task class for coordinator tasks in the parallel processing pattern.
+
+    Coordinator tasks orchestrate parallel work by:
+    1. Creating batches
+    2. Dispatching worker tasks via Celery chord
+    3. Setting up finalizer callback
+
+    These tasks should NOT update the parent Job status to SUCCESS when they
+    complete, because workers are still running. Only the finalizer should
+    update the Job to SUCCESS.
+
+    The is_coordinator flag tells signal handlers in celery_app.py to skip
+    updating Job.status for these tasks.
+    """
+
+    is_coordinator = True  # Flag for signal handlers to skip Job updates
+
+
 @app.task(bind=True, base=ProgressTask, name="analyze_catalog")
 def analyze_catalog_task(
     self: ProgressTask,

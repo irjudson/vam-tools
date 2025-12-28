@@ -117,6 +117,16 @@ def task_postrun_handler(
         task_name = getattr(task, "name", "unknown")
         logger.info(f"Task {task_name} [{task_id}] finished with state: {state}")
 
+        # Skip job status updates for coordinator tasks
+        # Coordinators dispatch workers and return immediately, but workers are still running
+        # Only finalizers should update Job status to SUCCESS
+        is_coordinator = getattr(task, "is_coordinator", False)
+        if is_coordinator:
+            logger.debug(
+                f"Skipping job status update for coordinator task {task_name} [{task_id}]"
+            )
+            return
+
         # Convert retval to dict if possible for storage
         result = None
         if retval is not None and isinstance(retval, dict):
@@ -142,6 +152,16 @@ def task_success_handler(
         )
         task_name = getattr(sender, "name", "unknown")
         logger.info(f"Task {task_name} [{task_id}] completed successfully")
+
+        # Skip job status updates for coordinator tasks
+        # Coordinators dispatch workers and return immediately, but workers are still running
+        # Only finalizers should update Job status to SUCCESS
+        is_coordinator = getattr(sender, "is_coordinator", False)
+        if is_coordinator:
+            logger.debug(
+                f"Skipping job status update for coordinator task {task_name} [{task_id}]"
+            )
+            return
 
         # Store result in database
         if task_id:

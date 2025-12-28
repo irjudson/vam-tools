@@ -20,14 +20,14 @@ from ..core.types import FileType, ImageMetadata
 from ..db import CatalogDB as CatalogDatabase
 from .celery_app import app
 from .coordinator import BatchManager, BatchResult, publish_job_progress
-from .tasks import ProgressTask
+from .tasks import CoordinatorTask, ProgressTask
 
 logger = logging.getLogger(__name__)
 
 
-@app.task(bind=True, base=ProgressTask, name="quality_coordinator")
+@app.task(bind=True, base=CoordinatorTask, name="quality_coordinator")
 def quality_coordinator_task(
-    self: ProgressTask,
+    self: CoordinatorTask,
     catalog_id: str,
     force: bool = False,
 ) -> Dict[str, Any]:

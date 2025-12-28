@@ -39,7 +39,7 @@ from .coordinator import (
     publish_job_progress,
 )
 from .progress_publisher import publish_completion, publish_progress
-from .tasks import ProgressTask, _store_image_tags
+from .tasks import CoordinatorTask, ProgressTask, _store_image_tags
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +68,9 @@ def _update_job_status(
         logger.warning(f"Failed to update job status for {job_id}: {e}")
 
 
-@app.task(bind=True, base=ProgressTask, name="tagging_coordinator")
+@app.task(bind=True, base=CoordinatorTask, name="tagging_coordinator")
 def tagging_coordinator_task(
-    self: ProgressTask,
+    self: CoordinatorTask,
     catalog_id: str,
     backend: str = "openclip",
     model: Optional[str] = None,
