@@ -568,29 +568,44 @@ async def get_job_status(job_id: str) -> JobStatus:
         progress_source = batch_progress or redis_progress
 
         # Determine effective status
-        # Priority: batch progress > Redis progress > Celery state
-        # For coordinator-pattern jobs, Celery state can be misleading:
-        # - Coordinator returns SUCCESS after dispatching chord (workers still running)
-        # - Coordinator may report FAILURE if it crashed, but workers may have completed
-        # - batch_progress is the source of truth for actual work completion
+        # For coordinator-pattern jobs with batch tracking:
+        #   - batch_progress is the source of truth (tracks actual worker completion)
+        #   - With the CoordinatorTask fix, coordinators no longer update Job status
+        #   - Only finalizers mark jobs as SUCCESS
+        # For non-coordinator jobs (no batch tracking):
+        #   - Trust Celery terminal states (SUCCESS, FAILURE, REVOKED, etc.)
+        #   - Don't let stale Redis data override completed jobs
+        TERMINAL_STATES = {
+            "SUCCESS",
+            "FAILURE",
+            "REVOKED",
+            "RETRY",
+            "TIMEOUT",
+            "TERMINATED",
+        }
         effective_status = result.state
-        if progress_source:
-            source_status = progress_source.get("status")
+
+        if batch_progress:
+            # Coordinator-pattern job: batch_progress is source of truth
+            source_status = batch_progress.get("status")
             logger.info(
-                f"[DEBUG] Job {job_id}: source_status = {source_status}, effective_status before = {effective_status}"
+                f"[DEBUG] Job {job_id}: batch_status = {source_status}, celery_state = {effective_status}"
             )
-            # If batch progress shows job is still processing, trust that over Celery state
-            # This handles both SUCCESS (coordinator finished dispatching) and FAILURE cases
+            if source_status in ("PROGRESS", "STARTED", "SUCCESS", "FAILURE"):
+                effective_status = source_status
+        elif result.state not in TERMINAL_STATES and redis_progress:
+            # Non-coordinator job: only use Redis if Celery state is non-terminal
+            # This prevents stale Redis data from overriding completed jobs
+            source_status = redis_progress.get("status")
+            logger.info(
+                f"[DEBUG] Job {job_id}: redis_status = {source_status}, celery_state = {effective_status}"
+            )
             if source_status in ("PROGRESS", "STARTED"):
                 effective_status = source_status
-            elif source_status == "SUCCESS":
-                effective_status = "SUCCESS"
-            elif source_status == "FAILURE" and batch_progress:
-                # Only trust batch FAILURE if it's from batch_progress (not Redis)
-                effective_status = "FAILURE"
-            logger.info(
-                f"[DEBUG] Job {job_id}: effective_status after = {effective_status}"
-            )
+
+        logger.info(
+            f"[DEBUG] Job {job_id}: Final effective_status = {effective_status}"
+        )
 
         logger.info(f"[DEBUG] Job {job_id}: Final status = {effective_status}")
         status_response = JobStatus(
@@ -834,14 +849,24 @@ async def list_active_jobs() -> JobList:
             result = AsyncResult(task_id, app=celery_app)
             redis_progress = get_last_progress(task_id)
 
-            # Determine effective status from Redis
+            # Determine effective status - always trust Celery for terminal states
+            # Terminal states (SUCCESS, FAILURE, etc.) from Celery take precedence
+            # Only use Redis progress data if job is actually still running
+            TERMINAL_STATES = {
+                "SUCCESS",
+                "FAILURE",
+                "REVOKED",
+                "RETRY",
+                "TIMEOUT",
+                "TERMINATED",
+            }
             effective_status = result.state
-            if redis_progress:
+
+            # Only use Redis status if Celery state is non-terminal
+            # This prevents stale Redis data from showing completed jobs as running
+            if result.state not in TERMINAL_STATES and redis_progress:
                 redis_status = redis_progress.get("status")
-                if (
-                    redis_status in ("PROGRESS", "STARTED")
-                    and result.state == "SUCCESS"
-                ):
+                if redis_status in ("PROGRESS", "STARTED"):
                     effective_status = redis_status
 
             job_status = JobStatus(
