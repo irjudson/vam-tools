@@ -102,6 +102,27 @@ def _update_job_status(
         logger.warning(f"Failed to update job status for {job_id}: {e}")
 
 
+def _increment_job_failure_count(job_id: str) -> None:
+    """Increment the worker failure count in the job's result field."""
+    from ..db import get_db_context
+
+    try:
+        with get_db_context() as session:
+            job = session.query(Job).filter(Job.id == job_id).first()
+            if job:
+                if job.result is None:
+                    job.result = {}
+                if "worker_failures" not in job.result:
+                    job.result["worker_failures"] = 0
+                job.result["worker_failures"] += 1
+                session.commit()
+                logger.debug(
+                    f"Incremented worker_failures for job {job_id} to {job.result['worker_failures']}"
+                )
+    except Exception as e:
+        logger.warning(f"Failed to increment failure count for {job_id}: {e}")
+
+
 @app.task(bind=True, base=ProgressTask, name="duplicates_coordinator")
 def duplicates_coordinator_task(
     self: ProgressTask,
@@ -591,7 +612,9 @@ def duplicates_comparison_phase_task(
         )
 
         # Launch comparison workers with finalizer
-        finalizer = duplicates_finalizer_task.s(
+        # Use .si() (immutable signature) to prevent passing worker results through Redis
+        # Worker failures are tracked in the job record instead
+        finalizer = duplicates_finalizer_task.si(
             catalog_id=catalog_id,
             parent_job_id=parent_job_id,
             total_images=num_images,
@@ -872,6 +895,11 @@ def duplicates_compare_worker_task(
 
     except Exception as e:
         logger.error(f"[{worker_id}] Comparison worker failed: {e}", exc_info=True)
+        # Increment failure counter in job record
+        try:
+            _increment_job_failure_count(parent_job_id)
+        except Exception as count_error:
+            logger.warning(f"Failed to increment failure count: {count_error}")
         return {
             "status": "failed",
             "error": str(e),
@@ -978,7 +1006,6 @@ def _create_duplicate_group_tags(
 @app.task(bind=True, base=ProgressTask, name="duplicates_finalizer")
 def duplicates_finalizer_task(
     self: ProgressTask,
-    comparison_results: List[Dict[str, Any]],
     catalog_id: str,
     parent_job_id: str,
     total_images: int,
@@ -988,6 +1015,9 @@ def duplicates_finalizer_task(
 
     If there are too many failed comparisons, automatically queues a continuation
     job to retry the duplicate detection.
+
+    Note: Worker results are NOT passed to this task to avoid Redis memory issues.
+    Failure counts are tracked in the job's result field instead.
     """
     finalizer_id = self.request.id or "unknown"
     logger.info(f"[{finalizer_id}] Starting finalizer for job {parent_job_id}")
@@ -1194,9 +1224,17 @@ def duplicates_finalizer_task(
                     f"[{finalizer_id}] Failed to create duplicate group tags: {e}"
                 )
 
-        failed_comparisons = sum(
-            1 for r in comparison_results if r.get("status") == "failed"
-        )
+        # Get worker failure count from job record (tracked in database, not passed through Redis)
+        failed_comparisons = 0
+        try:
+            from ..db import get_db_context
+
+            with get_db_context() as session:
+                job = session.query(Job).filter(Job.id == parent_job_id).first()
+                if job and job.result and "worker_failures" in job.result:
+                    failed_comparisons = job.result["worker_failures"]
+        except Exception as e:
+            logger.warning(f"[{finalizer_id}] Failed to get worker failure count: {e}")
 
         # If there were too many failed comparisons, auto-requeue to continue
         if failed_comparisons >= CONSECUTIVE_FAILURE_THRESHOLD:
