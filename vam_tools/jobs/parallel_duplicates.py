@@ -1024,38 +1024,29 @@ def duplicates_finalizer_task(
 
     try:
         self.update_progress(
-            0, 1, "Building duplicate groups...", {"phase": "finalizing"}
+            0, 1, "Counting duplicate pairs...", {"phase": "finalizing"}
         )
 
-        # Collect all duplicate pairs from database (not from results to avoid Redis size limits)
-        all_pairs = []
+        # First, count total pairs without loading into memory
+        total_pairs = 0
         with CatalogDatabase(catalog_id) as db:
             assert db.session is not None
-            result = db.session.execute(
+            count_result = db.session.execute(
                 text(
                     """
-                    SELECT image_1, image_2, type, distance
-                    FROM duplicate_pairs_temp
+                    SELECT COUNT(*) FROM duplicate_pairs_temp
                     WHERE job_id = :job_id
                     """
                 ),
                 {"job_id": parent_job_id},
             )
-            for row in result:
-                all_pairs.append(
-                    {
-                        "image_1": row[0],
-                        "image_2": row[1],
-                        "type": row[2],
-                        "distance": row[3],
-                    }
-                )
+            total_pairs = count_result.scalar() or 0
 
         logger.info(
-            f"[{finalizer_id}] Collected {len(all_pairs)} duplicate pairs from database"
+            f"[{finalizer_id}] Found {total_pairs} duplicate pairs to process"
         )
 
-        if not all_pairs:
+        if total_pairs == 0:
             final_result = {
                 "status": "completed",
                 "catalog_id": catalog_id,
@@ -1067,8 +1058,135 @@ def duplicates_finalizer_task(
             _update_job_status(parent_job_id, "SUCCESS", result=final_result)
             return final_result
 
-        # Build groups using union-find
-        groups = _build_duplicate_groups(all_pairs)
+        # Use memory-optimized graph building:
+        # 1. Build adjacency graph only (no distances) - saves ~25GB for 352M pairs
+        # 2. Build groups from graph
+        # 3. Load pair_distances only for images in groups (much smaller dataset)
+        logger.info(
+            f"[{finalizer_id}] Processing {total_pairs:,} pairs with memory-optimized grouping"
+        )
+
+        self.update_progress(
+            0, total_pairs, "Building similarity graph...", {"phase": "graph_building"}
+        )
+
+        graph: Dict[str, set] = {}  # image_id -> set of similar image_ids
+        # DON'T keep pair_distances in memory for large datasets - query it later only for images in groups
+        pairs_processed = 0
+        BATCH_SIZE = 100000  # Process 100K pairs at a time
+
+        with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
+
+            # Use server-side cursor for streaming large result sets
+            result = db.session.execute(
+                text(
+                    """
+                    SELECT image_1, image_2
+                    FROM duplicate_pairs_temp
+                    WHERE job_id = :job_id
+                    ORDER BY distance ASC
+                    """
+                ),
+                {"job_id": parent_job_id},
+            )
+
+            batch = []
+            for row in result:
+                batch.append((row[0], row[1]))
+
+                if len(batch) >= BATCH_SIZE:
+                    # Process this batch
+                    for img1, img2 in batch:
+                        # Build adjacency list only (no distances to save memory)
+                        if img1 not in graph:
+                            graph[img1] = set()
+                        if img2 not in graph:
+                            graph[img2] = set()
+                        graph[img1].add(img2)
+                        graph[img2].add(img1)
+
+                    pairs_processed += len(batch)
+                    batch = []
+
+                    # Update progress every batch
+                    if pairs_processed % (BATCH_SIZE * 10) == 0:
+                        self.update_progress(
+                            pairs_processed,
+                            total_pairs,
+                            f"Processed {pairs_processed:,} / {total_pairs:,} pairs...",
+                            {"phase": "graph_building"},
+                        )
+                        logger.info(
+                            f"[{finalizer_id}] Graph building progress: {pairs_processed:,} / {total_pairs:,} pairs"
+                        )
+
+            # Process remaining pairs in final batch
+            if batch:
+                for img1, img2 in batch:
+                    if img1 not in graph:
+                        graph[img1] = set()
+                    if img2 not in graph:
+                        graph[img2] = set()
+                    graph[img1].add(img2)
+                    graph[img2].add(img1)
+
+                pairs_processed += len(batch)
+
+        logger.info(
+            f"[{finalizer_id}] Built similarity graph with {len(graph)} images and {pairs_processed:,} connections"
+        )
+
+        # Build groups from the graph (without distances for now)
+        self.update_progress(
+            0, 1, "Building duplicate groups from graph...", {"phase": "grouping"}
+        )
+        groups = _build_duplicate_groups_from_graph(graph, None)
+
+        # Now load pair_distances ONLY for images actually in groups (much smaller dataset)
+        self.update_progress(
+            0, 1, "Loading distances for grouped images only...", {"phase": "loading_distances"}
+        )
+
+        # Get set of all images in groups
+        images_in_groups = set()
+        for group in groups:
+            images_in_groups.update(group)
+
+        logger.info(
+            f"[{finalizer_id}] Loading distances for {len(images_in_groups)} images in {len(groups)} groups"
+        )
+
+        pair_distances: Dict[tuple, int] = {}
+        with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
+            # Query only pairs where both images are in groups
+            placeholders = ','.join([f':img{i}' for i in range(len(images_in_groups))])
+            params = {f'img{i}': img_id for i, img_id in enumerate(images_in_groups)}
+            params['job_id'] = parent_job_id
+
+            result = db.session.execute(
+                text(
+                    f"""
+                    SELECT image_1, image_2, distance
+                    FROM duplicate_pairs_temp
+                    WHERE job_id = :job_id
+                      AND image_1 IN ({placeholders})
+                      AND image_2 IN ({placeholders})
+                    """
+                ),
+                params,
+            )
+
+            for row in result:
+                key = tuple(sorted([row[0], row[1]]))
+                dist = row[2]
+                if key not in pair_distances or dist < pair_distances[key]:
+                    pair_distances[key] = dist
+
+        logger.info(
+            f"[{finalizer_id}] Loaded {len(pair_distances)} pair distances for similarity scoring"
+        )
         group_sizes = [len(g) for g in groups]
         logger.info(
             f"[{finalizer_id}] Built {len(groups)} duplicate groups. "
@@ -1102,13 +1220,8 @@ def duplicates_finalizer_task(
         # duplicate_members: group_id, image_id, similarity_score
         total_duplicates = 0
 
-        # Build a mapping of image pairs to their best distance for similarity scores
-        pair_distances: Dict[tuple, int] = {}
-        for pair in all_pairs:
-            key = tuple(sorted([pair["image_1"], pair["image_2"]]))
-            dist = pair.get("distance", 0)
-            if key not in pair_distances or dist < pair_distances[key]:
-                pair_distances[key] = dist
+        # pair_distances was already built during streaming (line 1104-1106)
+        # No need to rebuild it here
 
         # Collect group data for tag creation
         groups_data_for_tags = []
@@ -1335,6 +1448,176 @@ def _hamming_distance(hash1: str, hash2: str) -> int:
     return distance
 
 
+def _build_groups_incrementally_from_db(
+    catalog_id: str,
+    parent_job_id: str,
+    total_pairs: int,
+    finalizer_id: str,
+    progress_callback: Any = None,
+) -> List[List[str]]:
+    """
+    Build duplicate groups using database queries instead of in-memory graph.
+
+    For very large datasets (100M+ pairs), building the full graph in memory
+    causes OOM. This approach processes pairs in batches and queries the database
+    to check group membership, keeping only the groups themselves in memory.
+
+    Memory usage: O(num_groups × avg_group_size) instead of O(num_images × avg_neighbors)
+
+    Args:
+        catalog_id: UUID of the catalog
+        parent_job_id: Job ID for querying duplicate_pairs_temp
+        total_pairs: Total number of pairs (for progress tracking)
+        finalizer_id: ID for logging
+        progress_callback: Optional callback for progress updates
+
+    Returns:
+        List of image ID lists, each representing a duplicate group
+    """
+    logger.info(
+        f"[{finalizer_id}] Starting incremental grouping from database ({total_pairs:,} pairs)"
+    )
+
+    # Create indexes on duplicate_pairs_temp for fast neighbor lookups
+    with CatalogDatabase(catalog_id) as db:
+        assert db.session is not None
+        logger.info(f"[{finalizer_id}] Creating indexes for fast neighbor queries...")
+        db.session.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_dup_pairs_temp_img1
+                ON duplicate_pairs_temp(job_id, image_1)
+                """
+            )
+        )
+        db.session.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_dup_pairs_temp_img2
+                ON duplicate_pairs_temp(job_id, image_2)
+                """
+            )
+        )
+        db.session.commit()
+        logger.info(f"[{finalizer_id}] Indexes created")
+
+    groups: List[set] = []  # List of sets of image IDs
+    processed_pairs = 0
+    BATCH_SIZE = 100_000  # Process 100K pairs at a time
+
+    # Cache neighbor queries to avoid repeated database hits
+    neighbor_cache: Dict[str, set] = {}
+
+    def _get_neighbors_from_db(image_id: str) -> set:
+        """Query database for all neighbors of an image (with caching)."""
+        if image_id in neighbor_cache:
+            return neighbor_cache[image_id]
+
+        with CatalogDatabase(catalog_id) as db:
+            assert db.session is not None
+            result = db.session.execute(
+                text(
+                    """
+                    SELECT image_2 FROM duplicate_pairs_temp
+                    WHERE job_id = :job_id AND image_1 = :img_id
+                    UNION
+                    SELECT image_1 FROM duplicate_pairs_temp
+                    WHERE job_id = :job_id AND image_2 = :img_id
+                    """
+                ),
+                {"job_id": parent_job_id, "img_id": image_id},
+            )
+            neighbors = {row[0] for row in result}
+            neighbor_cache[image_id] = neighbors
+            return neighbors
+
+    def _can_join_group(img: str, group: set) -> bool:
+        """Check if image is similar to ALL members of a group by querying database."""
+        if img in group:
+            return True
+
+        # Get all neighbors of this image from database
+        neighbors = _get_neighbors_from_db(img)
+
+        # Check if all group members are in the neighbor set
+        return all(member in neighbors for member in group)
+
+    with CatalogDatabase(catalog_id) as db:
+        assert db.session is not None
+
+        # Stream pairs ordered by distance (most similar first)
+        result = db.session.execute(
+            text(
+                """
+                SELECT image_1, image_2
+                FROM duplicate_pairs_temp
+                WHERE job_id = :job_id
+                ORDER BY distance ASC
+                """
+            ),
+            {"job_id": parent_job_id},
+        )
+
+        batch = []
+        for row in result:
+            batch.append((row[0], row[1]))
+
+            if len(batch) >= BATCH_SIZE:
+                # Process this batch of pairs
+                for img1, img2 in batch:
+                    # Try to add this pair to an existing group
+                    added = False
+                    for group in groups:
+                        # Check if both images can join this group (similar to ALL members)
+                        if _can_join_group(img1, group) and _can_join_group(img2, group):
+                            group.add(img1)
+                            group.add(img2)
+                            added = True
+                            break
+
+                    # If couldn't join existing group, create new group
+                    if not added:
+                        groups.append({img1, img2})
+
+                processed_pairs += len(batch)
+                batch = []
+
+                # Progress update every batch
+                if progress_callback and processed_pairs % (BATCH_SIZE * 10) == 0:
+                    progress_callback(
+                        processed_pairs,
+                        total_pairs,
+                        f"Grouped {processed_pairs:,} / {total_pairs:,} pairs ({len(groups)} groups so far)...",
+                        {"phase": "incremental_grouping"},
+                    )
+                    logger.info(
+                        f"[{finalizer_id}] Incremental grouping progress: {processed_pairs:,} / {total_pairs:,} pairs, {len(groups)} groups"
+                    )
+
+        # Process remaining batch
+        if batch:
+            for img1, img2 in batch:
+                added = False
+                for group in groups:
+                    if _can_join_group(img1, group) and _can_join_group(img2, group):
+                        group.add(img1)
+                        group.add(img2)
+                        added = True
+                        break
+
+                if not added:
+                    groups.append({img1, img2})
+
+            processed_pairs += len(batch)
+
+    logger.info(
+        f"[{finalizer_id}] Incremental grouping complete: {len(groups)} groups from {processed_pairs:,} pairs"
+    )
+
+    # Convert sets to lists, filter groups with size >= 2
+    return [list(g) for g in groups if len(g) >= 2]
+
+
 def _can_add_to_group(img: str, group: set, graph: Dict[str, set]) -> bool:
     """
     Check if an image is similar to ALL members of a group.
@@ -1352,6 +1635,69 @@ def _can_add_to_group(img: str, group: set, graph: Dict[str, set]) -> bool:
 
     neighbors = graph.get(img, set())
     return all(member in neighbors for member in group)
+
+
+def _build_duplicate_groups_from_graph(
+    graph: Dict[str, set], pair_distances: Optional[Dict[tuple, int]] = None
+) -> List[List[str]]:
+    """
+    Build duplicate groups from a pre-built similarity graph.
+
+    This is a memory-efficient version that works with a graph already built
+    from streaming pairs, avoiding the need to load all pairs into memory.
+
+    Args:
+        graph: Adjacency list mapping image_id -> set of similar image_ids
+        pair_distances: Optional mapping of (img1, img2) -> distance for sorting
+
+    Returns:
+        List of image ID lists, each representing a duplicate group
+    """
+    if not graph:
+        return []
+
+    # Extract unique pairs from graph (each edge appears twice, so deduplicate)
+    pairs_set = set()
+    for img1 in graph:
+        for img2 in graph[img1]:
+            # Use tuple with sorted IDs to ensure uniqueness
+            pair = tuple(sorted([img1, img2]))
+            pairs_set.add(pair)
+
+    # Convert to list of pairs for sorting
+    pairs_list = list(pairs_set)
+
+    # Sort by distance if available (most similar first = lowest distance)
+    if pair_distances:
+        pairs_list.sort(key=lambda p: pair_distances.get(p, 999))
+
+    # Greedy group building
+    groups: List[set] = []
+    assigned: set = set()  # Track images already in groups
+
+    for img1, img2 in pairs_list:
+        # Try to add this pair to an existing group
+        added = False
+        for dup_group in groups:
+            # Check if both images are similar to ALL group members
+            if _can_add_to_group(img1, dup_group, graph) and _can_add_to_group(
+                img2, dup_group, graph
+            ):
+                dup_group.add(img1)
+                dup_group.add(img2)
+                assigned.add(img1)
+                assigned.add(img2)
+                added = True
+                break
+
+        # If couldn't add to existing group, create new group
+        if not added:
+            groups.append({img1, img2})
+            assigned.add(img1)
+            assigned.add(img2)
+
+    # Convert sets to lists, filter groups with size >= 2
+    return [list(g) for g in groups if len(g) >= 2]
 
 
 def _build_duplicate_groups(pairs: List[Dict[str, Any]]) -> List[List[str]]:
