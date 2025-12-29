@@ -21,10 +21,12 @@ from .db.config import settings
 logger = logging.getLogger(__name__)
 
 # Create Celery app
+# Redis is ONLY used as message broker, NOT for storing results
+# All job state/results are tracked in PostgreSQL via the Job model
 app = Celery(
     "vam_tools",
     broker=settings.redis_url,
-    backend=settings.redis_url,  # Store results in Redis
+    backend=None,  # DO NOT store results in Redis - use PostgreSQL Job model
 )
 
 # Import tasks to register them
@@ -41,15 +43,14 @@ app.conf.update(
     enable_utc=True,
     # Task execution settings
     task_track_started=True,
-    task_time_limit=3600 * 48,  # 48 hours max per task (for large catalogs)
-    task_soft_time_limit=3600 * 47,  # 47 hours soft limit
+    task_time_limit=3600,  # 1 hour max per task (jobs must be broken into sub-tasks)
+    task_soft_time_limit=3300,  # 55 minute soft limit (5 min grace for cleanup)
     # Task acknowledgment - acknowledge immediately to prevent zombie redeliveries
     # With parallel batch pattern, we track progress in DB so lost tasks can be recovered
     task_acks_late=False,  # Acknowledge immediately when task starts
     task_reject_on_worker_lost=False,  # Don't requeue - we handle recovery in job_recovery.py
-    # Result backend settings
-    result_expires=3600 * 24,  # Keep results for 24 hours
-    result_extended=True,  # Store more task metadata
+    # NO result backend - all state tracked in PostgreSQL Job model
+    # Redis only used for message brokering, NOT result storage
     # Worker settings
     worker_prefetch_multiplier=1,  # Take one task at a time
     worker_max_tasks_per_child=100,  # Restart less often - we track state in DB
