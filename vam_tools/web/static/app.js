@@ -211,6 +211,7 @@ createApp({
             selectedBurst: null,
             selectedBurstImage: null,
             burstImages: [],
+            burstPreviewImages: {}, // Cache for card grid preview images: { burstId: [images...] }
             currentBurst: null,
             showBurstModal: false,
 
@@ -2287,6 +2288,12 @@ createApp({
                     await this.loadBurstsStats();
                 }
 
+                // Pre-load preview images for card grid (first 4 images of each burst)
+                const newBursts = reset ? this.bursts : (response.data.bursts || []);
+                for (const burst of newBursts) {
+                    this.loadBurstPreviewImages(burst.id);
+                }
+
             } catch (error) {
                 console.error('Error loading bursts:', error);
                 this.addNotification('Failed to load bursts', 'error');
@@ -2362,6 +2369,49 @@ createApp({
                 minSize: null
             };
             this.loadBursts(true);
+        },
+
+        async selectBurstForModal(burst) {
+            // Open burst detail modal (card grid pattern)
+            this.selectedBurst = burst;
+            this.selectedBurstImage = null;
+            await this.loadBurstImages(burst.id);
+        },
+
+        closeSelectedBurst() {
+            // Close burst detail modal
+            this.selectedBurst = null;
+            this.selectedBurstImage = null;
+            this.burstImages = [];
+        },
+
+        async loadBurstPreviewImages(burstId) {
+            // Load first 4 images for card grid preview
+            if (this.burstPreviewImages[burstId]) {
+                return; // Already loaded
+            }
+
+            try {
+                const response = await axios.get(
+                    `/api/catalogs/${this.currentCatalog.id}/bursts/${burstId}`
+                );
+                const images = response.data.images || [];
+                this.$set(this.burstPreviewImages, burstId, images.slice(0, 4));
+            } catch (error) {
+                console.error('Failed to load burst preview images:', error);
+                this.$set(this.burstPreviewImages, burstId, []);
+            }
+        },
+
+        formatTime(timestamp) {
+            // Format time as HH:MM for card footer
+            if (!timestamp) return '';
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
         },
 
         openImageInLightbox(image) {

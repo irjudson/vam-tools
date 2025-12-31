@@ -2928,7 +2928,33 @@ section h3 {
     font-size: 0.875rem;
 }
 
-/* Duplicates Grid */
+/* Group Cards Grid (shared by duplicates and bursts) */
+.group-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.group-card {
+    background: #1e293b;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 2px solid transparent;
+}
+
+.group-card:hover {
+    border-color: #60a5fa;
+    transform: translateY(-2px);
+}
+
+.group-card.reviewed {
+    opacity: 0.7;
+    border-color: #22c55e33;
+}
+
+/* Legacy class names for backward compatibility */
 .duplicates-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -3117,6 +3143,63 @@ section h3 {
     font-size: 0.75rem;
     color: #60a5fa;
     margin-top: 0.25rem;
+}
+
+/* Burst Detail Modal Preview */
+.burst-preview-section {
+    margin-bottom: 1rem;
+}
+
+.burst-large-preview {
+    position: relative;
+    background: #0f172a;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.burst-large-preview img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.preview-overlay-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+    padding: 1rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.preview-overlay-info .filename {
+    color: #e2e8f0;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.preview-overlay-info .sequence,
+.preview-overlay-info .quality {
+    color: #94a3b8;
+    font-size: 0.75rem;
+}
+
+.preview-actions {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.badge-info {
+    background: #3b82f633;
+    color: #60a5fa;
 }
 
 /* ============================================
