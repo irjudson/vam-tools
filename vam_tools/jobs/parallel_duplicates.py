@@ -1500,7 +1500,7 @@ def _build_groups_incrementally_from_db(
         parent_map = {}
         rank_map = {}
 
-        def find(x: str) -> str:
+        def find(x: str) -> str:  # noqa: B023
             """Find root with path compression."""
             if x not in parent_map:
                 parent_map[x] = x
@@ -1509,7 +1509,7 @@ def _build_groups_incrementally_from_db(
                 parent_map[x] = find(parent_map[x])
             return parent_map[x]
 
-        def union(x: str, y: str) -> None:
+        def union(x: str, y: str) -> None:  # noqa: B023
             """Union by rank."""
             px, py = find(x), find(y)
             if px == py:
@@ -1565,7 +1565,7 @@ def _build_groups_incrementally_from_db(
     logger.info(f"[{finalizer_id}] Phase 4: Validating/decomposing cliques...")
 
     cliques: List[List[str]] = []
-    for i, (root, images) in enumerate(components.items()):
+    for i, (_root, images) in enumerate(components.items()):
         if len(images) < 2:
             continue
 
@@ -1704,7 +1704,7 @@ def _constrained_grouping(
         candidates.sort(key=lambda x: x[1])
 
         # Greedily add candidates
-        for candidate, seed_dist in candidates:
+        for candidate, _seed_dist in candidates:
             if len(group) >= MAX_GROUP_SIZE:
                 break  # Hit size limit
 
