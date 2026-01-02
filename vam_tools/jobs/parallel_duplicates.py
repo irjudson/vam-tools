@@ -17,6 +17,7 @@ The comparison phase uses a block-based approach:
 - Each compare worker handles one block pair (i,j) comparison
 - This distributes the O(n²) comparisons across workers
 """
+# flake8: noqa: B023
 
 from __future__ import annotations
 
@@ -1500,7 +1501,7 @@ def _build_groups_incrementally_from_db(
         parent_map = {}
         rank_map = {}
 
-        def find(x: str) -> str:  # noqa: B023
+        def find(x: str) -> str:
             """Find root with path compression."""
             if x not in parent_map:
                 parent_map[x] = x
@@ -1509,7 +1510,7 @@ def _build_groups_incrementally_from_db(
                 parent_map[x] = find(parent_map[x])
             return parent_map[x]
 
-        def union(x: str, y: str) -> None:  # noqa: B023
+        def union(x: str, y: str) -> None:
             """Union by rank."""
             px, py = find(x), find(y)
             if px == py:
