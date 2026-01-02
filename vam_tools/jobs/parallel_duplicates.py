@@ -17,6 +17,7 @@ The comparison phase uses a block-based approach:
 - Each compare worker handles one block pair (i,j) comparison
 - This distributes the O(n²) comparisons across workers
 """
+
 # flake8: noqa: B023
 
 from __future__ import annotations
