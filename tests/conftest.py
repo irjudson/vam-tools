@@ -13,9 +13,9 @@ import sys
 # Get worker ID from environment (set by pytest-xdist)
 # This allows each xdist worker to use a separate database
 worker_id = os.getenv("PYTEST_XDIST_WORKER", "master")
-test_db_name = f"vam-tools-test-{worker_id}"
+test_db_name = f"lumina-test-{worker_id}"
 
-# Set environment variable BEFORE any vam_tools imports
+# Set environment variable BEFORE any lumina imports
 os.environ["POSTGRES_DB"] = test_db_name
 
 # Remove any already-imported vam_tools modules to force reload with test settings
@@ -68,10 +68,10 @@ def get_test_engine():
         cursor.execute("SELECT current_database()")
         db_name = cursor.fetchone()[0]
         cursor.close()
-        if not db_name.startswith("vam-tools-test"):
+        if not db_name.startswith("lumina-test"):
             raise RuntimeError(
                 f"CRITICAL: Attempted to connect to '{db_name}' "
-                f"instead of a vam-tools-test database!"
+                f"instead of a lumina-test database!"
             )
 
     return engine

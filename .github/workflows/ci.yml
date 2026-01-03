@@ -39,22 +39,22 @@ jobs:
     - name: Check formatting with black
       run: |
         source venv/bin/activate
-        black --check vam_tools/ tests/
+        black --check lumina/ tests/
 
     - name: Check import sorting with isort
       run: |
         source venv/bin/activate
-        isort --check-only vam_tools/ tests/
+        isort --check-only lumina/ tests/
 
     - name: Lint with flake8
       run: |
         source venv/bin/activate
-        flake8 vam_tools/ tests/
+        flake8 lumina/ tests/
 
     - name: Type check with mypy
       run: |
         source venv/bin/activate
-        mypy vam_tools/
+        mypy lumina/
 
   # Run tests on multiple platforms and Python versions
   test:
@@ -117,7 +117,7 @@ jobs:
           source venv/bin/activate
         fi
         # Skip integration tests - they require database services
-        pytest -m "not integration" --cov=vam_tools --cov-report=xml --cov-report=term -v
+        pytest -m "not integration" --cov=lumina --cov-report=xml --cov-report=term -v
 
     - name: Upload coverage to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -140,9 +140,9 @@ jobs:
         env:
           POSTGRES_USER: pg
           POSTGRES_PASSWORD: test
-          # conftest.py appends worker ID to DB name: vam-tools-test-{worker_id}
+          # conftest.py appends worker ID to DB name: lumina-test-{worker_id}
           # When not using xdist, worker_id is "master"
-          POSTGRES_DB: vam-tools-test-master
+          POSTGRES_DB: lumina-test-master
         ports:
           - 5432:5432
         options: >-
@@ -200,7 +200,7 @@ jobs:
         POSTGRES_PASSWORD: test
         # Note: conftest.py overrides this with worker-specific name
         # The POSTGRES_DB in service must match what conftest.py expects
-        POSTGRES_DB: vam-tools-test-master
+        POSTGRES_DB: lumina-test-master
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         CELERY_BROKER_URL: redis://localhost:6379/0
@@ -208,7 +208,7 @@ jobs:
       run: |
         source venv/bin/activate
         # Override the default marker filter from pyproject.toml to run integration tests
-        pytest -m "integration" -o "addopts=" --cov=vam_tools --cov-report=xml --cov-report=term -v
+        pytest -m "integration" -o "addopts=" --cov=lumina --cov-report=xml --cov-report=term -v
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
