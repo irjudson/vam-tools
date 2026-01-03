@@ -1,4 +1,4 @@
-// VAM Tools - Complete MVP Application
+// Lumina - Complete MVP Application
 const { createApp } = Vue;
 
 createApp({
