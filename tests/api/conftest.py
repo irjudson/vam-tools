@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client(db_session):
     """Create a test client for the FastAPI application."""
-    from vam_tools.api.app import app
-    from vam_tools.db import get_db
+    from lumina.api.app import app
+    from lumina.db import get_db
 
     # Override the get_db dependency to use our test database session
     def override_get_db():

@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pytest
 
-from vam_tools.core.performance_stats import (
+from lumina.core.performance_stats import (
     AnalysisStatistics,
     FileFormatStats,
     HashingStats,

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from vam_tools.shared import (
+from lumina.shared import (
     IMAGE_EXTENSIONS,
     VIDEO_EXTENSIONS,
     collect_image_files,

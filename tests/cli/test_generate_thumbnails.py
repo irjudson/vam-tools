@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch
 import pytest
 from click.testing import CliRunner
 
-from vam_tools.cli.generate_thumbnails import generate
-from vam_tools.core.types import FileType, ImageRecord
+from lumina.cli.generate_thumbnails import generate
+from lumina.core.types import FileType, ImageRecord
 
 
 class TestGenerateThumbnailsCLI:
@@ -54,8 +54,8 @@ class TestGenerateThumbnailsCLI:
             ),
         ]
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.generate_thumbnail")
     def test_generate_basic(
         self,
         mock_gen_thumb,
@@ -85,7 +85,7 @@ class TestGenerateThumbnailsCLI:
         # Verify execute was called to update thumbnail_path
         assert mock_db.execute.call_count >= 2  # At least 2 for updates
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
     def test_generate_no_images(
         self, mock_catalog_cls, runner: CliRunner, catalog_dir: Path
     ) -> None:
@@ -99,7 +99,7 @@ class TestGenerateThumbnailsCLI:
         assert result.exit_code == 0
         assert "No images found" in result.output
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
     def test_generate_catalog_connection_error(
         self, mock_catalog_cls, runner: CliRunner, catalog_dir: Path
     ) -> None:
@@ -111,8 +111,8 @@ class TestGenerateThumbnailsCLI:
         assert result.exit_code == 1
         assert "Error loading catalog" in result.output
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.generate_thumbnail")
     def test_generate_with_force(
         self,
         mock_gen_thumb,
@@ -145,8 +145,8 @@ class TestGenerateThumbnailsCLI:
         assert "Generated: 2" in result.output
         assert mock_gen_thumb.call_count == 2  # Should call for all images
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.generate_thumbnail")
     def test_generate_skip_existing(
         self,
         mock_gen_thumb,
@@ -189,8 +189,8 @@ class TestGenerateThumbnailsCLI:
         assert "Skipped: 1" in result.output
         assert mock_gen_thumb.call_count == 1  # Only called for the second image
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.generate_thumbnail")
     def test_generate_with_custom_size(
         self,
         mock_gen_thumb,
@@ -220,8 +220,8 @@ class TestGenerateThumbnailsCLI:
         assert len(calls) == 2
         assert calls[0][1]["size"] == (300, 300)
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.generate_thumbnail")
     def test_generate_with_custom_quality(
         self,
         mock_gen_thumb,
@@ -251,8 +251,8 @@ class TestGenerateThumbnailsCLI:
         assert len(calls) == 2
         assert calls[0][1]["quality"] == 70
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.generate_thumbnail")
     def test_generate_with_errors(
         self,
         mock_gen_thumb,
@@ -280,7 +280,7 @@ class TestGenerateThumbnailsCLI:
         assert "Generated: 1" in result.output
         assert "Errors: 1" in result.output
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
     def test_generate_verbose(
         self, mock_catalog_cls, runner: CliRunner, catalog_dir: Path
     ) -> None:
@@ -296,8 +296,8 @@ class TestGenerateThumbnailsCLI:
         assert result.exit_code == 0
         # Verbose flag should enable debug logging
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.generate_thumbnail")
     def test_generate_updates_catalog(
         self,
         mock_gen_thumb,
@@ -339,8 +339,8 @@ class TestGenerateThumbnailsCLI:
         assert result.exit_code != 0
         # Click will fail before our code runs
 
-    @patch("vam_tools.cli.generate_thumbnails.CatalogDatabase")
-    @patch("vam_tools.cli.generate_thumbnails.generate_thumbnail")
+    @patch("lumina.cli.generate_thumbnails.CatalogDatabase")
+    @patch("lumina.cli.generate_thumbnails.generate_thumbnail")
     def test_generate_all_options(
         self,
         mock_gen_thumb,

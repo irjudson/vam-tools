@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vam_tools.analysis.duplicate_detector import DuplicateDetector
-from vam_tools.analysis.scanner import ImageScanner
-from vam_tools.db import CatalogDB as CatalogDatabase
+from lumina.analysis.duplicate_detector import DuplicateDetector
+from lumina.analysis.scanner import ImageScanner
+from lumina.db import CatalogDB as CatalogDatabase
 
 # ==============================================================================
 # Module-scoped fixtures - Create test images once for entire test file
@@ -375,7 +375,7 @@ class TestDuplicateDetector:
             scanner.scan_directories([photos_dir])
 
             # Detect duplicates with all hash methods
-            from vam_tools.analysis.perceptual_hash import HashMethod
+            from lumina.analysis.perceptual_hash import HashMethod
 
             detector = DuplicateDetector(
                 db,
@@ -437,7 +437,7 @@ class TestDuplicateDetector:
         path = photos_dir / "single.jpg"
         img.save(path)
 
-        from vam_tools.core.types import FileType, ImageRecord
+        from lumina.core.types import FileType, ImageRecord
 
         with CatalogDatabase(catalog_dir) as db:
             db.initialize()
@@ -468,7 +468,7 @@ class TestDuplicateDetector:
         photos_dir.mkdir()
         unique_prefix = str(uuid.uuid4())[:8]
 
-        from vam_tools.core.types import FileType, ImageRecord
+        from lumina.core.types import FileType, ImageRecord
 
         with CatalogDatabase(catalog_dir) as db:
             db.initialize()

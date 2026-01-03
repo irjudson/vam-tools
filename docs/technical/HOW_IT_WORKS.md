@@ -1,6 +1,6 @@
-# How VAM Tools Works
+# How Lumina Works
 
-This document explains the technical details of how VAM Tools analyzes and catalogs your photo library.
+This document explains the technical details of how Lumina analyzes and catalogs your photo library.
 
 ## Analysis Pipeline
 

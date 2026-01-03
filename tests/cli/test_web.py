@@ -11,8 +11,8 @@ import pytest
 from click.testing import CliRunner
 from PIL import Image
 
-from vam_tools.cli.analyze import analyze
-from vam_tools.cli.web import web
+from lumina.cli.analyze import analyze
+from lumina.cli.web import web
 
 pytestmark = pytest.mark.integration
 
@@ -43,8 +43,8 @@ class TestWebCLI:
         assert "Error: Catalog not found" in result.output
         assert "vam-analyze" in result.output
 
-    @patch("vam_tools.cli.web.uvicorn.run")
-    @patch("vam_tools.cli.web.init_catalog")
+    @patch("lumina.cli.web.uvicorn.run")
+    @patch("lumina.cli.web.init_catalog")
     def test_web_basic_launch(
         self, mock_init: MagicMock, mock_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -70,8 +70,8 @@ class TestWebCLI:
         mock_init.assert_called_once_with(catalog_path)
         mock_run.assert_called_once()
 
-    @patch("vam_tools.cli.web.uvicorn.run")
-    @patch("vam_tools.cli.web.init_catalog")
+    @patch("lumina.cli.web.uvicorn.run")
+    @patch("lumina.cli.web.init_catalog")
     def test_web_custom_host_port(
         self, mock_init: MagicMock, mock_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -100,8 +100,8 @@ class TestWebCLI:
         assert call_kwargs["host"] == "0.0.0.0"
         assert call_kwargs["port"] == 9000
 
-    @patch("vam_tools.cli.web.uvicorn.run")
-    @patch("vam_tools.cli.web.init_catalog")
+    @patch("lumina.cli.web.uvicorn.run")
+    @patch("lumina.cli.web.init_catalog")
     def test_web_reload_mode(
         self, mock_init: MagicMock, mock_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -126,8 +126,8 @@ class TestWebCLI:
         call_kwargs = mock_run.call_args[1]
         assert call_kwargs["reload"] is True
 
-    @patch("vam_tools.cli.web.uvicorn.run")
-    @patch("vam_tools.cli.web.init_catalog")
+    @patch("lumina.cli.web.uvicorn.run")
+    @patch("lumina.cli.web.init_catalog")
     def test_web_default_settings(
         self, mock_init: MagicMock, mock_run: MagicMock, tmp_path: Path
     ) -> None:

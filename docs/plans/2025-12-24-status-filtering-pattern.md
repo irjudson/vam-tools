@@ -1,10 +1,10 @@
 # Status Filtering Pattern
 
-This document describes the pattern for filtering images by status across the VAM Tools API.
+This document describes the pattern for filtering images by status across the Lumina API.
 
 ## Overview
 
-Images in VAM Tools can have different status values (`active`, `rejected`, etc.). Most API endpoints should exclude rejected images by default to provide a clean user experience, while offering an option to include all statuses when needed.
+Images in Lumina can have different status values (`active`, `rejected`, etc.). Most API endpoints should exclude rejected images by default to provide a clean user experience, while offering an option to include all statuses when needed.
 
 ## Default Behavior
 

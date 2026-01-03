@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from vam_tools.core.types import DateInfo, FileType, ImageMetadata, ImageRecord
-from vam_tools.organization.reorganizer import should_reorganize_image
+from lumina.core.types import DateInfo, FileType, ImageMetadata, ImageRecord
+from lumina.organization.reorganizer import should_reorganize_image
 
 
 class TestShouldReorganizeImage:
@@ -38,7 +38,7 @@ class TestShouldReorganizeImage:
         target_file.write_bytes(b"test content")
 
         # Calculate checksum of target
-        from vam_tools.shared.media_utils import compute_checksum
+        from lumina.shared.media_utils import compute_checksum
 
         target_checksum = compute_checksum(target_file)
 

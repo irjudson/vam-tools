@@ -9,15 +9,15 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from vam_tools.db.catalog_schema import (
+from lumina.db.catalog_schema import (
     create_schema,
     delete_catalog_data,
     get_catalog_statistics,
     get_image_count,
     schema_exists,
 )
-from vam_tools.db.connection import SessionLocal
-from vam_tools.db.models import Catalog
+from lumina.db.connection import SessionLocal
+from lumina.db.models import Catalog
 
 pytestmark = pytest.mark.integration
 

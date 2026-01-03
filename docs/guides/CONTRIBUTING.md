@@ -1,6 +1,6 @@
-# Contributing to VAM Tools
+# Contributing to Lumina
 
-Thank you for your interest in contributing to VAM Tools! This guide will help you get started.
+Thank you for your interest in contributing to Lumina! This guide will help you get started.
 
 ## Table of Contents
 
@@ -53,7 +53,7 @@ git config core.hooksPath
 
 ## Quality Gates
 
-VAM Tools uses **automated quality gates** to ensure code quality. These gates run:
+Lumina uses **automated quality gates** to ensure code quality. These gates run:
 
 1. **Locally** - via pre-push hooks (catches issues before GitHub)
 2. **In CI** - via GitHub Actions (final verification)
@@ -119,7 +119,7 @@ pytest -k "checksum"
 
 ## Code Style
 
-VAM Tools follows PEP 8 with some customizations.
+Lumina follows PEP 8 with some customizations.
 
 ### Formatting with Black
 
@@ -360,4 +360,4 @@ By contributing, you agree that your contributions will be licensed under the pr
 
 ---
 
-**Thank you for contributing to VAM Tools!** 🎉
+**Thank you for contributing to Lumina!** 🎉

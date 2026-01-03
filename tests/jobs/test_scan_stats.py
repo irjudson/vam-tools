@@ -2,7 +2,7 @@
 
 import time
 
-from vam_tools.jobs.scan_stats import ScanStatistics
+from lumina.jobs.scan_stats import ScanStatistics
 
 
 class TestScanStatistics:

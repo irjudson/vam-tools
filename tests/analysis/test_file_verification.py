@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
-from vam_tools.analysis.file_verification import (
+from lumina.analysis.file_verification import (
     VerificationResult,
     get_corruption_report,
     verify_file_integrity,

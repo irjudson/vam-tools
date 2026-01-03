@@ -1,4 +1,4 @@
-# GPU Acceleration Plan for VAM Tools
+# GPU Acceleration Plan for Lumina
 
 ## Executive Summary
 

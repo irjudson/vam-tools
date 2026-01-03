@@ -1,8 +1,8 @@
-# VAM Tools - Safety Guarantees
+# Lumina - Safety Guarantees
 
 ## 🛡️ Non-Destructive Operations
 
-VAM Tools is designed to be **safe by default**. Here's what protects your files:
+Lumina is designed to be **safe by default**. Here's what protects your files:
 
 ---
 
@@ -436,4 +436,4 @@ Before running in production:
 
 ---
 
-**Bottom Line**: VAM Tools is designed to be **safe by default**, with multiple layers of protection. The only destructive operation (MOVE) requires explicit opt-in and has rollback capability.
+**Bottom Line**: Lumina is designed to be **safe by default**, with multiple layers of protection. The only destructive operation (MOVE) requires explicit opt-in and has rollback capability.

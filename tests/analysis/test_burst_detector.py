@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from vam_tools.analysis.burst_detector import BurstDetector, BurstGroup, ImageInfo
+from lumina.analysis.burst_detector import BurstDetector, BurstGroup, ImageInfo
 
 
 class TestImageInfo:

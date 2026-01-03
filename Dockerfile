@@ -1,4 +1,4 @@
-# Multi-stage build for VAM Tools
+# Multi-stage build for Lumina
 # Use NVIDIA CUDA base image for GPU acceleration
 # Using CUDA 12.6 for RTX 5060 Ti Blackwell (sm_120) support
 FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04 as base
@@ -59,7 +59,7 @@ RUN pip install --no-cache-dir \
     ollama>=0.3.0
 
 # Copy application code
-COPY vam_tools/ ./vam_tools/
+COPY lumina/ ./lumina/
 
 # Create directories for catalogs and photos
 RUN mkdir -p /app/catalogs /app/photos
@@ -68,4 +68,4 @@ RUN mkdir -p /app/catalogs /app/photos
 EXPOSE 8000
 
 # Default command (can be overridden in docker-compose)
-CMD ["uvicorn", "vam_tools.web.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "lumina.web.api:app", "--host", "0.0.0.0", "--port", "8000"]

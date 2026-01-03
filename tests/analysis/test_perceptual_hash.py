@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from vam_tools.analysis.perceptual_hash import (
+from lumina.analysis.perceptual_hash import (
     _load_image_for_hashing,
     ahash,
     are_similar,
@@ -555,21 +555,21 @@ class TestGetRecommendedThreshold:
 
     def test_recommended_threshold_dhash(self) -> None:
         """Test recommended threshold for dHash."""
-        from vam_tools.analysis.perceptual_hash import HashMethod
+        from lumina.analysis.perceptual_hash import HashMethod
 
         threshold = get_recommended_threshold(HashMethod.DHASH)
         assert threshold == 5
 
     def test_recommended_threshold_ahash(self) -> None:
         """Test recommended threshold for aHash."""
-        from vam_tools.analysis.perceptual_hash import HashMethod
+        from lumina.analysis.perceptual_hash import HashMethod
 
         threshold = get_recommended_threshold(HashMethod.AHASH)
         assert threshold == 6
 
     def test_recommended_threshold_whash(self) -> None:
         """Test recommended threshold for wHash."""
-        from vam_tools.analysis.perceptual_hash import HashMethod
+        from lumina.analysis.perceptual_hash import HashMethod
 
         threshold = get_recommended_threshold(HashMethod.WHASH)
         assert threshold == 4
@@ -840,7 +840,7 @@ class TestCorruptionTracking:
     @pytest.fixture(autouse=True)
     def reset_corruption_tracker(self):
         """Reset corruption tracker before each test."""
-        from vam_tools.analysis.perceptual_hash import _corruption_tracker
+        from lumina.analysis.perceptual_hash import _corruption_tracker
 
         _corruption_tracker.corrupted_files = []
         yield
@@ -848,7 +848,7 @@ class TestCorruptionTracking:
 
     def test_track_corrupted_file_minor(self, tmp_path: Path) -> None:
         """Test tracking a file with minor corruption."""
-        from vam_tools.analysis.perceptual_hash import (
+        from lumina.analysis.perceptual_hash import (
             CorruptionSeverity,
             _corruption_tracker,
             get_corruption_report,
@@ -869,7 +869,7 @@ class TestCorruptionTracking:
 
     def test_track_corrupted_file_moderate(self, tmp_path: Path) -> None:
         """Test tracking a file with moderate corruption."""
-        from vam_tools.analysis.perceptual_hash import (
+        from lumina.analysis.perceptual_hash import (
             CorruptionSeverity,
             _corruption_tracker,
             get_corruption_report,
@@ -888,7 +888,7 @@ class TestCorruptionTracking:
 
     def test_track_corrupted_file_severe(self, tmp_path: Path) -> None:
         """Test tracking a file with severe corruption."""
-        from vam_tools.analysis.perceptual_hash import (
+        from lumina.analysis.perceptual_hash import (
             CorruptionSeverity,
             _corruption_tracker,
             get_corruption_report,
@@ -907,7 +907,7 @@ class TestCorruptionTracking:
 
     def test_track_multiple_corrupted_files(self, tmp_path: Path) -> None:
         """Test tracking multiple corrupted files."""
-        from vam_tools.analysis.perceptual_hash import (
+        from lumina.analysis.perceptual_hash import (
             CorruptionSeverity,
             _corruption_tracker,
             get_corruption_report,
@@ -942,7 +942,7 @@ class TestCorruptionTracking:
 
     def test_corruption_report_structure(self, tmp_path: Path) -> None:
         """Test corruption report structure."""
-        from vam_tools.analysis.perceptual_hash import (
+        from lumina.analysis.perceptual_hash import (
             CorruptionSeverity,
             _corruption_tracker,
             get_corruption_report,
@@ -969,7 +969,7 @@ class TestCorruptionTracking:
         """Test saving corruption report to JSON file."""
         import json
 
-        from vam_tools.analysis.perceptual_hash import (
+        from lumina.analysis.perceptual_hash import (
             CorruptionSeverity,
             _corruption_tracker,
             save_corruption_report,
@@ -993,7 +993,7 @@ class TestCorruptionTracking:
 
     def test_get_corruption_summary(self, tmp_path: Path) -> None:
         """Test getting corruption summary text."""
-        from vam_tools.analysis.perceptual_hash import (
+        from lumina.analysis.perceptual_hash import (
             CorruptionSeverity,
             _corruption_tracker,
             get_corruption_summary,
@@ -1014,7 +1014,7 @@ class TestCorruptionTracking:
 
     def test_empty_corruption_report(self) -> None:
         """Test corruption report when no files are tracked."""
-        from vam_tools.analysis.perceptual_hash import get_corruption_report
+        from lumina.analysis.perceptual_hash import get_corruption_report
 
         report = get_corruption_report()
 
@@ -1023,7 +1023,7 @@ class TestCorruptionTracking:
 
     def test_truncated_image_handling(self, tmp_path: Path) -> None:
         """Test that truncated images are properly tracked."""
-        from vam_tools.analysis.perceptual_hash import (
+        from lumina.analysis.perceptual_hash import (
             _load_image_for_hashing,
             get_corruption_report,
         )

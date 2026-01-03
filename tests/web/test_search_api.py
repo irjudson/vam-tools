@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from vam_tools.analysis.semantic_search import SearchResult
-from vam_tools.web.api import app
+from lumina.analysis.semantic_search import SearchResult
+from lumina.web.api import app
 
 pytestmark = pytest.mark.integration
 
@@ -19,7 +19,7 @@ class TestSearchAPI:
         client = TestClient(app)
 
         # Mock the SemanticSearchService
-        with patch("vam_tools.web.api.get_search_service") as mock_get_service:
+        with patch("lumina.web.api.get_search_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.search.return_value = [
                 SearchResult(
@@ -31,7 +31,7 @@ class TestSearchAPI:
             mock_get_service.return_value = mock_service
 
             # Mock get_catalog_db to avoid database connection
-            with patch("vam_tools.web.api.get_catalog_db") as mock_get_db:
+            with patch("lumina.web.api.get_catalog_db") as mock_get_db:
                 mock_db = MagicMock()
                 mock_db.session = MagicMock()
                 mock_get_db.return_value = mock_db
@@ -63,12 +63,12 @@ class TestSearchAPI:
         """Test that search accepts limit and threshold parameters."""
         client = TestClient(app)
 
-        with patch("vam_tools.web.api.get_search_service") as mock_get_service:
+        with patch("lumina.web.api.get_search_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.search.return_value = []
             mock_get_service.return_value = mock_service
 
-            with patch("vam_tools.web.api.get_catalog_db") as mock_get_db:
+            with patch("lumina.web.api.get_catalog_db") as mock_get_db:
                 mock_db = MagicMock()
                 mock_db.session = MagicMock()
                 mock_get_db.return_value = mock_db
@@ -90,7 +90,7 @@ class TestSearchAPI:
         """Test that similar endpoint returns results."""
         client = TestClient(app)
 
-        with patch("vam_tools.web.api.get_search_service") as mock_get_service:
+        with patch("lumina.web.api.get_search_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.find_similar.return_value = [
                 SearchResult(
@@ -101,7 +101,7 @@ class TestSearchAPI:
             ]
             mock_get_service.return_value = mock_service
 
-            with patch("vam_tools.web.api.get_catalog_db") as mock_get_db:
+            with patch("lumina.web.api.get_catalog_db") as mock_get_db:
                 mock_db = MagicMock()
                 mock_db.session = MagicMock()
                 mock_get_db.return_value = mock_db
@@ -123,12 +123,12 @@ class TestSearchAPI:
         """Test that similar endpoint accepts limit and threshold parameters."""
         client = TestClient(app)
 
-        with patch("vam_tools.web.api.get_search_service") as mock_get_service:
+        with patch("lumina.web.api.get_search_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.find_similar.return_value = []
             mock_get_service.return_value = mock_service
 
-            with patch("vam_tools.web.api.get_catalog_db") as mock_get_db:
+            with patch("lumina.web.api.get_catalog_db") as mock_get_db:
                 mock_db = MagicMock()
                 mock_db.session = MagicMock()
                 mock_get_db.return_value = mock_db
@@ -150,12 +150,12 @@ class TestSearchAPI:
         """Test that search returns empty list when no results found."""
         client = TestClient(app)
 
-        with patch("vam_tools.web.api.get_search_service") as mock_get_service:
+        with patch("lumina.web.api.get_search_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.search.return_value = []
             mock_get_service.return_value = mock_service
 
-            with patch("vam_tools.web.api.get_catalog_db") as mock_get_db:
+            with patch("lumina.web.api.get_catalog_db") as mock_get_db:
                 mock_db = MagicMock()
                 mock_db.session = MagicMock()
                 mock_get_db.return_value = mock_db
@@ -173,12 +173,12 @@ class TestSearchAPI:
         """Test that similar returns empty list when no similar images found."""
         client = TestClient(app)
 
-        with patch("vam_tools.web.api.get_search_service") as mock_get_service:
+        with patch("lumina.web.api.get_search_service") as mock_get_service:
             mock_service = MagicMock()
             mock_service.find_similar.return_value = []
             mock_get_service.return_value = mock_service
 
-            with patch("vam_tools.web.api.get_catalog_db") as mock_get_db:
+            with patch("lumina.web.api.get_catalog_db") as mock_get_db:
                 mock_db = MagicMock()
                 mock_db.session = MagicMock()
                 mock_get_db.return_value = mock_db

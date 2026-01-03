@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from vam_tools.db import CatalogDB
-from vam_tools.web.api import app
+from lumina.db import CatalogDB
+from lumina.web.api import app
 
 pytestmark = pytest.mark.integration
 
@@ -50,7 +50,7 @@ def mock_catalog_db(db_session, test_catalog_id):
     )
     db_session.commit()
 
-    with patch("vam_tools.web.api.get_catalog_db") as mock_get_db:
+    with patch("lumina.web.api.get_catalog_db") as mock_get_db:
         # Create a real CatalogDB instance with the test session
         # CatalogDB accepts catalog_id_or_path as first argument
         catalog = CatalogDB(test_catalog_id, session=db_session)
@@ -354,7 +354,7 @@ class TestDetectBurstsEndpoint:
 
     def test_start_burst_detection_job(self, client, test_catalog_id, mock_catalog_db):
         """Test starting a burst detection job."""
-        with patch("vam_tools.web.api.detect_bursts_task") as mock_task:
+        with patch("lumina.web.api.detect_bursts_task") as mock_task:
             mock_task.delay.return_value.id = "job-123"
 
             response = client.post(f"/api/catalogs/{test_catalog_id}/detect-bursts")
@@ -377,7 +377,7 @@ class TestDetectBurstsEndpoint:
         self, client, test_catalog_id, mock_catalog_db
     ):
         """Test starting burst detection with custom parameters."""
-        with patch("vam_tools.web.api.detect_bursts_task") as mock_task:
+        with patch("lumina.web.api.detect_bursts_task") as mock_task:
             mock_task.delay.return_value.id = "job-456"
 
             response = client.post(

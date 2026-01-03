@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.db.models import Catalog
+from lumina.db.models import Catalog
 
 pytestmark = pytest.mark.integration
 
@@ -16,7 +16,7 @@ pytestmark = pytest.mark.integration
 class TestAutoTagEndpoint:
     """Tests for POST /api/catalogs/{catalog_id}/auto-tag endpoint."""
 
-    @patch("vam_tools.jobs.tasks.auto_tag_task")
+    @patch("lumina.jobs.tasks.auto_tag_task")
     def test_start_auto_tag_success(self, mock_task, client, db_session):
         """Test starting an auto-tag job successfully."""
         # Create a real catalog in the test database
@@ -46,7 +46,7 @@ class TestAutoTagEndpoint:
         assert data["status"] == "pending"
         assert "openclip" in data["message"]
 
-    @patch("vam_tools.jobs.tasks.auto_tag_task")
+    @patch("lumina.jobs.tasks.auto_tag_task")
     def test_start_auto_tag_with_ollama(self, mock_task, client, db_session):
         """Test starting an auto-tag job with Ollama backend."""
         # Create a real catalog in the test database
@@ -79,7 +79,7 @@ class TestAutoTagEndpoint:
         assert call_kwargs["backend"] == "ollama"
         assert call_kwargs["model"] == "llava"
 
-    @patch("vam_tools.jobs.tasks.auto_tag_task")
+    @patch("lumina.jobs.tasks.auto_tag_task")
     def test_start_auto_tag_with_continue_pipeline(self, mock_task, client, db_session):
         """Test starting auto-tag with continue_pipeline flag."""
         # Create a real catalog in the test database
@@ -140,7 +140,7 @@ class TestAutoTagEndpoint:
         assert response.status_code == 400
         assert "Invalid backend" in response.json()["detail"]
 
-    @patch("vam_tools.jobs.tasks.auto_tag_task")
+    @patch("lumina.jobs.tasks.auto_tag_task")
     def test_start_auto_tag_with_custom_threshold(self, mock_task, client, db_session):
         """Test starting auto-tag with custom threshold."""
         # Create a real catalog in the test database

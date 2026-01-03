@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.jobs.tasks import (
+from lumina.jobs.tasks import (
     analyze_catalog_task,
     auto_tag_task,
     generate_thumbnails_task,
@@ -22,8 +22,8 @@ class TestAnalyzeTask:
         """Test task is registered with Celery."""
         assert analyze_catalog_task.name == "analyze_catalog"
 
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.analysis.scanner._process_file_worker")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.analysis.scanner._process_file_worker")
     def test_analyze_task_success(
         self, mock_process_file_worker, mock_catalog_db, tmp_path
     ):
@@ -38,7 +38,7 @@ class TestAnalyzeTask:
         # Mock _process_file_worker to return dummy ImageRecord
         from datetime import datetime
 
-        from vam_tools.core.types import (
+        from lumina.core.types import (
             DateInfo,
             FileType,
             ImageMetadata,
@@ -107,7 +107,7 @@ class TestAnalyzeTask:
         # Verify add_image was called for each file
         assert mock_db.add_image.call_count == 2
 
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
     def test_analyze_task_invalid_source_path(self, mock_catalog_db, tmp_path):
         """Test analysis with invalid source path completes successfully but processes 0 files."""
         mock_db = MagicMock()
@@ -140,8 +140,8 @@ class TestOrganizeTask:
         """Test task is registered with Celery."""
         assert organize_catalog_task.name == "organize_catalog"
 
-    @patch("vam_tools.jobs.tasks.FileOrganizer")
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
+    @patch("lumina.jobs.tasks.FileOrganizer")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
     def test_organize_dry_run(self, mock_catalog_db, mock_organizer, tmp_path):
         """Test dry-run organization doesn't modify files."""
         # Setup mocks
@@ -191,15 +191,15 @@ class TestThumbnailTask:
         """Test task is registered with Celery."""
         assert generate_thumbnails_task.name == "generate_thumbnails"
 
-    @patch("vam_tools.jobs.tasks.generate_thumbnail")
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
+    @patch("lumina.jobs.tasks.generate_thumbnail")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
     def test_thumbnail_generation(
         self, mock_catalog_db, mock_generate_thumbnail, tmp_path
     ):
         """Test thumbnail generation."""
         from pathlib import Path
 
-        from vam_tools.core.types import FileType, ImageRecord, ImageStatus
+        from lumina.core.types import FileType, ImageRecord, ImageStatus
 
         # Setup mocks
         mock_db = MagicMock()
@@ -271,11 +271,11 @@ class TestAutoTagTask:
         """Test task is registered with Celery."""
         assert auto_tag_task.name == "auto_tag"
 
-    @patch("vam_tools.jobs.job_metrics.get_gpu_info")
-    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.analysis.image_tagger.ImageTagger")
-    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    @patch("lumina.jobs.job_metrics.get_gpu_info")
+    @patch("lumina.jobs.job_metrics.check_gpu_available")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.analysis.image_tagger.ImageTagger")
+    @patch("lumina.analysis.image_tagger.check_backends_available")
     def test_auto_tag_no_images_to_tag(
         self,
         mock_check_backends,
@@ -311,11 +311,11 @@ class TestAutoTagTask:
         assert result["images_tagged"] == 0
         assert result["images_skipped"] == 10
 
-    @patch("vam_tools.jobs.job_metrics.get_gpu_info")
-    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.analysis.image_tagger.ImageTagger")
-    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    @patch("lumina.jobs.job_metrics.get_gpu_info")
+    @patch("lumina.jobs.job_metrics.check_gpu_available")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.analysis.image_tagger.ImageTagger")
+    @patch("lumina.analysis.image_tagger.check_backends_available")
     def test_auto_tag_openclip_success(
         self,
         mock_check_backends,
@@ -328,7 +328,7 @@ class TestAutoTagTask:
         """Test successful auto-tagging with OpenCLIP backend."""
         from pathlib import Path
 
-        from vam_tools.analysis.image_tagger import TagResult
+        from lumina.analysis.image_tagger import TagResult
 
         # Setup mocks
         mock_check_gpu.return_value = False
@@ -432,9 +432,9 @@ class TestAutoTagTask:
         # Verify tag_batch was called
         mock_tagger.tag_batch.assert_called()
 
-    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    @patch("lumina.jobs.job_metrics.check_gpu_available")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.analysis.image_tagger.check_backends_available")
     def test_auto_tag_backend_not_available(
         self,
         mock_check_backends,
@@ -456,11 +456,11 @@ class TestAutoTagTask:
         with pytest.raises(RuntimeError, match="OpenCLIP backend not available"):
             task(catalog_id=catalog_id, backend="openclip")
 
-    @patch("vam_tools.jobs.job_metrics.get_gpu_info")
-    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.analysis.image_tagger.ImageTagger")
-    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    @patch("lumina.jobs.job_metrics.get_gpu_info")
+    @patch("lumina.jobs.job_metrics.check_gpu_available")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.analysis.image_tagger.ImageTagger")
+    @patch("lumina.analysis.image_tagger.check_backends_available")
     def test_auto_tag_ollama_success(
         self,
         mock_check_backends,
@@ -471,7 +471,7 @@ class TestAutoTagTask:
         tmp_path,
     ):
         """Test successful auto-tagging with Ollama backend."""
-        from vam_tools.analysis.image_tagger import TagResult
+        from lumina.analysis.image_tagger import TagResult
 
         # Setup mocks
         mock_check_gpu.return_value = False
@@ -523,12 +523,12 @@ class TestAutoTagTask:
         # Verify tag_image was called (not tag_batch for Ollama)
         mock_tagger.tag_image.assert_called()
 
-    @patch("vam_tools.jobs.parallel_duplicates.duplicates_coordinator_task")
-    @patch("vam_tools.jobs.job_metrics.get_gpu_info")
-    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.analysis.image_tagger.ImageTagger")
-    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    @patch("lumina.jobs.parallel_duplicates.duplicates_coordinator_task")
+    @patch("lumina.jobs.job_metrics.get_gpu_info")
+    @patch("lumina.jobs.job_metrics.check_gpu_available")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.analysis.image_tagger.ImageTagger")
+    @patch("lumina.analysis.image_tagger.check_backends_available")
     def test_auto_tag_continue_pipeline(
         self,
         mock_check_backends,
@@ -583,9 +583,9 @@ class TestAutoTagTask:
             recompute_hashes=False,
         )
 
-    @patch("vam_tools.jobs.job_metrics.check_gpu_available")
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.analysis.image_tagger.check_backends_available")
+    @patch("lumina.jobs.job_metrics.check_gpu_available")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.analysis.image_tagger.check_backends_available")
     def test_auto_tag_empty_catalog(
         self,
         mock_check_backends,

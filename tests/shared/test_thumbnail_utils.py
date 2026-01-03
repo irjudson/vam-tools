@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from PIL import Image
 
-from vam_tools.shared.thumbnail_utils import (
+from lumina.shared.thumbnail_utils import (
     DEFAULT_THUMBNAIL_SIZE,
     extract_video_thumbnail,
     generate_thumbnail,
@@ -114,9 +114,9 @@ class TestGenerateThumbnail:
 
         output_path = tmp_path / "thumb.jpg"
 
-        with patch("vam_tools.shared.thumbnail_utils.is_video_file", return_value=True):
+        with patch("lumina.shared.thumbnail_utils.is_video_file", return_value=True):
             with patch(
-                "vam_tools.shared.thumbnail_utils.extract_video_thumbnail",
+                "lumina.shared.thumbnail_utils.extract_video_thumbnail",
                 return_value=Image.new("RGB", (640, 480), color="green"),
             ):
                 result = generate_thumbnail(source_path, output_path)
@@ -131,9 +131,9 @@ class TestGenerateThumbnail:
 
         output_path = tmp_path / "thumb.jpg"
 
-        with patch("vam_tools.shared.thumbnail_utils.is_video_file", return_value=True):
+        with patch("lumina.shared.thumbnail_utils.is_video_file", return_value=True):
             with patch(
-                "vam_tools.shared.thumbnail_utils.extract_video_thumbnail",
+                "lumina.shared.thumbnail_utils.extract_video_thumbnail",
                 return_value=None,
             ):
                 result = generate_thumbnail(source_path, output_path)

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from vam_tools.cli.analyze import analyze
+from lumina.cli.analyze import analyze
 
 pytestmark = pytest.mark.integration
 
@@ -28,12 +28,12 @@ class TestPerformanceTrackerIntegration:
         test_img.write_text("test")
 
         # Mock the PerformanceTracker to capture its initialization
-        with patch("vam_tools.cli.analyze.PerformanceTracker") as mock_tracker_class:
+        with patch("lumina.cli.analyze.PerformanceTracker") as mock_tracker_class:
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker
 
             # Mock the scanner to avoid actual file processing
-            with patch("vam_tools.cli.analyze.ImageScanner") as mock_scanner:
+            with patch("lumina.cli.analyze.ImageScanner") as mock_scanner:
                 mock_scanner_instance = MagicMock()
                 mock_scanner.return_value = mock_scanner_instance
 
@@ -68,11 +68,11 @@ class TestPerformanceTrackerIntegration:
         test_img = source_dir / "test.jpg"
         test_img.write_text("test")
 
-        with patch("vam_tools.cli.analyze.PerformanceTracker") as mock_tracker_class:
+        with patch("lumina.cli.analyze.PerformanceTracker") as mock_tracker_class:
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker
 
-            with patch("vam_tools.cli.analyze.ImageScanner"):
+            with patch("lumina.cli.analyze.ImageScanner"):
                 runner = CliRunner()
                 _result = runner.invoke(
                     analyze,
@@ -97,7 +97,7 @@ class TestWebSocketBroadcastFunction:
 
     def test_sync_broadcast_handles_no_event_loop(self):
         """Test that sync_broadcast handles cases with no event loop gracefully."""
-        from vam_tools.web.api import sync_broadcast_performance_update
+        from lumina.web.api import sync_broadcast_performance_update
 
         # This should not raise an exception even without an event loop
         test_data = {
@@ -117,7 +117,7 @@ class TestWebSocketBroadcastFunction:
         """Test that broadcast messages have the correct format."""
         import asyncio
 
-        from vam_tools.web.api import broadcast_performance_update
+        from lumina.web.api import broadcast_performance_update
 
         test_data = {
             "run_id": "test123",
@@ -139,8 +139,8 @@ class TestPerformancePollingEndpoint:
         """Test performance endpoint returns no_data when no analysis has run."""
         from fastapi.testclient import TestClient
 
-        from vam_tools.db import CatalogDB as CatalogDatabase
-        from vam_tools.web.api import app, init_catalog
+        from lumina.db import CatalogDB as CatalogDatabase
+        from lumina.web.api import app, init_catalog
 
         catalog_dir = tmp_path / "catalog"
         catalog_dir.mkdir()
@@ -164,8 +164,8 @@ class TestPerformancePollingEndpoint:
         """Test performance endpoint returns idle status for completed analysis."""
         from fastapi.testclient import TestClient
 
-        from vam_tools.db import CatalogDB as CatalogDatabase
-        from vam_tools.web.api import app, init_catalog
+        from lumina.db import CatalogDB as CatalogDatabase
+        from lumina.web.api import app, init_catalog
 
         catalog_dir = tmp_path / "catalog"
         catalog_dir.mkdir()
@@ -203,8 +203,8 @@ class TestPerformancePollingEndpoint:
         """Test performance endpoint returns running status for in-progress analysis."""
         from fastapi.testclient import TestClient
 
-        from vam_tools.db import CatalogDB as CatalogDatabase
-        from vam_tools.web.api import app, init_catalog
+        from lumina.db import CatalogDB as CatalogDatabase
+        from lumina.web.api import app, init_catalog
 
         catalog_dir = tmp_path / "catalog"
         catalog_dir.mkdir()

@@ -7,20 +7,20 @@ from datetime import datetime
 
 import pytest
 
-from vam_tools.core.types import (
+from lumina.core.types import (
     DateInfo,
     FileType,
     ImageMetadata,
     ImageRecord,
     ImageStatus,
 )
-from vam_tools.db import CatalogDB as CatalogDatabase
-from vam_tools.organization.file_organizer import (
+from lumina.db import CatalogDB as CatalogDatabase
+from lumina.organization.file_organizer import (
     FileOrganizer,
     OrganizationOperation,
     OrganizationResult,
 )
-from vam_tools.organization.strategy import (
+from lumina.organization.strategy import (
     DirectoryStructure,
     NamingStrategy,
     OrganizationStrategy,
@@ -39,7 +39,7 @@ def test_catalog(tmp_path, engine):
     catalog_dir.mkdir()
 
     # Ensure tables exist in the test database
-    from vam_tools.db import Base
+    from lumina.db import Base
 
     Base.metadata.create_all(bind=engine)
 
@@ -517,7 +517,7 @@ class TestErrorHandling:
             # Add image with WRONG checksum to simulate corruption detection
             from datetime import datetime
 
-            from vam_tools.core.types import (
+            from lumina.core.types import (
                 DateInfo,
                 FileType,
                 ImageMetadata,

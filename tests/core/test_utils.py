@@ -4,7 +4,7 @@ Tests for core/utils.py (backward compatibility re-exports).
 
 from pathlib import Path
 
-from vam_tools.core.utils import (
+from lumina.core.utils import (
     compute_checksum,
     format_bytes,
     get_file_type,

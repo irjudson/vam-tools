@@ -191,7 +191,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from vam_tools.analysis.burst_detector import (
+from lumina.analysis.burst_detector import (
     BurstDetector,
     BurstGroup,
     ImageInfo,
@@ -589,7 +589,7 @@ class TestDetectBurstsTask:
 
     def test_detect_bursts_task_creates_burst_records(self, mock_db):
         """Test that task creates burst records in database."""
-        from vam_tools.jobs.tasks import detect_bursts_task
+        from lumina.jobs.tasks import detect_bursts_task
 
         # Mock images with burst pattern
         base_time = datetime(2024, 1, 1, 12, 0, 0)
@@ -618,7 +618,7 @@ class TestDetectBurstsTask:
 
     def test_detect_bursts_task_updates_image_burst_ids(self, mock_db):
         """Test that task updates images with burst_id."""
-        from vam_tools.jobs.tasks import detect_bursts_task
+        from lumina.jobs.tasks import detect_bursts_task
 
         # ... similar setup ...
         # Verify UPDATE queries were executed for burst_id
@@ -637,7 +637,7 @@ Expected: FAIL with "cannot import name 'detect_bursts_task'"
 Add to `vam_tools/jobs/tasks.py`:
 
 ```python
-from vam_tools.analysis.burst_detector import BurstDetector, BurstGroup, ImageInfo
+from lumina.analysis.burst_detector import BurstDetector, BurstGroup, ImageInfo
 
 
 @celery_app.task(bind=True, name="detect_bursts")
@@ -861,7 +861,7 @@ Expected: FAIL with 404 (endpoint doesn't exist)
 Add to `vam_tools/web/api.py`:
 
 ```python
-from vam_tools.jobs.tasks import detect_bursts_task
+from lumina.jobs.tasks import detect_bursts_task
 
 
 @app.get("/api/catalogs/{catalog_id}/bursts")

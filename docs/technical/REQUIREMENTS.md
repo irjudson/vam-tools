@@ -1,4 +1,4 @@
-# VAM Tools - Requirements & Roadmap
+# Lumina - Requirements & Roadmap
 
 ## Mission
 

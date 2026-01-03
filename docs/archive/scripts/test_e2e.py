@@ -185,7 +185,7 @@ def cleanup():
 def main():
     """Run end-to-end test."""
     print("=" * 70)
-    print("VAM Tools - End-to-End Test (Local Setup)")
+    print("Lumina - End-to-End Test (Local Setup)")
     print("=" * 70 + "\n")
 
     try:

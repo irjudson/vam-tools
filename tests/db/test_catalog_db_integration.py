@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from vam_tools.core.types import (
+from lumina.core.types import (
     DateInfo,
     FileType,
     ImageMetadata,
     ImageRecord,
     ImageStatus,
 )
-from vam_tools.db import CatalogDB
+from lumina.db import CatalogDB
 
 pytestmark = pytest.mark.integration
 

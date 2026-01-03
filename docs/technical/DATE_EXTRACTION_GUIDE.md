@@ -1,6 +1,6 @@
 # Date Extraction Guide
 
-VAM Tools uses a sophisticated multi-source approach to extract the most accurate capture date for each photo or video.
+Lumina uses a sophisticated multi-source approach to extract the most accurate capture date for each photo or video.
 
 ## Date Sources and Confidence Levels
 
@@ -95,7 +95,7 @@ DSC_20230415.ARW           → 2023-04-15
 
 ## Date Selection Algorithm
 
-VAM Tools uses an **earliest date wins** strategy with confidence weighting:
+Lumina uses an **earliest date wins** strategy with confidence weighting:
 
 ```python
 def select_date(candidates):
@@ -273,7 +273,7 @@ curl -X PATCH "http://localhost:8765/api/images/{image_id}/date?date_str=2023-04
 
 ### ExifTool Integration
 
-VAM Tools uses ExifTool for comprehensive metadata extraction:
+Lumina uses ExifTool for comprehensive metadata extraction:
 
 ```python
 # Extract all date fields

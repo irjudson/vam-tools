@@ -1,6 +1,6 @@
-# VAM Tools Roadmap
+# Lumina Roadmap
 
-This document tracks the development progress of VAM Tools features. GitHub renders task lists as progress bars automatically.
+This document tracks the development progress of Lumina features. GitHub renders task lists as progress bars automatically.
 
 > **Legend**: ✅ Complete | 🚧 In Progress | 📋 Planned | ⏸️ Deferred
 

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.jobs.job_metrics import (
+from lumina.jobs.job_metrics import (
     DEFAULT_TIMINGS,
     MAX_BATCH_SIZE,
     MIN_BATCH_SIZE,
@@ -322,20 +322,20 @@ class TestGPUFunctions:
 
     def test_check_gpu_available_no_torch(self):
         """Test GPU check when torch is not available."""
-        from vam_tools.jobs.job_metrics import check_gpu_available
+        from lumina.jobs.job_metrics import check_gpu_available
 
         with patch.dict("sys.modules", {"torch": None}):
             # This will still import cached torch, so we need to mock the import
-            with patch("vam_tools.jobs.job_metrics.check_gpu_available") as mock_check:
+            with patch("lumina.jobs.job_metrics.check_gpu_available") as mock_check:
                 mock_check.return_value = False
                 assert mock_check() is False
 
     def test_get_gpu_info_no_torch(self):
         """Test get GPU info when torch is not available."""
-        from vam_tools.jobs.job_metrics import get_gpu_info
+        from lumina.jobs.job_metrics import get_gpu_info
 
         # Mock torch import to raise ImportError
         with patch.dict("sys.modules", {"torch": None}):
-            with patch("vam_tools.jobs.job_metrics.get_gpu_info") as mock_info:
+            with patch("lumina.jobs.job_metrics.get_gpu_info") as mock_info:
                 mock_info.return_value = None
                 assert mock_info() is None

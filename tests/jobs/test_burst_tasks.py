@@ -12,17 +12,17 @@ class TestDetectBurstsTask:
 
     def test_task_registration(self):
         """Test task is registered with Celery."""
-        from vam_tools.jobs.tasks import detect_bursts_task
+        from lumina.jobs.tasks import detect_bursts_task
 
         assert detect_bursts_task.name == "detect_bursts"
 
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.jobs.tasks.BurstDetector")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.jobs.tasks.BurstDetector")
     def test_detect_bursts_task_creates_burst_records(
         self, mock_burst_detector, mock_catalog_db
     ):
         """Test that task creates burst records in database."""
-        from vam_tools.jobs.tasks import detect_bursts_task
+        from lumina.jobs.tasks import detect_bursts_task
 
         # Setup mocks
         mock_db = MagicMock()
@@ -47,7 +47,7 @@ class TestDetectBurstsTask:
         mock_db.session.execute.return_value = mock_result
 
         # Mock BurstDetector
-        from vam_tools.analysis.burst_detector import BurstGroup, ImageInfo
+        from lumina.analysis.burst_detector import BurstGroup, ImageInfo
 
         mock_detector = MagicMock()
         mock_burst_detector.return_value = mock_detector
@@ -93,13 +93,13 @@ class TestDetectBurstsTask:
         assert mock_db.session.execute.called
         assert mock_db.session.commit.called
 
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.jobs.tasks.BurstDetector")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.jobs.tasks.BurstDetector")
     def test_detect_bursts_task_updates_image_burst_ids(
         self, mock_burst_detector, mock_catalog_db
     ):
         """Test that task updates images with burst_id and burst_sequence."""
-        from vam_tools.jobs.tasks import detect_bursts_task
+        from lumina.jobs.tasks import detect_bursts_task
 
         # Setup mocks
         mock_db = MagicMock()
@@ -118,7 +118,7 @@ class TestDetectBurstsTask:
         mock_db.session.execute.return_value = mock_result
 
         # Mock BurstDetector
-        from vam_tools.analysis.burst_detector import BurstGroup, ImageInfo
+        from lumina.analysis.burst_detector import BurstGroup, ImageInfo
 
         mock_detector = MagicMock()
         mock_burst_detector.return_value = mock_detector
@@ -156,13 +156,13 @@ class TestDetectBurstsTask:
         ]
         assert len(update_calls) >= 3  # At least 3 update calls for the images
 
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.jobs.tasks.BurstDetector")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.jobs.tasks.BurstDetector")
     def test_detect_bursts_task_clears_existing_bursts(
         self, mock_burst_detector, mock_catalog_db
     ):
         """Test that task clears existing bursts before detection."""
-        from vam_tools.jobs.tasks import detect_bursts_task
+        from lumina.jobs.tasks import detect_bursts_task
 
         # Setup mocks
         mock_db = MagicMock()
@@ -193,13 +193,13 @@ class TestDetectBurstsTask:
         ]
         assert len(delete_calls) >= 1
 
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.jobs.tasks.BurstDetector")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.jobs.tasks.BurstDetector")
     def test_detect_bursts_task_with_custom_parameters(
         self, mock_burst_detector, mock_catalog_db
     ):
         """Test that task respects custom gap_threshold and min_burst_size."""
-        from vam_tools.jobs.tasks import detect_bursts_task
+        from lumina.jobs.tasks import detect_bursts_task
 
         # Setup mocks
         mock_db = MagicMock()
@@ -226,13 +226,13 @@ class TestDetectBurstsTask:
             gap_threshold_seconds=3.0, min_burst_size=5
         )
 
-    @patch("vam_tools.jobs.tasks.CatalogDatabase")
-    @patch("vam_tools.jobs.tasks.BurstDetector")
+    @patch("lumina.jobs.tasks.CatalogDatabase")
+    @patch("lumina.jobs.tasks.BurstDetector")
     def test_detect_bursts_task_handles_no_bursts(
         self, mock_burst_detector, mock_catalog_db
     ):
         """Test that task handles case with no bursts detected."""
-        from vam_tools.jobs.tasks import detect_bursts_task
+        from lumina.jobs.tasks import detect_bursts_task
 
         # Setup mocks
         mock_db = MagicMock()

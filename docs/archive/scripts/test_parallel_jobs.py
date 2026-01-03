@@ -121,7 +121,7 @@ def verify_catalog_populated():
 def main():
     """Run end-to-end test."""
     print("=" * 60)
-    print("VAM Tools - Parallel Job Processing Test")
+    print("Lumina - Parallel Job Processing Test")
     print("=" * 60 + "\n")
 
     try:

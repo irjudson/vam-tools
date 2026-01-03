@@ -1,8 +1,8 @@
-# VAM Tools - System Architecture
+# Lumina - System Architecture
 
 ## Overview
 
-VAM Tools is a comprehensive photo catalog management system designed to organize 100,000+ images with:
+Lumina is a comprehensive photo catalog management system designed to organize 100,000+ images with:
 - Zero data loss guarantee
 - Chronological organization
 - Intelligent duplicate handling
@@ -21,7 +21,7 @@ VAM Tools is a comprehensive photo catalog management system designed to organiz
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      VAM Tools                               │
+│                      Lumina                               │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │

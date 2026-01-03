@@ -2,7 +2,7 @@
 
 import pytest
 
-from vam_tools.jobs.parallel_duplicates import (
+from lumina.jobs.parallel_duplicates import (
     _build_duplicate_groups,
     _can_add_to_group,
 )

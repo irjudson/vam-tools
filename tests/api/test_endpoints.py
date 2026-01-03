@@ -10,11 +10,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from vam_tools.api.app import create_app
-from vam_tools.db import get_db
-from vam_tools.db.catalog_schema import schema_exists
-from vam_tools.db.config import settings
-from vam_tools.db.models import Base
+from lumina.api.app import create_app
+from lumina.db import get_db
+from lumina.db.catalog_schema import schema_exists
+from lumina.db.config import settings
+from lumina.db.models import Base
 
 pytestmark = pytest.mark.integration
 

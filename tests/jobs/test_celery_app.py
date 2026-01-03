@@ -2,7 +2,7 @@
 
 import pytest
 
-from vam_tools.celery_app import app as celery_app
+from lumina.celery_app import app as celery_app
 
 
 def test_celery_app_configured():

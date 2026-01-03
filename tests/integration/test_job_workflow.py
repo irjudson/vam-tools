@@ -185,7 +185,7 @@ class TestJobWorkflowIntegration:
         """Test web UI is accessible."""
         response = requests.get(f"{self.BASE_URL}/static/jobs.html")
         assert response.status_code == 200
-        assert "VAM Tools" in response.text
+        assert "Lumina" in response.text
         assert "Job Management" in response.text
 
 

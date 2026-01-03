@@ -19,15 +19,15 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from vam_tools.core.types import (
+from lumina.core.types import (
     DateInfo,
     FileType,
     ImageMetadata,
     ImageRecord,
     ImageStatus,
 )
-from vam_tools.db import CatalogDB as CatalogDatabase
-from vam_tools.web.api import app, get_catalog, init_catalog
+from lumina.db import CatalogDB as CatalogDatabase
+from lumina.web.api import app, get_catalog, init_catalog
 
 pytestmark = pytest.mark.integration
 
@@ -100,7 +100,7 @@ class TestAPI:
 
     def test_get_catalog_not_initialized(self) -> None:
         """Test get_catalog raises when not initialized."""
-        import vam_tools.web.api as api_module
+        import lumina.web.api as api_module
 
         # Reset global state
         api_module._catalog = None
@@ -469,7 +469,7 @@ class TestAPIModels:
 
     def test_image_summary_model(self) -> None:
         """Test ImageSummary model."""
-        from vam_tools.web.api import ImageSummary
+        from lumina.web.api import ImageSummary
 
         summary = ImageSummary(
             id="test123",
@@ -489,7 +489,7 @@ class TestAPIModels:
 
     def test_catalog_stats_model(self) -> None:
         """Test CatalogStats model."""
-        from vam_tools.web.api import CatalogStats
+        from lumina.web.api import CatalogStats
 
         stats = CatalogStats(
             total_images=100,

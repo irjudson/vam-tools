@@ -1,4 +1,4 @@
-# VAM Tools UI Implementation Plan (TDD-Focused)
+# Lumina UI Implementation Plan (TDD-Focused)
 ## Agent-Executable Tasks with Test-Driven Development
 
 ---

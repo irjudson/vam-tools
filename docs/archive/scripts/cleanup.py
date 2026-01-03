@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cleanup utility for VAM Tools - Delete catalogs and clear jobs.
+Cleanup utility for Lumina - Delete catalogs and clear jobs.
 
 Usage:
   ./cleanup.py --catalogs          # Delete all catalogs
@@ -78,7 +78,7 @@ def clear_all_jobs():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Cleanup utility for VAM Tools",
+        description="Cleanup utility for Lumina",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

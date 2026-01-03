@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw, ImageFilter
 
-from vam_tools.analysis.perceptual_hash import (
+from lumina.analysis.perceptual_hash import (
     ahash,
     combined_hash,
     dhash,

@@ -114,7 +114,7 @@
 
 ### Production:
 ```python
-from vam_tools.db import CatalogDB
+from lumina.db import CatalogDB
 
 # Create catalog wrapper
 db = CatalogDB(catalog_id="uuid-here")
@@ -126,8 +126,8 @@ with db:
 
 ### Scanner:
 ```python
-from vam_tools.analysis.scanner import ImageScanner
-from vam_tools.db import CatalogDB
+from lumina.analysis.scanner import ImageScanner
+from lumina.db import CatalogDB
 
 db = CatalogDB(catalog_id)
 scanner = ImageScanner(db)

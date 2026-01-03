@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from vam_tools.analysis.scanner import ImageScanner
-from vam_tools.db import CatalogDB as CatalogDatabase
+from lumina.analysis.scanner import ImageScanner
+from lumina.db import CatalogDB as CatalogDatabase
 
 pytestmark = pytest.mark.integration
 

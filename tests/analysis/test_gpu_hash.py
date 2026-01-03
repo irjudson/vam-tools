@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vam_tools.analysis.gpu_hash import GPUHashProcessor
+from lumina.analysis.gpu_hash import GPUHashProcessor
 
 
 class TestGPUHashProcessorInit:
@@ -18,7 +18,7 @@ class TestGPUHashProcessorInit:
 
     def test_init_no_gpu(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test initialization when GPU is not available."""
-        from vam_tools.core.gpu_utils import GPUInfo
+        from lumina.core.gpu_utils import GPUInfo
 
         # Mock GPU detection to return no GPU
         mock_gpu_info = GPUInfo(
@@ -28,7 +28,7 @@ class TestGPUHashProcessorInit:
         )
 
         with patch(
-            "vam_tools.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
+            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
         ):
             processor = GPUHashProcessor()
 
@@ -39,7 +39,7 @@ class TestGPUHashProcessorInit:
 
     def test_init_gpu_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test initialization when GPU is explicitly disabled."""
-        from vam_tools.core.gpu_utils import GPUInfo
+        from lumina.core.gpu_utils import GPUInfo
 
         # Mock GPU as available
         mock_gpu_info = GPUInfo(
@@ -49,7 +49,7 @@ class TestGPUHashProcessorInit:
         )
 
         with patch(
-            "vam_tools.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
+            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
         ):
             processor = GPUHashProcessor(enable_gpu=False)
 
@@ -58,7 +58,7 @@ class TestGPUHashProcessorInit:
 
     def test_init_with_gpu_mock(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test initialization when GPU is available (mocked)."""
-        from vam_tools.core.gpu_utils import GPUInfo
+        from lumina.core.gpu_utils import GPUInfo
 
         # Mock GPU as available (memory_gb=10.0 should give batch_size around 80)
         mock_gpu_info = GPUInfo(
@@ -73,7 +73,7 @@ class TestGPUHashProcessorInit:
         mock_torch.device.return_value = mock_device
 
         with patch(
-            "vam_tools.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
+            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
         ):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)
@@ -87,7 +87,7 @@ class TestGPUHashProcessorInit:
 
     def test_init_custom_batch_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test initialization with custom batch size."""
-        from vam_tools.core.gpu_utils import GPUInfo
+        from lumina.core.gpu_utils import GPUInfo
 
         mock_gpu_info = GPUInfo(
             available=True,
@@ -100,7 +100,7 @@ class TestGPUHashProcessorInit:
         mock_torch.device.return_value = mock_device
 
         with patch(
-            "vam_tools.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
+            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
         ):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)
@@ -191,7 +191,7 @@ class TestGPUHashProcessorGPUPath:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test image loading and preprocessing with mocked GPU."""
-        from vam_tools.core.gpu_utils import GPUInfo
+        from lumina.core.gpu_utils import GPUInfo
 
         # Create test image
         img_path = tmp_path / "test.jpg"
@@ -219,7 +219,7 @@ class TestGPUHashProcessorGPUPath:
         mock_torchvision = MagicMock()
 
         with patch(
-            "vam_tools.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
+            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
         ):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)
@@ -239,7 +239,7 @@ class TestGPUHashProcessorGPUPath:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test dhash batch computation logic with mock tensors."""
-        from vam_tools.core.gpu_utils import GPUInfo
+        from lumina.core.gpu_utils import GPUInfo
 
         mock_gpu_info = GPUInfo(
             available=True,
@@ -253,7 +253,7 @@ class TestGPUHashProcessorGPUPath:
         mock_torch.device.return_value = mock_device
 
         with patch(
-            "vam_tools.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
+            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
         ):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)
@@ -298,7 +298,7 @@ class TestGPUHashProcessorGPUPath:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that GPU errors fall back to CPU gracefully."""
-        from vam_tools.core.gpu_utils import GPUInfo
+        from lumina.core.gpu_utils import GPUInfo
 
         img_path = tmp_path / "test.jpg"
         Image.new("RGB", (100, 100), color="blue").save(img_path)
@@ -316,7 +316,7 @@ class TestGPUHashProcessorGPUPath:
         mock_torch.stack.side_effect = RuntimeError("CUDA out of memory")
 
         with patch(
-            "vam_tools.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
+            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
         ):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)

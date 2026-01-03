@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy import text
 
-from vam_tools.jobs.parallel_duplicates import (
+from lumina.jobs.parallel_duplicates import (
     _build_duplicate_groups,
     _create_duplicate_group_tags,
 )
@@ -155,10 +155,10 @@ def test_auto_create_tags_for_duplicate_groups(db_session):
     db_session.commit()
 
     # Call the function to create tags
-    from vam_tools.db import CatalogDB
+    from lumina.db import CatalogDB
 
     # Mock CatalogDB to use our test session
-    with patch("vam_tools.jobs.parallel_duplicates.CatalogDatabase") as mock_db_class:
+    with patch("lumina.jobs.parallel_duplicates.CatalogDatabase") as mock_db_class:
         mock_db = MagicMock()
         mock_db.session = db_session
         mock_db.__enter__ = MagicMock(return_value=mock_db)

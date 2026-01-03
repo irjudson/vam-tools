@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import text
 
-from vam_tools.db.models import Catalog
+from lumina.db.models import Catalog
 
 pytestmark = pytest.mark.integration
 

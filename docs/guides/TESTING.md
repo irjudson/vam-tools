@@ -1,10 +1,10 @@
-# Testing VAM Tools
+# Testing Lumina
 
-This document describes how to run tests for VAM Tools in a completely isolated Docker environment.
+This document describes how to run tests for Lumina in a completely isolated Docker environment.
 
 ## Overview
 
-VAM Tools uses Docker Compose to provide isolated test environments that prevent interference between:
+Lumina uses Docker Compose to provide isolated test environments that prevent interference between:
 - Multiple projects running tests on the same machine
 - Test runs and production/development services
 - Sequential and parallel test executions

@@ -10,8 +10,8 @@ import pytest
 from click.testing import CliRunner
 from PIL import Image
 
-from vam_tools.cli.analyze import analyze, display_statistics, setup_logging
-from vam_tools.core.types import Statistics
+from lumina.cli.analyze import analyze, display_statistics, setup_logging
+from lumina.core.types import Statistics
 
 pytestmark = pytest.mark.integration
 
@@ -406,7 +406,7 @@ class TestAnalyzeErrorHandling:
         # Mock database delete to raise permission error
         from sqlalchemy.orm import Query
 
-        from vam_tools.db.models import Catalog
+        from lumina.db.models import Catalog
 
         original_delete = Query.delete
 

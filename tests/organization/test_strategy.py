@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from vam_tools.core.types import DateInfo, FileType, ImageMetadata, ImageRecord
-from vam_tools.organization.strategy import (
+from lumina.core.types import DateInfo, FileType, ImageMetadata, ImageRecord
+from lumina.organization.strategy import (
     DirectoryStructure,
     NamingStrategy,
     OrganizationStrategy,

@@ -1,4 +1,4 @@
-# VAM Tools - Job Safety & Recovery Guide
+# Lumina - Job Safety & Recovery Guide
 
 **Date**: 2025-11-06  
 **Status**: ✅ **PRODUCTION READY**
@@ -128,7 +128,7 @@ A job is considered stuck if:
 ```bash
 # After force-killing a job, verify catalog
 docker exec vam-celery-worker python -c "
-from vam_tools.core.catalog import CatalogDatabase
+from lumina.core.catalog import CatalogDatabase
 db = CatalogDatabase('/app/catalogs/test')
 print(f'Images: {len(db.list_images())}')
 print('✓ Catalog intact')

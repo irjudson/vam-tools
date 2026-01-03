@@ -8,8 +8,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from vam_tools.analysis.metadata import MetadataExtractor
-from vam_tools.core.types import FileType
+from lumina.analysis.metadata import MetadataExtractor
+from lumina.core.types import FileType
 
 
 class TestMetadataExtractor:
@@ -586,7 +586,7 @@ class TestMetadataExtractor:
 
         with MetadataExtractor() as extractor:
             # Manually set up DateInfo with secondary EXIF fields
-            from vam_tools.core.types import DateInfo
+            from lumina.core.types import DateInfo
 
             date_info = DateInfo()
             # Set a non-priority EXIF field
@@ -608,7 +608,7 @@ class TestMetadataExtractor:
 
         with MetadataExtractor() as extractor:
             # Manually set up DateInfo with invalid directory date
-            from vam_tools.core.types import DateInfo
+            from lumina.core.types import DateInfo
 
             date_info = DateInfo()
             # Set an invalid directory date format

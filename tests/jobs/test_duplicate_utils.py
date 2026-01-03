@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from vam_tools.jobs.duplicate_utils import (
+from lumina.jobs.duplicate_utils import (
     calculate_recommendation_score,
     find_recommended_image,
 )

@@ -1,1 +1,1 @@
-"""Integration tests for VAM Tools."""
+"""Integration tests for Lumina."""

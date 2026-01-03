@@ -1,4 +1,4 @@
-# GPU Setup Guide for VAM Tools
+# GPU Setup Guide for Lumina
 
 ## Your Hardware
 
@@ -97,7 +97,7 @@ GPU_CONFIG = {
 ## Installation Options
 
 ### Option A: Via Package Extras (Recommended)
-Install VAM Tools with GPU support using package extras:
+Install Lumina with GPU support using package extras:
 
 ```bash
 # Activate your virtual environment
@@ -164,8 +164,8 @@ Create a test script to compare CPU vs GPU:
 ```python
 import time
 from pathlib import Path
-from vam_tools.core.gpu_utils import detect_gpu, get_optimal_config
-from vam_tools.analysis.perceptual_hash import combined_hash
+from lumina.core.gpu_utils import detect_gpu, get_optimal_config
+from lumina.analysis.perceptual_hash import combined_hash
 
 # Detect GPU
 gpu_info = detect_gpu()

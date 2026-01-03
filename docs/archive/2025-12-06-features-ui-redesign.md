@@ -1,4 +1,4 @@
-# VAM Tools: Features & UI Redesign Plan
+# Lumina: Features & UI Redesign Plan
 
 ## Executive Summary
 
@@ -12,7 +12,7 @@ This plan covers two major initiatives:
 
 ### Current Architecture (100% Local)
 
-VAM Tools currently runs entirely locally with one optional external service:
+Lumina currently runs entirely locally with one optional external service:
 - **Ollama** (optional) - Local LLM for tag refinement, runs in Docker
 
 ### Proposed Architecture: Fully Local by Default
@@ -86,7 +86,7 @@ For users who prefer cloud services (not recommended for privacy):
 | Semantic Search | OpenAI CLIP API | ~$0.001/image | High - images sent to OpenAI |
 | Tagging | Google Vision Labels | ~$1.50/1000 images | High - images sent to Google |
 
-**VAM Tools Philosophy**: All processing happens locally. Your photos never leave your machine.
+**Lumina Philosophy**: All processing happens locally. Your photos never leave your machine.
 
 ### Model Storage & Management
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from vam_tools.shared.preview_cache import PreviewCache
+from lumina.shared.preview_cache import PreviewCache
 
 
 class TestPreviewCache:

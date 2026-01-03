@@ -1,8 +1,8 @@
-# VAM Tools UI Redesign Plan
+# Lumina UI Redesign Plan
 ## Darktable/Lightroom-Inspired Interface
 
 ### Overview
-Transform VAM Tools into a professional photo management application with a dark, photographer-friendly interface inspired by Darktable and Adobe Lightroom.
+Transform Lumina into a professional photo management application with a dark, photographer-friendly interface inspired by Darktable and Adobe Lightroom.
 
 ---
 

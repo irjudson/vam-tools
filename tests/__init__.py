@@ -1,1 +1,1 @@
-"""Test suite for vam_tools."""
+"""Test suite for lumina."""

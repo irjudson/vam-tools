@@ -1,7 +1,7 @@
 # Video Perceptual Hashing Research Report
 
 **Date:** 2025-10-29
-**Project:** VAM Tools (Visual Asset Management)
+**Project:** Lumina (Visual Asset Management)
 **Purpose:** Research solutions for duplicate video detection using perceptual hashing
 
 ---
@@ -117,7 +117,7 @@ Supports all formats that FFmpeg can decode:
 - ✅ .3gp (3GPP mobile video)
 - ✅ Many others via FFmpeg
 
-### Integration with VAM Tools
+### Integration with Lumina
 
 **Pros:**
 - Simple API, similar to existing imagehash usage
@@ -132,7 +132,7 @@ Supports all formats that FFmpeg can decode:
 - Cannot customize frame sampling strategy
 - No GPU acceleration support
 
-### Recommended Usage in VAM Tools
+### Recommended Usage in Lumina
 
 ```python
 from videohash import VideoHash
@@ -172,7 +172,7 @@ pip install opencv-python
 
 **Prerequisites:**
 - OpenCV-Python (with FFmpeg backend)
-- Existing imagehash library (already in VAM Tools)
+- Existing imagehash library (already in Lumina)
 
 ### How It Works
 
@@ -292,7 +292,7 @@ Depends on OpenCV's FFmpeg backend:
 - ✅ .mp4, .mov, .avi, .mkv, .3gp, .webm, etc.
 - ⚠️ May have issues with some codecs depending on OpenCV build
 
-### Integration with VAM Tools
+### Integration with Lumina
 
 **Pros:**
 - ✅ Reuses existing image hashing infrastructure
@@ -308,7 +308,7 @@ Depends on OpenCV's FFmpeg backend:
 - ❌ May be slower for long videos
 - ❌ Frame selection strategy affects hash consistency
 
-### Recommended Usage in VAM Tools
+### Recommended Usage in Lumina
 
 ```python
 from pathlib import Path
@@ -358,7 +358,7 @@ def compute_video_hash(video_path: Path, sample_fps: float = 1.0) -> Optional[Di
         middle_frame = frames[len(frames) // 2]
 
         # Compute all hash methods like images
-        from vam_tools.analysis.perceptual_hash import combined_hash
+        from lumina.analysis.perceptual_hash import combined_hash
         # Note: combined_hash expects Path, so we'd need to save frame or modify
         # For now, use imagehash directly:
         return {
@@ -442,7 +442,7 @@ tmk_score = tmkpy.compare_level2(tmk_hash1, tmk_hash2)
 - ✅ All formats supported by underlying video decoder
 - ✅ .mp4, .mov, .avi, .mkv, etc.
 
-### Integration with VAM Tools
+### Integration with Lumina
 
 **Pros:**
 - ✅ Battle-tested (Facebook production use)
@@ -535,7 +535,7 @@ def compute_signature_ffmpeg_python(video_path: str, output_sig: str):
 - **Accuracy:** High (MPEG-7 standard)
 - **Output:** Binary signature file
 
-### Integration with VAM Tools
+### Integration with Lumina
 
 **Pros:**
 - ✅ No additional Python dependencies
@@ -929,7 +929,7 @@ def _are_videos_similar(self, video1: VideoRecord, video2: VideoRecord) -> bool:
         return False
 
     # Use same Hamming distance as images
-    from vam_tools.analysis.perceptual_hash import hamming_distance
+    from lumina.analysis.perceptual_hash import hamming_distance
 
     distance = hamming_distance(
         video1.metadata.perceptual_hash,
@@ -1182,7 +1182,7 @@ If using OpenCV approach:
 
 ## Conclusion
 
-For VAM Tools, **videohash is the recommended primary solution** due to:
+For Lumina, **videohash is the recommended primary solution** due to:
 
 1. ✅ Simple integration with minimal code changes
 2. ✅ Robust algorithm handling common video modifications
@@ -1219,5 +1219,5 @@ The phased implementation approach allows starting with videohash for quick wins
 ---
 
 **Report Compiled:** 2025-10-29
-**For:** VAM Tools - Visual Asset Management
+**For:** Lumina - Visual Asset Management
 **By:** Research and Analysis

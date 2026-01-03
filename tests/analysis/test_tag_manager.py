@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from vam_tools.analysis.tag_manager import TagManager
-from vam_tools.analysis.tag_taxonomy import TagCategory
-from vam_tools.db import CatalogDB as CatalogDatabase
+from lumina.analysis.tag_manager import TagManager
+from lumina.analysis.tag_taxonomy import TagCategory
+from lumina.db import CatalogDB as CatalogDatabase
 
 
 @pytest.mark.integration

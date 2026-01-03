@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from vam_tools.core.types import (
+from lumina.core.types import (
     DateInfo,
     FileType,
     ImageMetadata,
     ImageRecord,
     ImageStatus,
 )
-from vam_tools.db.serializers import (
+from lumina.db.serializers import (
     deserialize_date_info,
     deserialize_image_metadata,
     deserialize_image_record,

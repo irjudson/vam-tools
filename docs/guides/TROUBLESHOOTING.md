@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-This guide helps you diagnose and resolve common issues with VAM Tools.
+This guide helps you diagnose and resolve common issues with Lumina.
 
 ## Table of Contents
 
@@ -383,7 +383,7 @@ This guide helps you diagnose and resolve common issues with VAM Tools.
    ```
 
 3. **Use CPU fallback**:
-   - VAM Tools automatically falls back to CPU if GPU fails
+   - Lumina automatically falls back to CPU if GPU fails
    - Slower but will complete
 
 4. **Upgrade GPU** or reduce workload

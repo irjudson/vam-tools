@@ -1,4 +1,4 @@
-# Metadata Gap Analysis - VAM Tools
+# Metadata Gap Analysis - Lumina
 **Generated**: 2025-12-24
 **Total Images**: 96,228
 

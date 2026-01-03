@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
-from vam_tools.web.api import app
+from lumina.web.api import app
 
 client = TestClient(app)
 
@@ -12,7 +12,7 @@ client = TestClient(app)
 class TestJobSubmissionEndpoints:
     """Tests for job submission endpoints."""
 
-    @patch("vam_tools.web.jobs_api.analyze_catalog_task")
+    @patch("lumina.web.jobs_api.analyze_catalog_task")
     def test_submit_analyze_job(self, mock_task):
         """Test POST /api/jobs/analyze submits job correctly."""
         mock_result = Mock()
@@ -34,7 +34,7 @@ class TestJobSubmissionEndpoints:
         assert data["status"] == "PENDING"
         assert "Analysis job submitted" in data["message"]
 
-    @patch("vam_tools.web.jobs_api.organize_catalog_task")
+    @patch("lumina.web.jobs_api.organize_catalog_task")
     def test_submit_organize_job(self, mock_task):
         """Test POST /api/jobs/organize submits job correctly."""
         mock_result = Mock()
@@ -56,7 +56,7 @@ class TestJobSubmissionEndpoints:
         assert data["job_id"] == "organize-job-456"
         assert data["status"] == "PENDING"
 
-    @patch("vam_tools.web.jobs_api.generate_thumbnails_task")
+    @patch("lumina.web.jobs_api.generate_thumbnails_task")
     def test_submit_thumbnails_job(self, mock_task):
         """Test POST /api/jobs/thumbnails submits job correctly."""
         mock_result = Mock()
@@ -89,7 +89,7 @@ class TestJobSubmissionEndpoints:
 class TestJobStatusEndpoints:
     """Tests for job status endpoints."""
 
-    @patch("vam_tools.web.jobs_api.AsyncResult")
+    @patch("lumina.web.jobs_api.AsyncResult")
     def test_get_job_status_pending(self, mock_async_result):
         """Test GET /api/jobs/{job_id} for pending job."""
         mock_result = Mock()
@@ -104,7 +104,7 @@ class TestJobStatusEndpoints:
         assert data["job_id"] == "test-job-123"
         assert data["status"] == "PENDING"
 
-    @patch("vam_tools.web.jobs_api.AsyncResult")
+    @patch("lumina.web.jobs_api.AsyncResult")
     def test_get_job_status_progress(self, mock_async_result):
         """Test GET /api/jobs/{job_id} for in-progress job."""
         mock_result = Mock()
@@ -124,7 +124,7 @@ class TestJobStatusEndpoints:
         assert data["status"] == "PROGRESS"
         assert data["progress"]["percent"] == 50
 
-    @patch("vam_tools.web.jobs_api.AsyncResult")
+    @patch("lumina.web.jobs_api.AsyncResult")
     def test_get_job_status_success(self, mock_async_result):
         """Test GET /api/jobs/{job_id} for completed job."""
         mock_result = Mock()
@@ -143,7 +143,7 @@ class TestJobStatusEndpoints:
         assert data["status"] == "SUCCESS"
         assert data["result"]["processed"] == 100
 
-    @patch("vam_tools.web.jobs_api.AsyncResult")
+    @patch("lumina.web.jobs_api.AsyncResult")
     def test_get_job_status_failure(self, mock_async_result):
         """Test GET /api/jobs/{job_id} for failed job."""
         mock_result = Mock()
@@ -162,8 +162,8 @@ class TestJobStatusEndpoints:
 class TestJobListEndpoint:
     """Tests for job list endpoint."""
 
-    @patch("vam_tools.web.jobs_api.get_redis_client")
-    @patch("vam_tools.web.jobs_api.AsyncResult")
+    @patch("lumina.web.jobs_api.get_redis_client")
+    @patch("lumina.web.jobs_api.AsyncResult")
     def test_list_active_jobs(self, mock_async_result, mock_get_redis_client):
         """Test GET /api/jobs lists active jobs."""
         mock_redis = Mock()
@@ -193,7 +193,7 @@ class TestJobListEndpoint:
 class TestJobCancellation:
     """Tests for job cancellation."""
 
-    @patch("vam_tools.web.jobs_api.AsyncResult")
+    @patch("lumina.web.jobs_api.AsyncResult")
     def test_cancel_job(self, mock_async_result):
         """Test DELETE /api/jobs/{job_id} cancels job."""
         mock_result = Mock()
@@ -207,7 +207,7 @@ class TestJobCancellation:
         assert "cancelled" in data["message"].lower()
         mock_result.revoke.assert_called_once_with(terminate=True)
 
-    @patch("vam_tools.web.jobs_api.AsyncResult")
+    @patch("lumina.web.jobs_api.AsyncResult")
     def test_cancel_completed_job(self, mock_async_result):
         """Test cancelling already completed job."""
         mock_result = Mock()
@@ -223,7 +223,7 @@ class TestJobCancellation:
 class TestSSEProgressStream:
     """Tests for Server-Sent Events progress streaming."""
 
-    @patch("vam_tools.web.jobs_api.AsyncResult")
+    @patch("lumina.web.jobs_api.AsyncResult")
     def test_stream_job_progress(self, mock_async_result):
         """Test GET /api/jobs/{job_id}/stream streams progress updates."""
         # This is challenging to test with TestClient
@@ -234,8 +234,8 @@ class TestSSEProgressStream:
 class TestJobRerunEndpoint:
     """Tests for job rerun endpoint."""
 
-    @patch("vam_tools.web.jobs_api.get_redis_client")
-    @patch("vam_tools.web.jobs_api.analyze_catalog_task")
+    @patch("lumina.web.jobs_api.get_redis_client")
+    @patch("lumina.web.jobs_api.analyze_catalog_task")
     def test_rerun_analyze_job(self, mock_analyze_task, mock_get_redis_client):
         """Test POST /api/jobs/{job_id}/rerun for analyze job."""
         mock_redis = Mock()
@@ -255,7 +255,7 @@ class TestJobRerunEndpoint:
             catalog_path="/app/test", source_directories=["/app/photos"]
         )
 
-    @patch("vam_tools.web.jobs_api.get_redis_client")
+    @patch("lumina.web.jobs_api.get_redis_client")
     def test_rerun_job_not_found(self, mock_get_redis_client):
         """Test rerun job when original job parameters are not found."""
         mock_redis = Mock()
@@ -271,7 +271,7 @@ class TestJobRerunEndpoint:
 class TestJobKillEndpoint:
     """Tests for job kill endpoint."""
 
-    @patch("vam_tools.web.jobs_api.AsyncResult")
+    @patch("lumina.web.jobs_api.AsyncResult")
     def test_kill_job(self, mock_async_result):
         """Test POST /api/jobs/{job_id}/kill kills job."""
         mock_result = Mock()

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.core.gpu_utils import GPUInfo, detect_gpu, get_optimal_config
+from lumina.core.gpu_utils import GPUInfo, detect_gpu, get_optimal_config
 
 
 class TestGPUInfo:
@@ -105,10 +105,10 @@ class TestDetectGPU:
     def test_detect_gpu_no_backends(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test GPU detection when no backends are available."""
         # Mock all detection functions to return False
-        with patch("vam_tools.core.gpu_utils._detect_cuda", return_value=False):
-            with patch("vam_tools.core.gpu_utils._detect_rocm", return_value=False):
+        with patch("lumina.core.gpu_utils._detect_cuda", return_value=False):
+            with patch("lumina.core.gpu_utils._detect_rocm", return_value=False):
                 with patch(
-                    "vam_tools.core.gpu_utils._detect_opencl", return_value=False
+                    "lumina.core.gpu_utils._detect_opencl", return_value=False
                 ):
                     gpu_info = detect_gpu()
 
@@ -127,7 +127,7 @@ class TestDetectGPU:
             return True
 
         with patch(
-            "vam_tools.core.gpu_utils._detect_cuda", side_effect=mock_detect_cuda
+            "lumina.core.gpu_utils._detect_cuda", side_effect=mock_detect_cuda
         ):
             gpu_info = detect_gpu()
 
@@ -145,9 +145,9 @@ class TestDetectGPU:
             gpu_info.backends.append("rocm")
             return True
 
-        with patch("vam_tools.core.gpu_utils._detect_cuda", return_value=False):
+        with patch("lumina.core.gpu_utils._detect_cuda", return_value=False):
             with patch(
-                "vam_tools.core.gpu_utils._detect_rocm", side_effect=mock_detect_rocm
+                "lumina.core.gpu_utils._detect_rocm", side_effect=mock_detect_rocm
             ):
                 gpu_info = detect_gpu()
 
@@ -165,10 +165,10 @@ class TestDetectGPU:
             gpu_info.backends.append("opencl")
             return True
 
-        with patch("vam_tools.core.gpu_utils._detect_cuda", return_value=False):
-            with patch("vam_tools.core.gpu_utils._detect_rocm", return_value=False):
+        with patch("lumina.core.gpu_utils._detect_cuda", return_value=False):
+            with patch("lumina.core.gpu_utils._detect_rocm", return_value=False):
                 with patch(
-                    "vam_tools.core.gpu_utils._detect_opencl",
+                    "lumina.core.gpu_utils._detect_opencl",
                     side_effect=mock_detect_opencl,
                 ):
                     gpu_info = detect_gpu()
@@ -182,7 +182,7 @@ class TestDetectCUDA:
 
     def test_detect_cuda_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test CUDA detection when available."""
-        from vam_tools.core.gpu_utils import _detect_cuda
+        from lumina.core.gpu_utils import _detect_cuda
 
         # Mock torch module
         mock_torch = MagicMock()
@@ -213,7 +213,7 @@ class TestDetectCUDA:
 
     def test_detect_cuda_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test CUDA detection when CUDA not available."""
-        from vam_tools.core.gpu_utils import _detect_cuda
+        from lumina.core.gpu_utils import _detect_cuda
 
         mock_torch = MagicMock()
         mock_torch.cuda.is_available.return_value = False
@@ -229,7 +229,7 @@ class TestDetectCUDA:
 
     def test_detect_cuda_torch_not_installed(self) -> None:
         """Test CUDA detection when PyTorch is not installed."""
-        from vam_tools.core.gpu_utils import _detect_cuda
+        from lumina.core.gpu_utils import _detect_cuda
 
         # Skip if torch is already loaded
         try:
@@ -248,7 +248,7 @@ class TestDetectCUDA:
 
     def test_detect_cuda_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test CUDA detection handles exceptions gracefully."""
-        from vam_tools.core.gpu_utils import _detect_cuda
+        from lumina.core.gpu_utils import _detect_cuda
 
         mock_torch = MagicMock()
         mock_torch.cuda.is_available.side_effect = RuntimeError("CUDA error")
@@ -268,7 +268,7 @@ class TestDetectROCm:
 
     def test_detect_rocm_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test ROCm detection when available."""
-        from vam_tools.core.gpu_utils import _detect_rocm
+        from lumina.core.gpu_utils import _detect_rocm
 
         mock_torch = MagicMock()
         mock_torch.hip.is_available.return_value = True
@@ -287,7 +287,7 @@ class TestDetectROCm:
 
     def test_detect_rocm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test ROCm detection when not available."""
-        from vam_tools.core.gpu_utils import _detect_rocm
+        from lumina.core.gpu_utils import _detect_rocm
 
         mock_torch = MagicMock()
         delattr(mock_torch, "hip")  # torch.hip doesn't exist
@@ -307,7 +307,7 @@ class TestDetectOpenCL:
 
     def test_detect_opencl_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test OpenCL detection when available."""
-        from vam_tools.core.gpu_utils import _detect_opencl
+        from lumina.core.gpu_utils import _detect_opencl
 
         # Mock pyopencl
         mock_cl = MagicMock()
@@ -335,7 +335,7 @@ class TestDetectOpenCL:
 
     def test_detect_opencl_no_platforms(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test OpenCL detection with no platforms."""
-        from vam_tools.core.gpu_utils import _detect_opencl
+        from lumina.core.gpu_utils import _detect_opencl
 
         mock_cl = MagicMock()
         mock_cl.get_platforms.return_value = []

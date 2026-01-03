@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from vam_tools.organization.transaction import (
+from lumina.organization.transaction import (
     TransactionLog,
     TransactionOperation,
     TransactionStatus,

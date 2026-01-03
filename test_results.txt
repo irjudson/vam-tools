@@ -1,0 +1,17 @@
+/home/irjudson/Projects/vam-tools/venv/lib/python3.12/site-packages/pytest_benchmark/logger.py:39: PytestBenchmarkWarning: Benchmarks are automatically disabled because xdist plugin is active.Benchmarks cannot be performed reliably in a parallelized environment.
+  warner(PytestBenchmarkWarning(text))
+bringing up nodes...
+bringing up nodes...
+
+........................................s.........s..................... [  8%]
+........................................................................ [ 16%]
+........................................................E............... [ 24%]
+...............................s........................................ [ 32%]
+.........E......E....................................................... [ 40%]
+.................E......................................E..E.E.E..E.E..E [ 48%]
+E..E..E..E.E..E.E.E...EE..EE..E.E..E.EE...EF..FEEEEFEEEEEEEEFFEF.FFFEFFF [ 57%]
+EF...FEE...EFFFFFFFFFFFFEFEFEFFFFFFFFFFFFFFFFFFFFFFFFF.....F.F...FFFFF.. [ 65%]
+...F......................................sF....sssssssssssssE.EEE..E... [ 73%]
+.E...........................EEEEE.........E.............EEEEEEEEEEE.... [ 81%]
+............EEFEEFEEEEEEEE.......EEEEEFFF..EFEFF.......EEE........FFFFF. [ 89%]
+.....EEEEEEEEE....E....EEFEFEFEEEF.....EE..E

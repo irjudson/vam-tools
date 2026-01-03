@@ -6,7 +6,7 @@
 
 ## Summary
 
-Phase 1 of the VAM Tools redesign is **100% complete** with comprehensive test coverage proving all functionality works as specified.
+Phase 1 of the Lumina redesign is **100% complete** with comprehensive test coverage proving all functionality works as specified.
 
 ## What Was Built
 

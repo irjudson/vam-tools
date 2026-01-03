@@ -177,8 +177,8 @@ vam-analyze /path/to/catalog --tag-model clip-vit-b32  # or clip-vit-l14
 ### Python API
 
 ```python
-from vam_tools.analysis.auto_tagger import AutoTagger
-from vam_tools.core.catalog import Catalog
+from lumina.analysis.auto_tagger import AutoTagger
+from lumina.core.catalog import Catalog
 
 # Initialize
 catalog = Catalog("catalog.db")

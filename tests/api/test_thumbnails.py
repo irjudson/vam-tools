@@ -18,7 +18,7 @@ def sample_catalog_with_images(db_session, temp_dir):
     """Create a catalog with sample images for testing."""
     from sqlalchemy import text
 
-    from vam_tools.db.models import Catalog
+    from lumina.db.models import Catalog
 
     # Create catalog
     catalog_id = uuid.uuid4()
@@ -78,7 +78,7 @@ def test_thumbnail_generation_creates_file(
     thumbnails_dir.mkdir(parents=True, exist_ok=True)
 
     # Patch the catalog directory path
-    with patch("vam_tools.api.routers.catalogs.Path") as mock_path_class:
+    with patch("lumina.api.routers.catalogs.Path") as mock_path_class:
 
         def path_factory(path_str):
             if (
@@ -114,7 +114,7 @@ def test_thumbnail_uses_cache_on_second_request(
     thumbnails_dir = tmp_path / "thumbnails"
     thumbnails_dir.mkdir(parents=True, exist_ok=True)
 
-    with patch("vam_tools.api.routers.catalogs.Path") as mock_path_class:
+    with patch("lumina.api.routers.catalogs.Path") as mock_path_class:
 
         def path_factory(path_str):
             if (
@@ -160,7 +160,7 @@ def test_thumbnail_respects_quality_parameter(
     thumbnails_dir = tmp_path / "thumbnails"
     thumbnails_dir.mkdir(parents=True, exist_ok=True)
 
-    with patch("vam_tools.api.routers.catalogs.Path") as mock_path_class:
+    with patch("lumina.api.routers.catalogs.Path") as mock_path_class:
 
         def path_factory(path_str):
             if (

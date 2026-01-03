@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vam-tools"
+name = "lumina"
 version = "2.0.0"
-description = "Visual Asset Management tools for organizing and managing photo/video libraries"
+description = "Lumina - Illuminate your memories. Organize and manage photo/video libraries with intelligent analysis and deduplication."
 authors = [
     {name = "Ivan R. Judson", email = "irjudson@gmail.com"}
 ]
@@ -114,20 +114,20 @@ tagging-all = [
 ]
 
 [project.scripts]
-vam-analyze = "vam_tools.cli.analyze:analyze"
-vam-organize = "vam_tools.cli.organize:organize"
-vam-web = "vam_tools.cli.web:web"
-vam-server = "vam_tools.cli.server:server"
-vam-generate-thumbnails = "vam_tools.cli.generate_thumbnails:generate"
+lumina-analyze = "lumina.cli.analyze:analyze"
+lumina-organize = "lumina.cli.organize:organize"
+lumina-web = "lumina.cli.web:web"
+lumina-server = "lumina.cli.server:server"
+lumina-generate-thumbnails = "lumina.cli.generate_thumbnails:generate"
 
 [project.urls]
-Homepage = "https://github.com/irjudson/lightroom-tools"
-Repository = "https://github.com/irjudson/lightroom-tools"
-Issues = "https://github.com/irjudson/lightroom-tools/issues"
+Homepage = "https://github.com/irjudson/vam-tools"
+Repository = "https://github.com/irjudson/vam-tools"
+Issues = "https://github.com/irjudson/vam-tools/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["vam_tools*"]
+include = ["lumina*"]
 exclude = ["tests*"]
 
 [tool.black]
@@ -224,16 +224,16 @@ ignore_missing_imports = true
 # These modules have complex SQLAlchemy/ORM patterns that need dedicated type fixes
 [[tool.mypy.overrides]]
 module = [
-    "vam_tools.db.*",
-    "vam_tools.core.catalog_config",
-    "vam_tools.analysis.scanner",
-    "vam_tools.analysis.duplicate_detector",
-    "vam_tools.analysis.preview_extractor",
-    "vam_tools.web.*",
-    "vam_tools.api.routers.*",
-    "vam_tools.cli.analyze",
-    "vam_tools.cli.web",
-    "vam_tools.jobs.tasks",
+    "lumina.db.*",
+    "lumina.core.catalog_config",
+    "lumina.analysis.scanner",
+    "lumina.analysis.duplicate_detector",
+    "lumina.analysis.preview_extractor",
+    "lumina.web.*",
+    "lumina.api.routers.*",
+    "lumina.cli.analyze",
+    "lumina.cli.web",
+    "lumina.jobs.tasks",
 ]
 ignore_errors = true
 

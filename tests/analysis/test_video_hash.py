@@ -5,7 +5,7 @@ Tests for video perceptual hashing module.
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from vam_tools.analysis.video_hash import (
+from lumina.analysis.video_hash import (
     are_videos_similar,
     compute_video_hash,
     compute_video_hashes,
@@ -48,7 +48,7 @@ class TestComputeVideoHash:
             # Force reimport
             import importlib
 
-            import vam_tools.analysis.video_hash as vh_module
+            import lumina.analysis.video_hash as vh_module
 
             importlib.reload(vh_module)
 
@@ -99,7 +99,7 @@ class TestComputeVideoHash:
 class TestComputeVideoHashes:
     """Tests for compute_video_hashes function."""
 
-    @patch("vam_tools.analysis.video_hash.compute_video_hash")
+    @patch("lumina.analysis.video_hash.compute_video_hash")
     def test_compute_video_hashes_success(self, mock_compute: MagicMock) -> None:
         """Test successful video hashes computation."""
         mock_compute.return_value = "1a2b3c4d5e6f7890"
@@ -114,7 +114,7 @@ class TestComputeVideoHashes:
         }
         mock_compute.assert_called_once_with(video_path)
 
-    @patch("vam_tools.analysis.video_hash.compute_video_hash")
+    @patch("lumina.analysis.video_hash.compute_video_hash")
     def test_compute_video_hashes_failure(self, mock_compute: MagicMock) -> None:
         """Test video hashes computation when hash fails."""
         mock_compute.return_value = None
@@ -128,7 +128,7 @@ class TestComputeVideoHashes:
             "whash": None,
         }
 
-    @patch("vam_tools.analysis.video_hash.compute_video_hash")
+    @patch("lumina.analysis.video_hash.compute_video_hash")
     def test_compute_video_hashes_dict_format(self, mock_compute: MagicMock) -> None:
         """Test that returned dict is compatible with image hash format."""
         mock_compute.return_value = "fedcba9876543210"
@@ -231,7 +231,7 @@ class TestHammingDistance:
 class TestAreVideosSimilar:
     """Tests for are_videos_similar function."""
 
-    @patch("vam_tools.analysis.video_hash.hamming_distance")
+    @patch("lumina.analysis.video_hash.hamming_distance")
     def test_are_videos_similar_identical(self, mock_distance: MagicMock) -> None:
         """Test similarity check for identical videos."""
         mock_distance.return_value = 0
@@ -244,7 +244,7 @@ class TestAreVideosSimilar:
         assert is_similar is True
         assert distance == 0
 
-    @patch("vam_tools.analysis.video_hash.hamming_distance")
+    @patch("lumina.analysis.video_hash.hamming_distance")
     def test_are_videos_similar_within_threshold(
         self, mock_distance: MagicMock
     ) -> None:
@@ -259,7 +259,7 @@ class TestAreVideosSimilar:
         assert is_similar is True
         assert distance == 5
 
-    @patch("vam_tools.analysis.video_hash.hamming_distance")
+    @patch("lumina.analysis.video_hash.hamming_distance")
     def test_are_videos_similar_exceeds_threshold(
         self, mock_distance: MagicMock
     ) -> None:
@@ -274,7 +274,7 @@ class TestAreVideosSimilar:
         assert is_similar is False
         assert distance == 15
 
-    @patch("vam_tools.analysis.video_hash.hamming_distance")
+    @patch("lumina.analysis.video_hash.hamming_distance")
     def test_are_videos_similar_at_threshold_boundary(
         self, mock_distance: MagicMock
     ) -> None:
@@ -289,7 +289,7 @@ class TestAreVideosSimilar:
         assert is_similar is True  # <= threshold
         assert distance == 10
 
-    @patch("vam_tools.analysis.video_hash.hamming_distance")
+    @patch("lumina.analysis.video_hash.hamming_distance")
     def test_are_videos_similar_custom_threshold(
         self, mock_distance: MagicMock
     ) -> None:
@@ -308,7 +308,7 @@ class TestAreVideosSimilar:
         assert is_similar_strict is False
         assert distance == 3
 
-    @patch("vam_tools.analysis.video_hash.hamming_distance")
+    @patch("lumina.analysis.video_hash.hamming_distance")
     def test_are_videos_similar_distance_none(self, mock_distance: MagicMock) -> None:
         """Test similarity check when distance calculation fails."""
         mock_distance.return_value = None

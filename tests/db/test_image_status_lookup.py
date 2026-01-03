@@ -2,7 +2,7 @@
 
 import pytest
 
-from vam_tools.db.models import Image, ImageStatus
+from lumina.db.models import Image, ImageStatus
 
 pytestmark = pytest.mark.integration
 
@@ -32,7 +32,7 @@ class TestImageStatusLookup:
         # Create a test catalog first
         import uuid
 
-        from vam_tools.db.models import Catalog
+        from lumina.db.models import Catalog
 
         catalog = Catalog(
             id=uuid.uuid4(),
@@ -68,7 +68,7 @@ class TestImageStatusLookup:
         # Create a test catalog
         import uuid
 
-        from vam_tools.db.models import Catalog
+        from lumina.db.models import Catalog
 
         catalog = Catalog(
             id=uuid.uuid4(),

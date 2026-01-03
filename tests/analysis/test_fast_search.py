@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from vam_tools.analysis.fast_search import FastSimilaritySearcher
+from lumina.analysis.fast_search import FastSimilaritySearcher
 
 
 class TestFastSimilaritySearcherInit:

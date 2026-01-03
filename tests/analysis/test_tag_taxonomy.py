@@ -2,7 +2,7 @@
 
 import pytest
 
-from vam_tools.analysis.tag_taxonomy import TagCategory, TagDefinition, TagTaxonomy
+from lumina.analysis.tag_taxonomy import TagCategory, TagDefinition, TagTaxonomy
 
 
 class TestTagDefinition:

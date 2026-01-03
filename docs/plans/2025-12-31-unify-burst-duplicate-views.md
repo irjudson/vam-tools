@@ -238,4 +238,4 @@ With unified structure, both views can benefit from:
 
 ## Conclusion
 
-This change unifies the visual language of VAM Tools while maintaining all burst-specific functionality. The DRY approach reduces code and ensures future improvements benefit both duplicates and bursts.
+This change unifies the visual language of Lumina while maintaining all burst-specific functionality. The DRY approach reduces code and ensures future improvements benefit both duplicates and bursts.

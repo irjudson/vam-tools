@@ -12,7 +12,7 @@ import sys
 import pygeohash as pgh
 from sqlalchemy import text
 
-from vam_tools.db import CatalogDB as CatalogDatabase
+from lumina.db import CatalogDB as CatalogDatabase
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"

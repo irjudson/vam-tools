@@ -1,4 +1,4 @@
-# VAM Tools Scripts
+# Lumina Scripts
 
 Utility scripts for development, testing, and maintenance.
 

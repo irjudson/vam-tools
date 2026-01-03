@@ -1,6 +1,6 @@
-# VAM Tools - Docker Quick Start
+# Lumina - Docker Quick Start
 
-Run VAM Tools with Docker for easy deployment with GPU-accelerated background processing.
+Run Lumina with Docker for easy deployment with GPU-accelerated background processing.
 
 ## 🚀 Quick Start
 
@@ -98,9 +98,9 @@ sudo chown -R $USER:$USER /path/to/catalogs
 1. **Submit a job**: Open http://localhost:8000/static/jobs.html
 2. **Browse catalog**: http://localhost:8000
 3. **Read full docs**: [DOCKER_DEPLOYMENT.md](docs/DOCKER_DEPLOYMENT.md)
-# VAM Tools - Docker Deployment Guide
+# Lumina - Docker Deployment Guide
 
-Complete guide for deploying VAM Tools with Docker, Celery, and Redis for background job processing with GPU acceleration.
+Complete guide for deploying Lumina with Docker, Celery, and Redis for background job processing with GPU acceleration.
 
 ## Table of Contents
 
@@ -118,7 +118,7 @@ Complete guide for deploying VAM Tools with Docker, Celery, and Redis for backgr
 
 ## Overview
 
-VAM Tools provides a complete Docker-based deployment with:
+Lumina provides a complete Docker-based deployment with:
 
 - **Web API** - FastAPI server for catalog browsing and job submission
 - **Celery Workers** - Background processing for analysis, organization, and thumbnails
@@ -482,7 +482,7 @@ docker exec vam-celery-worker celery -A vam_tools.jobs.celery_app inspect active
 
 **Check broker connection**:
 ```bash
-docker exec vam-celery-worker python -c "from vam_tools.jobs.celery_app import app; print(app.connection().ensure_connection())"
+docker exec vam-celery-worker python -c "from lumina.jobs.celery_app import app; print(app.connection().ensure_connection())"
 ```
 
 **Restart worker**:
@@ -571,7 +571,7 @@ sudo chmod -R 755 /path/to/photos
 
 5. **Restrict CORS origins**:
    ```bash
-   VAM_CORS_ORIGINS=https://vam.example.com
+   Lumina_CORS_ORIGINS=https://vam.example.com
    ```
 
 ### Performance Tuning
@@ -615,7 +615,7 @@ tar -xzf catalog-backup-20250101.tar.gz -C $CATALOG_PATH
 
 ## Next Steps
 
-- [User Guide](./USER_GUIDE.md) - Learn how to use VAM Tools
+- [User Guide](./USER_GUIDE.md) - Learn how to use Lumina
 - [Architecture](./ARCHITECTURE.md) - Understand the system design
 - [Development Guide](./CONTRIBUTING.md) - Contribute to the project
 

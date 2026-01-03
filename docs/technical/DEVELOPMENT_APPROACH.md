@@ -1,12 +1,12 @@
 # Development Approach: Human-AI Pair Programming
 
-This document explains how VAM Tools was developed using human-AI collaboration with Claude, and the methodology that ensured code quality without exhaustive human review.
+This document explains how Lumina was developed using human-AI collaboration with Claude, and the methodology that ensured code quality without exhaustive human review.
 
 ---
 
 ## Project Context
 
-VAM Tools was developed using **human-AI pair programming** with Claude (Anthropic's AI assistant). The project demonstrates how AI can accelerate development while maintaining high code quality through systematic engineering practices.
+Lumina was developed using **human-AI pair programming** with Claude (Anthropic's AI assistant). The project demonstrates how AI can accelerate development while maintaining high code quality through systematic engineering practices.
 
 **Timeline**: Single weekend (what would typically require 2-3 weeks)
 
@@ -403,7 +403,7 @@ If you're considering AI-assisted development:
 
 ## Conclusion
 
-VAM Tools demonstrates that **human-AI collaboration can be highly productive** when combined with solid engineering practices.
+Lumina demonstrates that **human-AI collaboration can be highly productive** when combined with solid engineering practices.
 
 **Keys to success**:
 1. Automated quality gates (testing, linting, CI)

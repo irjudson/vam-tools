@@ -1,4 +1,4 @@
-# VAM Tools - User Guide
+# Lumina - User Guide
 
 ## Table of Contents
 
@@ -118,7 +118,7 @@ vam-analyze /path/to/catalog \
 
 **Output:**
 ```
-VAM Tools - Analysis
+Lumina - Analysis
 
 Catalog: /home/user/my-catalog
 Sources: /home/user/Pictures
@@ -626,7 +626,7 @@ See `REQUIREMENTS.md` for the complete roadmap.
 
 ## Safety and Data Protection
 
-VAM Tools is designed with safety in mind:
+Lumina is designed with safety in mind:
 
 1. **Non-destructive by default**: Analysis phase never modifies source files
 2. **Checkpoint system**: Progress saved every 100 files (safe to interrupt)

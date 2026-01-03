@@ -31,8 +31,8 @@ from datetime import datetime
 
 import pytest
 
-from vam_tools.core.types import DateInfo
-from vam_tools.db.serializers import serialize_date_info, deserialize_date_info
+from lumina.core.types import DateInfo
+from lumina.db.serializers import serialize_date_info, deserialize_date_info
 
 
 def test_serialize_date_info_with_all_fields():
@@ -131,7 +131,7 @@ Handles bidirectional conversion:
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from vam_tools.core.types import DateInfo, ImageMetadata, ImageRecord
+from lumina.core.types import DateInfo, ImageMetadata, ImageRecord
 
 
 def serialize_date_info(date_info: DateInfo) -> Dict[str, Any]:
@@ -220,12 +220,12 @@ git commit -m "feat: add DateInfo serializers for PostgreSQL JSONB"
 Add to `tests/db/test_serializers.py`:
 
 ```python
-from vam_tools.db.serializers import serialize_image_metadata, deserialize_image_metadata
+from lumina.db.serializers import serialize_image_metadata, deserialize_image_metadata
 
 
 def test_serialize_image_metadata_with_all_fields():
     """Test serializing ImageMetadata with all fields."""
-    from vam_tools.core.types import ImageMetadata
+    from lumina.core.types import ImageMetadata
 
     metadata = ImageMetadata(
         exif={"Make": "Canon", "Model": "EOS 5D"},
@@ -263,7 +263,7 @@ def test_serialize_image_metadata_with_all_fields():
 
 def test_serialize_image_metadata_empty():
     """Test serializing empty ImageMetadata."""
-    from vam_tools.core.types import ImageMetadata
+    from lumina.core.types import ImageMetadata
 
     metadata = ImageMetadata()
     result = serialize_image_metadata(metadata)
@@ -275,7 +275,7 @@ def test_serialize_image_metadata_empty():
 
 def test_deserialize_image_metadata():
     """Test deserializing dict to ImageMetadata."""
-    from vam_tools.core.types import ImageMetadata
+    from lumina.core.types import ImageMetadata
 
     data = {
         "format": "JPEG",
@@ -296,7 +296,7 @@ def test_deserialize_image_metadata():
 
 def test_round_trip_image_metadata():
     """Test that serialize→deserialize is lossless."""
-    from vam_tools.core.types import ImageMetadata
+    from lumina.core.types import ImageMetadata
 
     original = ImageMetadata(
         format="PNG",
@@ -428,13 +428,13 @@ Add to `tests/db/test_serializers.py`:
 
 ```python
 from pathlib import Path
-from vam_tools.core.types import FileType, ImageStatus
-from vam_tools.db.serializers import serialize_image_record, deserialize_image_record
+from lumina.core.types import FileType, ImageStatus
+from lumina.db.serializers import serialize_image_record, deserialize_image_record
 
 
 def test_serialize_image_record_complete():
     """Test serializing complete ImageRecord."""
-    from vam_tools.core.types import ImageRecord, DateInfo, ImageMetadata
+    from lumina.core.types import ImageRecord, DateInfo, ImageMetadata
 
     record = ImageRecord(
         id="img123",
@@ -471,7 +471,7 @@ def test_serialize_image_record_complete():
 
 def test_deserialize_image_record_from_db_row():
     """Test deserializing database row to ImageRecord."""
-    from vam_tools.core.types import ImageRecord
+    from lumina.core.types import ImageRecord
 
     # Simulate a row from PostgreSQL
     db_row = {
@@ -514,7 +514,7 @@ def test_deserialize_image_record_from_db_row():
 
 def test_round_trip_image_record():
     """Test that serialize→deserialize is lossless."""
-    from vam_tools.core.types import ImageRecord, DateInfo, ImageMetadata
+    from lumina.core.types import ImageRecord, DateInfo, ImageMetadata
 
     original = ImageRecord(
         id="test123",
@@ -566,7 +566,7 @@ Add to `vam_tools/db/serializers.py`:
 
 ```python
 from pathlib import Path
-from vam_tools.core.types import FileType, ImageStatus
+from lumina.core.types import FileType, ImageStatus
 
 
 def serialize_image_record(record: ImageRecord) -> Dict[str, Any]:
@@ -671,8 +671,8 @@ import uuid
 
 import pytest
 
-from vam_tools.core.types import DateInfo, FileType, ImageMetadata, ImageRecord, ImageStatus
-from vam_tools.db import CatalogDB
+from lumina.core.types import DateInfo, FileType, ImageMetadata, ImageRecord, ImageStatus
+from lumina.db import CatalogDB
 
 
 @pytest.fixture
@@ -738,7 +738,7 @@ def test_get_image_deserializes_correctly(test_catalog_db):
     result_dict = test_catalog_db.get_image("test_img_2")
 
     # Manually deserialize using our serializer
-    from vam_tools.db.serializers import deserialize_image_record
+    from lumina.db.serializers import deserialize_image_record
     result_record = deserialize_image_record(result_dict)
 
     assert isinstance(result_record, ImageRecord)
@@ -772,7 +772,7 @@ def test_get_all_images_deserializes_correctly(test_catalog_db):
     assert len(all_images) == 3
 
     # Deserialize and validate
-    from vam_tools.db.serializers import deserialize_image_record
+    from lumina.db.serializers import deserialize_image_record
 
     for img_id, img_data in all_images.items():
         record = deserialize_image_record(img_data)
@@ -962,14 +962,14 @@ git restore tests/web/test_api.py
 Replace old imports:
 
 ```python
-from vam_tools.core.database import CatalogDatabase
+from lumina.core.database import CatalogDatabase
 ```
 
 With:
 
 ```python
-from vam_tools.db import CatalogDB as CatalogDatabase
-from vam_tools.db.serializers import deserialize_image_record
+from lumina.db import CatalogDB as CatalogDatabase
+from lumina.db.serializers import deserialize_image_record
 ```
 
 **Step 3: Update test fixtures to use CatalogDB properly**

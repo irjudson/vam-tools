@@ -1,11 +1,11 @@
-# VAM Tools - Complete Redesign (PostgreSQL + Celery)
+# Lumina - Complete Redesign (PostgreSQL + Celery)
 
 **Date**: 2025-11-10
 **Status**: Approved - Ready for Implementation
 
 ## Overview
 
-Complete redesign of VAM Tools as a production-grade photo management system with:
+Complete redesign of Lumina as a production-grade photo management system with:
 - PostgreSQL database (replacing JSON/SQLite)
 - Celery + Redis for background job processing
 - Modern web UI with real-time updates

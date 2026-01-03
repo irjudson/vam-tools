@@ -191,7 +191,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.analysis.semantic_search import (
+from lumina.analysis.semantic_search import (
     SemanticSearchService,
     SearchResult,
 )
@@ -842,7 +842,7 @@ Expected: FAIL with 404 (endpoint doesn't exist)
 Add to `vam_tools/web/api.py`:
 
 ```python
-from vam_tools.analysis.semantic_search import SemanticSearchService, SearchResult
+from lumina.analysis.semantic_search import SemanticSearchService, SearchResult
 
 # Initialize search service (lazy loaded)
 _search_service: Optional[SemanticSearchService] = None

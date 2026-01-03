@@ -1,6 +1,8 @@
-# VAM Tools (Visual Asset Management)
+# Lumina
 
-A professional collection of Python tools for managing and organizing photo/video libraries with GPU acceleration and real-time performance monitoring.
+**Illuminate Your Memories**
+
+A professional photo and video library manager with GPU-accelerated analysis, intelligent duplicate detection, and burst sequence organization.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -88,7 +90,7 @@ sudo apt-get install exiftool
 **Windows:**
 Download from [exiftool.org](https://exiftool.org/) and add to PATH.
 
-### Install VAM Tools
+### Install Lumina
 
 ```bash
 # Clone the repository
@@ -257,7 +259,7 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](./LICE
 
 ## Acknowledgments
 
-VAM Tools builds on excellent open-source projects:
+Lumina builds on excellent open-source projects:
 
 - [Pillow](https://python-pillow.org/) for image processing
 - [ExifTool](https://exiftool.org/) for metadata extraction

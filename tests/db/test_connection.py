@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from vam_tools.db.models import Catalog
+from lumina.db.models import Catalog
 
 pytestmark = pytest.mark.integration
 

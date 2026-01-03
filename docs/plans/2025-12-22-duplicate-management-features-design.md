@@ -788,8 +788,8 @@ def backfill_duplicate_tags(catalog_id: str):
     One-time script to create tags for existing duplicate groups.
     Run after deploying tag creation code.
     """
-    from vam_tools.db import CatalogDatabase
-    from vam_tools.db.models import DuplicateGroup
+    from lumina.db import CatalogDatabase
+    from lumina.db.models import DuplicateGroup
 
     with CatalogDatabase(catalog_id) as db:
         groups = db.session.query(DuplicateGroup).all()

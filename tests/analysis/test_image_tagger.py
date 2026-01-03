@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.analysis.image_tagger import (
+from lumina.analysis.image_tagger import (
     ImageTagger,
     OllamaBackend,
     OpenCLIPBackend,
@@ -63,7 +63,7 @@ class TestOpenCLIPBackend:
             # Should default to CPU when torch not available
             assert backend._device in ["cpu", "cuda", "mps"]
 
-    @patch("vam_tools.analysis.image_tagger.OpenCLIPBackend._load_model")
+    @patch("lumina.analysis.image_tagger.OpenCLIPBackend._load_model")
     def test_is_available_with_openclip(self, mock_load: MagicMock) -> None:
         """Test availability check when open_clip is installed."""
         backend = OpenCLIPBackend()
@@ -146,8 +146,8 @@ class TestOllamaBackend:
         assert max(loaded.size) == 1024
         assert loaded.size == (1024, 768)  # Maintains aspect ratio
 
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
     def test_tag_image_success(
         self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
     ) -> None:
@@ -175,8 +175,8 @@ class TestOllamaBackend:
         assert ("dogs", 0.95) in results
         assert ("outdoor", 0.8) in results
 
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
     def test_tag_image_json_in_code_block(
         self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
     ) -> None:
@@ -198,8 +198,8 @@ class TestOllamaBackend:
         assert len(results) == 1
         assert results[0][0] == "dogs"
 
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
     def test_tag_image_invalid_json(
         self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
     ) -> None:
@@ -221,8 +221,8 @@ class TestOllamaBackend:
         # Should return empty list on parse failure
         assert results == []
 
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
     def test_tag_batch(
         self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
     ) -> None:
@@ -247,7 +247,7 @@ class TestOllamaBackend:
         for path in images:
             assert path in results
 
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._get_client")
     def test_is_available_with_model(self, mock_get_client: MagicMock) -> None:
         """Test availability check with model present."""
         mock_client = MagicMock()
@@ -262,7 +262,7 @@ class TestOllamaBackend:
         backend = OllamaBackend(model="llava")
         assert backend.is_available() is True
 
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._get_client")
     def test_is_available_without_model(self, mock_get_client: MagicMock) -> None:
         """Test availability check without required model."""
         mock_client = MagicMock()
@@ -276,8 +276,8 @@ class TestOllamaBackend:
         backend = OllamaBackend(model="llava")
         assert backend.is_available() is False
 
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._get_client")
-    @patch("vam_tools.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._get_client")
+    @patch("lumina.analysis.image_tagger.OllamaBackend._prepare_image_bytes")
     def test_describe_image(
         self, mock_prepare: MagicMock, mock_get_client: MagicMock, tmp_path: Path
     ) -> None:

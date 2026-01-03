@@ -24,8 +24,8 @@ Create test file if it doesn't exist, or add to existing:
 def test_year_slash_month_day_structure():
     """Test YYYY/MM-DD directory structure."""
     from datetime import datetime
-    from vam_tools.organization.strategy import DirectoryStructure, OrganizationStrategy
-    from vam_tools.core.types import ImageRecord, ImageDates
+    from lumina.organization.strategy import DirectoryStructure, OrganizationStrategy
+    from lumina.core.types import ImageRecord, ImageDates
     from pathlib import Path
 
     strategy = OrganizationStrategy(
@@ -126,8 +126,8 @@ git commit -m "feat: add YEAR_SLASH_MONTH_DAY directory structure"
 def test_time_checksum_naming():
     """Test TIME_CHECKSUM naming strategy: HHMMSS_shortchecksum.ext"""
     from datetime import datetime
-    from vam_tools.organization.strategy import NamingStrategy, OrganizationStrategy
-    from vam_tools.core.types import ImageRecord, ImageDates
+    from lumina.organization.strategy import NamingStrategy, OrganizationStrategy
+    from lumina.core.types import ImageRecord, ImageDates
     from pathlib import Path
 
     strategy = OrganizationStrategy(
@@ -239,8 +239,8 @@ git commit -m "feat: add TIME_CHECKSUM naming strategy"
 def test_status_based_routing_rejected():
     """Test that rejected images route to _rejected/ subdirectory."""
     from datetime import datetime
-    from vam_tools.organization.strategy import OrganizationStrategy, DirectoryStructure, NamingStrategy
-    from vam_tools.core.types import ImageRecord, ImageDates
+    from lumina.organization.strategy import OrganizationStrategy, DirectoryStructure, NamingStrategy
+    from lumina.core.types import ImageRecord, ImageDates
     from pathlib import Path
 
     strategy = OrganizationStrategy(
@@ -267,8 +267,8 @@ def test_status_based_routing_rejected():
 def test_status_based_routing_active():
     """Test that active images route to main directory."""
     from datetime import datetime
-    from vam_tools.organization.strategy import OrganizationStrategy, DirectoryStructure, NamingStrategy
-    from vam_tools.core.types import ImageRecord, ImageDates
+    from lumina.organization.strategy import OrganizationStrategy, DirectoryStructure, NamingStrategy
+    from lumina.core.types import ImageRecord, ImageDates
     from pathlib import Path
 
     strategy = OrganizationStrategy(
@@ -351,8 +351,8 @@ def test_mtime_fallback():
     """Test that mtime is used when EXIF date is missing."""
     import os
     from datetime import datetime
-    from vam_tools.organization.strategy import OrganizationStrategy, DirectoryStructure
-    from vam_tools.core.types import ImageRecord
+    from lumina.organization.strategy import OrganizationStrategy, DirectoryStructure
+    from lumina.core.types import ImageRecord
     from pathlib import Path
     import tempfile
 
@@ -490,8 +490,8 @@ git commit -m "feat: add mtime fallback for images without EXIF dates"
 def test_full_checksum_conflict_resolution():
     """Test that conflicts are resolved using full checksum."""
     from datetime import datetime
-    from vam_tools.organization.strategy import OrganizationStrategy, NamingStrategy
-    from vam_tools.core.types import ImageRecord, ImageDates
+    from lumina.organization.strategy import OrganizationStrategy, NamingStrategy
+    from lumina.core.types import ImageRecord, ImageDates
     from pathlib import Path
     import tempfile
     import os
@@ -605,8 +605,8 @@ Create new test file:
 def test_skip_already_organized():
     """Test that files already in organized structure are skipped."""
     from pathlib import Path
-    from vam_tools.organization.reorganizer import should_reorganize_image
-    from vam_tools.core.types import ImageRecord
+    from lumina.organization.reorganizer import should_reorganize_image
+    from lumina.core.types import ImageRecord
 
     output_dir = Path("/organized")
 
@@ -623,8 +623,8 @@ def test_skip_already_organized():
 def test_skip_matching_checksum():
     """Test that files with matching checksum at target are skipped."""
     from pathlib import Path
-    from vam_tools.organization.reorganizer import should_reorganize_image
-    from vam_tools.core.types import ImageRecord
+    from lumina.organization.reorganizer import should_reorganize_image
+    from lumina.core.types import ImageRecord
     from datetime import datetime
     import tempfile
 
@@ -639,7 +639,7 @@ def test_skip_matching_checksum():
         target_file.write_bytes(b"test content")
 
         # Calculate checksum of target
-        from vam_tools.shared.media_utils import compute_checksum
+        from lumina.shared.media_utils import compute_checksum
         target_checksum = compute_checksum(target_file)
 
         # Image with same checksum
@@ -734,8 +734,8 @@ Create test file:
 ```python
 def test_reorganize_coordinator_creates_batches():
     """Test that coordinator creates batches for images."""
-    from vam_tools.jobs.reorganize import reorganize_coordinator_task
-    from vam_tools.db import get_db_context
+    from lumina.jobs.reorganize import reorganize_coordinator_task
+    from lumina.db import get_db_context
     from unittest.mock import patch, MagicMock
 
     catalog_id = "test-catalog-id"
@@ -993,7 +993,7 @@ Add to test file:
 ```python
 def test_reorganize_worker_processes_batch():
     """Test that worker processes a batch of images."""
-    from vam_tools.jobs.reorganize import reorganize_worker_task
+    from lumina.jobs.reorganize import reorganize_worker_task
     from unittest.mock import patch, MagicMock
     import tempfile
     from pathlib import Path
@@ -1271,7 +1271,7 @@ Add to test file:
 ```python
 def test_reorganize_finalizer_aggregates_results():
     """Test that finalizer aggregates worker results."""
-    from vam_tools.jobs.reorganize import reorganize_finalizer_task
+    from lumina.jobs.reorganize import reorganize_finalizer_task
     from unittest.mock import patch
 
     catalog_id = "test-catalog-id"

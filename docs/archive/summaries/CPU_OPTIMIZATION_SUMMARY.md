@@ -2,7 +2,7 @@
 
 ## Overview
 
-Optimized VAM Tools for maximum CPU performance on your 32-core system, working around RTX 5060 Ti (sm_120) PyTorch compatibility issues.
+Optimized Lumina for maximum CPU performance on your 32-core system, working around RTX 5060 Ti (sm_120) PyTorch compatibility issues.
 
 ## System Configuration
 

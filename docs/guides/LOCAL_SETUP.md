@@ -1,4 +1,4 @@
-# VAM Tools - Local Development Setup
+# Lumina - Local Development Setup
 
 Simple local development environment without Docker complexity.
 

@@ -19,7 +19,7 @@ test_db_name = f"vam-tools-test-{worker_id}"
 os.environ["POSTGRES_DB"] = test_db_name
 
 # Remove any already-imported vam_tools modules to force reload with test settings
-modules_to_remove = [name for name in sys.modules if name.startswith("vam_tools")]
+modules_to_remove = [name for name in sys.modules if name.startswith("lumina")]
 for module_name in modules_to_remove:
     del sys.modules[module_name]
 
@@ -33,8 +33,8 @@ from PIL import Image, ImageDraw  # noqa: E402
 from sqlalchemy import create_engine, event, text  # noqa: E402
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 
-# Now import vam_tools with test environment variable set
-from vam_tools.db.config import Settings  # noqa: E402
+# Now import lumina with test environment variable set
+from lumina.db.config import Settings  # noqa: E402
 
 # Create test settings and verify it's using test database
 test_settings = Settings()
@@ -48,7 +48,7 @@ assert test_settings.postgres_db == test_db_name, (
 # ==============================================================================
 
 # Import after settings are configured
-from vam_tools.db import Base  # noqa: E402
+from lumina.db import Base  # noqa: E402
 
 
 def get_test_engine():
@@ -109,7 +109,7 @@ def tables_created(engine):
     Base.metadata.create_all(bind=engine)
 
     # Populate ImageStatus lookup table FIRST (before adding foreign key)
-    from vam_tools.db.models import ImageStatus
+    from lumina.db.models import ImageStatus
 
     SessionLocal = sessionmaker(bind=engine)
     session = SessionLocal()
@@ -236,7 +236,7 @@ def test_catalog_db(db_session):
 
     def _create_catalog_db(catalog_path: Path):
         """Factory function to create CatalogDB with injected session."""
-        from vam_tools.db import CatalogDB
+        from lumina.db import CatalogDB
 
         # Pass the test session to CatalogDB
         return CatalogDB(catalog_path, session=db_session)
@@ -263,7 +263,7 @@ def standalone_catalog_db(engine):
 
     def _create_catalog_db(catalog_path: Path):
         """Factory function to create standalone CatalogDB."""
-        from vam_tools.db import CatalogDB
+        from lumina.db import CatalogDB
 
         # Don't inject a session - let CatalogDB manage its own
         return CatalogDB(catalog_path)

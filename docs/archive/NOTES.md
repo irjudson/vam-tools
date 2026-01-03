@@ -1,4 +1,4 @@
-# VAM Tools - Development Notes
+# Lumina - Development Notes
 
 This document contains historical information about the project's evolution, completed work, and implementation notes.
 
@@ -16,7 +16,7 @@ This document contains historical information about the project's evolution, com
 
 ### Origins
 
-VAM Tools originated as "lightroom-tools", a collection of scripts for managing Lightroom photo catalogs. The project evolved into a comprehensive Visual Asset Management system focused on organizing large photo/video libraries.
+Lumina originated as "lightroom-tools", a collection of scripts for managing Lightroom photo catalogs. The project evolved into a comprehensive Visual Asset Management system focused on organizing large photo/video libraries.
 
 ### Evolution Timeline
 
@@ -31,7 +31,7 @@ VAM Tools originated as "lightroom-tools", a collection of scripts for managing 
 
 ### Overview
 
-Successfully reimplemented VAM Tools from scratch as a clean, professional Python package with full test coverage, type hints, comprehensive documentation, and modern CLI interfaces.
+Successfully reimplemented Lumina from scratch as a clean, professional Python package with full test coverage, type hints, comprehensive documentation, and modern CLI interfaces.
 
 ### Project Statistics
 
@@ -106,7 +106,7 @@ Successfully reimplemented VAM Tools from scratch as a clean, professional Pytho
 **Package Name:**
 - Old: `lightroom-tools` / `lightroom_tools`
 - New: `vam-tools` / `vam_tools`
-- Rationale: VAM (Visual Asset Management) better reflects broader mission
+- Rationale: Lumina (Visual Asset Management) better reflects broader mission
 
 **Version:**
 - Old: v0.2.0 (v1 implementation)

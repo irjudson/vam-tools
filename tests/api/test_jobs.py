@@ -9,10 +9,10 @@ from unittest.mock import Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from vam_tools.api.app import create_app
-from vam_tools.api.routers.jobs import _safe_get_task_info, _safe_get_task_state
-from vam_tools.db import get_db
-from vam_tools.db.models import Job
+from lumina.api.app import create_app
+from lumina.api.routers.jobs import _safe_get_task_info, _safe_get_task_state
+from lumina.db import get_db
+from lumina.db.models import Job
 
 pytestmark = pytest.mark.integration
 
@@ -110,7 +110,7 @@ class TestJobStatusEndpoint:
         db_session.commit()
         return job
 
-    @patch("vam_tools.api.routers.jobs.AsyncResult")
+    @patch("lumina.api.routers.jobs.AsyncResult")
     def test_get_job_status_success(self, mock_async_result, client, db_session):
         """Test get_job_status with a successful task.
 
@@ -148,7 +148,7 @@ class TestJobStatusEndpoint:
         assert data["celery_status"] == "SUCCESS"  # Raw Celery status
         assert data["result"]["files_processed"] == 100
 
-    @patch("vam_tools.api.routers.jobs.AsyncResult")
+    @patch("lumina.api.routers.jobs.AsyncResult")
     def test_get_job_status_progress(self, mock_async_result, client, db_session):
         """Test get_job_status with an in-progress task."""
         # Create job in database first with unique ID for parallel test isolation
@@ -175,7 +175,7 @@ class TestJobStatusEndpoint:
         assert data["status"] == "running"  # Standardized status
         assert data["celery_status"] == "PROGRESS"  # Raw Celery status
 
-    @patch("vam_tools.api.routers.jobs.AsyncResult")
+    @patch("lumina.api.routers.jobs.AsyncResult")
     def test_get_job_status_failure(self, mock_async_result, client, db_session):
         """Test get_job_status with a failed task."""
         # Create job in database first with unique ID for parallel test isolation
@@ -204,7 +204,7 @@ class TestJobStatusEndpoint:
         assert data["celery_status"] == "FAILURE"  # Raw Celery status
         assert data["error"] == "Task failed due to error"
 
-    @patch("vam_tools.api.routers.jobs.AsyncResult")
+    @patch("lumina.api.routers.jobs.AsyncResult")
     def test_get_job_status_malformed_exception_info(
         self, mock_async_result, client, db_session
     ):

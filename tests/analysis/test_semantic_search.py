@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vam_tools.analysis.semantic_search import SearchResult, SemanticSearchService
+from lumina.analysis.semantic_search import SearchResult, SemanticSearchService
 
 HAS_TORCH = importlib.util.find_spec("torch") is not None
 
@@ -73,7 +73,7 @@ class TestSemanticSearchService:
             with patch.object(service, "_model") as mock_model:
                 with patch.object(service, "_preprocess") as mock_preprocess:
                     with patch(
-                        "vam_tools.analysis.semantic_search.Image"
+                        "lumina.analysis.semantic_search.Image"
                     ) as mock_image_class:
                         import numpy as np
                         import torch
