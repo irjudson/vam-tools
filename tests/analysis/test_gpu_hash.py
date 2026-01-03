@@ -27,9 +27,7 @@ class TestGPUHashProcessorInit:
             memory_gb=0.0,
         )
 
-        with patch(
-            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
-        ):
+        with patch("lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info):
             processor = GPUHashProcessor()
 
         assert processor.use_gpu is False
@@ -48,9 +46,7 @@ class TestGPUHashProcessorInit:
             memory_gb=10.0,
         )
 
-        with patch(
-            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
-        ):
+        with patch("lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info):
             processor = GPUHashProcessor(enable_gpu=False)
 
         assert processor.use_gpu is False
@@ -72,9 +68,7 @@ class TestGPUHashProcessorInit:
         mock_device = MagicMock()
         mock_torch.device.return_value = mock_device
 
-        with patch(
-            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
-        ):
+        with patch("lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)
                 processor = GPUHashProcessor()
@@ -99,9 +93,7 @@ class TestGPUHashProcessorInit:
         mock_device = MagicMock()
         mock_torch.device.return_value = mock_device
 
-        with patch(
-            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
-        ):
+        with patch("lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)
                 processor = GPUHashProcessor(batch_size=16)
@@ -218,9 +210,7 @@ class TestGPUHashProcessorGPUPath:
         # Mock torchvision
         mock_torchvision = MagicMock()
 
-        with patch(
-            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
-        ):
+        with patch("lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)
                 m.setitem(sys.modules, "torchvision", mock_torchvision)
@@ -252,9 +242,7 @@ class TestGPUHashProcessorGPUPath:
         mock_device = MagicMock()
         mock_torch.device.return_value = mock_device
 
-        with patch(
-            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
-        ):
+        with patch("lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)
 
@@ -315,9 +303,7 @@ class TestGPUHashProcessorGPUPath:
         mock_torch.device.return_value = mock_device
         mock_torch.stack.side_effect = RuntimeError("CUDA out of memory")
 
-        with patch(
-            "lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info
-        ):
+        with patch("lumina.analysis.gpu_hash.detect_gpu", return_value=mock_gpu_info):
             with monkeypatch.context() as m:
                 m.setitem(sys.modules, "torch", mock_torch)
                 m.setitem(sys.modules, "torchvision", MagicMock())

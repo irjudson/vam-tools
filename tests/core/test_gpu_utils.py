@@ -107,9 +107,7 @@ class TestDetectGPU:
         # Mock all detection functions to return False
         with patch("lumina.core.gpu_utils._detect_cuda", return_value=False):
             with patch("lumina.core.gpu_utils._detect_rocm", return_value=False):
-                with patch(
-                    "lumina.core.gpu_utils._detect_opencl", return_value=False
-                ):
+                with patch("lumina.core.gpu_utils._detect_opencl", return_value=False):
                     gpu_info = detect_gpu()
 
         assert gpu_info.available is False
@@ -126,9 +124,7 @@ class TestDetectGPU:
             gpu_info.backends.append("cuda")
             return True
 
-        with patch(
-            "lumina.core.gpu_utils._detect_cuda", side_effect=mock_detect_cuda
-        ):
+        with patch("lumina.core.gpu_utils._detect_cuda", side_effect=mock_detect_cuda):
             gpu_info = detect_gpu()
 
         assert gpu_info.available is True
