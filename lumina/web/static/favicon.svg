@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Light bulb outline -->
+  <g fill="none" stroke="#333" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Bulb glass -->
+    <path d="M 35,70 Q 30,50 30,40 Q 30,20 50,20 Q 70,20 70,40 Q 70,50 65,70"/>
+
+    <!-- Bulb base threads -->
+    <line x1="35" y1="70" x2="65" y2="70"/>
+    <line x1="37" y1="74" x2="63" y2="74"/>
+    <line x1="39" y1="78" x2="61" y2="78"/>
+
+    <!-- Bulb bottom cap -->
+    <rect x="38" y="80" width="24" height="6" rx="1"/>
+  </g>
+
+  <!-- Camera aperture blades (as filament) -->
+  <g fill="#666" opacity="0.8">
+    <!-- 6 aperture blades in hexagonal pattern -->
+    <path d="M 50,35 L 48,45 L 52,45 Z"/>
+    <path d="M 50,35 L 45,38 L 48,42 Z"/>
+    <path d="M 50,35 L 45,43 L 48,47 Z"/>
+    <path d="M 50,35 L 52,45 L 55,42 Z"/>
+    <path d="M 50,35 L 55,38 L 52,42 Z"/>
+    <path d="M 50,35 L 55,43 L 52,47 Z"/>
+  </g>
+
+  <!-- Center aperture opening (light) -->
+  <circle cx="50" cy="42" r="4" fill="#FFD700" opacity="0.9"/>
+
+  <!-- Light rays -->
+  <g stroke="#FFD700" stroke-width="2" stroke-linecap="round" opacity="0.6">
+    <line x1="50" y1="15" x2="50" y2="20"/>
+    <line x1="65" y1="20" x2="62" y2="24"/>
+    <line x1="35" y1="20" x2="38" y2="24"/>
+    <line x1="75" y1="30" x2="71" y2="32"/>
+    <line x1="25" y1="30" x2="29" y2="32"/>
+  </g>
+</svg>
