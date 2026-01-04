@@ -8,7 +8,7 @@ set -e
 
 # Acquire lock to prevent concurrent pre-push hooks
 # This ensures only one push runs tests at a time
-LOCK_FILE="/tmp/vam-tools-pre-push.lock"
+LOCK_FILE="/tmp/lumina-pre-push.lock"
 LOCK_FD=200
 
 # Cleanup lock on exit
@@ -58,12 +58,12 @@ fi
 
 # 1. Check Black formatting
 echo -e "${YELLOW}1. Checking code formatting with Black...${NC}"
-if ! black --check vam_tools/ tests/ 2>&1 | grep -q "would be reformatted"; then
+if ! black --check lumina/ tests/ 2>&1 | grep -q "would be reformatted"; then
     echo -e "${GREEN}  ✓ Code formatting OK${NC}"
 else
     echo -e "${RED}  ✗ Code formatting issues found${NC}"
     echo ""
-    echo "  Run: black vam_tools/ tests/"
+    echo "  Run: black lumina/ tests/"
     echo "  Then: git add -u && git commit --amend --no-edit"
     exit 1
 fi
@@ -71,12 +71,12 @@ fi
 # 2. Check import sorting with isort
 echo ""
 echo -e "${YELLOW}2. Checking import sorting with isort...${NC}"
-if isort --check-only vam_tools/ tests/ >/dev/null 2>&1; then
+if isort --check-only lumina/ tests/ >/dev/null 2>&1; then
     echo -e "${GREEN}  ✓ Import sorting OK${NC}"
 else
     echo -e "${RED}  ✗ Import sorting issues found${NC}"
     echo ""
-    echo "  Run: isort vam_tools/ tests/"
+    echo "  Run: isort lumina/ tests/"
     echo "  Then: git add -u && git commit --amend --no-edit"
     exit 1
 fi
@@ -84,12 +84,12 @@ fi
 # 3. Lint with flake8
 echo ""
 echo -e "${YELLOW}3. Linting with flake8...${NC}"
-if flake8 vam_tools/ tests/ 2>/dev/null; then
+if flake8 lumina/ tests/ 2>/dev/null; then
     echo -e "${GREEN}  ✓ Linting passed${NC}"
 else
     echo -e "${RED}  ✗ Linting issues found${NC}"
     echo ""
-    echo "  Run: flake8 vam_tools/ tests/"
+    echo "  Run: flake8 lumina/ tests/"
     echo "  Fix the issues before pushing"
     exit 1
 fi
@@ -101,12 +101,12 @@ MYPY_BIN="${VIRTUAL_ENV:-venv}/bin/mypy"
 if [ ! -f "$MYPY_BIN" ]; then
     MYPY_BIN="venv/bin/mypy"
 fi
-if "$MYPY_BIN" vam_tools/ 2>/dev/null; then
+if "$MYPY_BIN" lumina/ 2>/dev/null; then
     echo -e "${GREEN}  ✓ Type checking passed${NC}"
 else
     echo -e "${RED}  ✗ Type checking issues found${NC}"
     echo ""
-    echo "  Run: mypy vam_tools/"
+    echo "  Run: mypy lumina/"
     echo "  Fix the issues before pushing"
     exit 1
 fi
@@ -142,7 +142,7 @@ if git diff --cached --name-only | xargs grep -n "import pdb\|breakpoint()" 2>/d
 fi
 
 # Check for print statements in production code (excluding CLI modules)
-if git diff --cached --name-only | grep -E "vam_tools/v2/(core|analysis)" | xargs grep -n "print(" 2>/dev/null; then
+if git diff --cached --name-only | grep -E "lumina/(core|analysis)" | xargs grep -n "print(" 2>/dev/null; then
     echo -e "${YELLOW}  ⚠ Found print() statements in core code${NC}"
     echo "  Consider using logging instead"
     # Don't exit - just warn
