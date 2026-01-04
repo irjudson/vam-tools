@@ -60,8 +60,8 @@ def fix_tags_table(db_name):
 def main():
     """Fix tags table in all databases."""
     databases = [
-        'vam-tools-test',
-        'vam-tools'  # dev/default
+        'lumina-test',
+        'lumina'  # dev/default
     ]
 
     success_count = 0

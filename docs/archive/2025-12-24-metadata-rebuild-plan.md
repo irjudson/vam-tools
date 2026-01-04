@@ -208,7 +208,7 @@ ANALYZE (in progress)
 GET /api/jobs
 
 # Via database
-docker exec postgres psql -U pg -d vam-tools -c "
+docker exec postgres psql -U pg -d lumina -c "
 SELECT id, job_type, status, created_at
 FROM jobs
 ORDER BY created_at DESC

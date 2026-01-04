@@ -169,7 +169,7 @@ def main():
 
     # Connect to database
     conn = psycopg2.connect(
-        host="localhost", database="vam-tools", user="pg", password="buffalo-jump"
+        host="localhost", database="lumina", user="pg", password="buffalo-jump"
     )
 
     try:

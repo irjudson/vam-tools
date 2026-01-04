@@ -57,7 +57,7 @@ Design documents and implementation plans:
 - **[Semantic Search (2025-12-06)](plans/2025-12-06-semantic-search.md)** - CLIP-based search design
 - **[Burst Detection (2025-12-06)](plans/2025-12-06-burst-detection.md)** - Burst detection implementation
 - **[PostgreSQL ORM Layer (2025-11-15)](plans/2025-11-15-postgres-pydantic-orm-layer.md)** - ORM migration plan
-- **[Lumina Redesign (2025-11-10)](plans/2025-11-10-vam-tools-redesign.md)** - Major redesign plan
+- **[Lumina Redesign (2025-11-10)](plans/2025-11-10-lumina-redesign.md)** - Major redesign plan
 - **[Auto-Tagging Design](plans/AUTO_TAGGING_DESIGN.md)** - AI tagging system design
 - **[GPU Acceleration Plan](plans/GPU_ACCELERATION_PLAN.md)** - GPU implementation plan
 - **[Catalog Browsing Optimization](plans/CATALOG_BROWSING_OPTIMIZATION_PLAN.md)** - UI optimization plan

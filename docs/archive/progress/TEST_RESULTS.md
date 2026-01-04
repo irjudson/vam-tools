@@ -115,7 +115,7 @@ These require Phase 2 implementation:
 
 ### Test Database
 
-Tests use a separate `vam-tools-test` database that is:
+Tests use a separate `lumina-test` database that is:
 - Created fresh before tests
 - Isolated from production data
 - Cleaned up after tests complete
@@ -138,7 +138,7 @@ All tests use existing project dependencies:
 
 ### ✅ PostgreSQL Database
 
-- [x] Connection to `vam-tools` database working
+- [x] Connection to `lumina` database working
 - [x] SQLAlchemy engine with connection pooling
 - [x] Global `catalogs` table created
 - [x] CRUD operations functional

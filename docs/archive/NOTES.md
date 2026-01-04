@@ -105,7 +105,7 @@ Successfully reimplemented Lumina from scratch as a clean, professional Python p
 
 **Package Name:**
 - Old: `lightroom-tools` / `lightroom_tools`
-- New: `vam-tools` / `vam_tools`
+- New: `lumina` / `vam_tools`
 - Rationale: Lumina (Visual Asset Management) better reflects broader mission
 
 **Version:**
@@ -118,7 +118,7 @@ Successfully reimplemented Lumina from scratch as a clean, professional Python p
 
 **Directory Structure:**
 ```
-lightroom-tools/         →  vam-tools/
+lightroom-tools/         →  lumina/
 ├── lightroom_tools/     →  vam_tools/
 ├── .old_code/           →  .old_lightroom_code/
 ├── tests/               (imports updated)

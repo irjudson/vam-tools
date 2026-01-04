@@ -15,7 +15,7 @@ Thank you for your interest in contributing to Lumina! This guide will help you 
 ### 1. Clone the Repository
 
 ```bash
-git clone git@github.com:irjudson/vam-tools.git
+git clone git@github.com:irjudson/lumina.git
 cd lumina
 ```
 

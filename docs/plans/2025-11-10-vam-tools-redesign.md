@@ -57,7 +57,7 @@ Complete redesign of Lumina as a production-grade photo management system with:
           ▼              ▼              ▼
 ┌─────────────────┐  ┌──────────────────────────┐
 │   PostgreSQL    │  │   Celery Workers (3x)    │
-│   vam-tools DB  │  │   - Scanner              │
+│   lumina DB  │  │   - Scanner              │
 │   Multiple      │  │   - Duplicate Detector   │
 │   Schemas       │  │   - AI Tagger            │
 └─────────────────┘  └──────────┬───────────────┘
@@ -72,7 +72,7 @@ Complete redesign of Lumina as a production-grade photo management system with:
 ### Technology Stack
 
 **Database**
-- PostgreSQL (localhost, database: vam-tools, user: pg, password: buffalo-jump)
+- PostgreSQL (localhost, database: lumina, user: pg, password: buffalo-jump)
 - One schema per catalog for isolation
 - Connection pooling via SQLAlchemy
 

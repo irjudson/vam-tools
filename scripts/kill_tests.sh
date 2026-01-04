@@ -1,15 +1,15 @@
 #!/bin/bash
-# Kill only vam-tools pytest processes using triple isolation:
+# Kill only lumina pytest processes using triple isolation:
 #   1. PROJECT_ID environment variable
 #   2. venv path
 #   3. pytest-xdist worker group name
 
-PROJECT_ID="vam-tools"
-VENV_PATH="/home/irjudson/Projects/vam-tools/venv/bin/pytest"
+PROJECT_ID="lumina"
+VENV_PATH="/home/irjudson/Projects/lumina/venv/bin/pytest"
 WORKER_GROUP="vam_tools_workers"
 
 echo "============================================"
-echo "Killing vam-tools pytest processes..."
+echo "Killing lumina pytest processes..."
 echo "  PROJECT_ID: $PROJECT_ID"
 echo "  VENV: $VENV_PATH"
 echo "  Worker Group: $WORKER_GROUP"
@@ -47,7 +47,7 @@ sleep 1
 remaining=$(ps aux | grep "$VENV_PATH" | grep -v grep | grep -v "kill_tests" | wc -l)
 
 if [ "$remaining" -eq 0 ]; then
-    echo "✓ All vam-tools pytest processes terminated"
+    echo "✓ All lumina pytest processes terminated"
 else
     echo "⚠ Warning: $remaining processes still running"
     ps aux | grep "$VENV_PATH" | grep -v grep | grep -v "kill_tests"

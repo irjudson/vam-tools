@@ -110,9 +110,9 @@ def check_database(db_name):
 def main():
     """Check all database environments."""
     databases = [
-        'vam-tools-test',
-        'vam-tools',  # dev/default
-        'vam-tools-prod'  # if it exists
+        'lumina-test',
+        'lumina',  # dev/default
+        'lumina-prod'  # if it exists
     ]
 
     for db_name in databases:

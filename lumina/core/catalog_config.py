@@ -37,10 +37,10 @@ class CatalogConfigManager:
         """Initialize the catalog config manager.
 
         Args:
-            config_file: Path to config file. Defaults to ~/.vam-tools/catalogs.json
+            config_file: Path to config file. Defaults to ~/.lumina/catalogs.json
         """
         if config_file is None:
-            config_dir = Path.home() / ".vam-tools"
+            config_dir = Path.home() / ".lumina"
             config_dir.mkdir(exist_ok=True)
             config_file = config_dir / "catalogs.json"
 

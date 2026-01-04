@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_user: str = "pg"
     postgres_password: str = "buffalo-jump"
-    postgres_db: str = "vam-tools"
+    postgres_db: str = "lumina"
 
     # Redis connection
     redis_host: str = "localhost"
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     sql_echo: bool = False  # Set to True to log all SQL queries
 
     # Data directory for caches and indices
-    data_dir: str = "/var/lib/vam-tools"
+    data_dir: str = "/var/lib/lumina"
 
     @property
     def database_url(self) -> str:

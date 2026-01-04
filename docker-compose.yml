@@ -26,7 +26,7 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_USER=pg
       - POSTGRES_PASSWORD=buffalo-jump
-      - POSTGRES_DB=vam-tools
+      - POSTGRES_DB=lumina
       - CELERY_BROKER_URL=redis://:buffalo-jump@redis:6379/2
       - CELERY_RESULT_BACKEND=redis://:buffalo-jump@redis:6379/2
       - REDIS_HOST=redis
@@ -68,7 +68,7 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_USER=pg
       - POSTGRES_PASSWORD=buffalo-jump
-      - POSTGRES_DB=vam-tools
+      - POSTGRES_DB=lumina
       - CELERY_BROKER_URL=redis://:buffalo-jump@redis:6379/2
       - CELERY_RESULT_BACKEND=redis://:buffalo-jump@redis:6379/2
       - REDIS_HOST=redis

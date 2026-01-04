@@ -70,7 +70,7 @@ publish_progress(current=total_current, total=total_max, ...)
 
 Users can check real progress:
 ```bash
-docker exec vam-web psql -U pg -d vam-tools -c \
+docker exec vam-web psql -U pg -d lumina -c \
   "SELECT COUNT(*) FROM duplicate_pairs_temp;"
 ```
 

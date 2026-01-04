@@ -138,7 +138,7 @@ Check `run_local.sh` if you need to change it.
 ## File Structure
 
 ```
-vam-tools/
+lumina/
 ├── run_local.sh          # Start all services
 ├── test_e2e.py          # End-to-end test
 ├── cleanup.py           # Cleanup utility

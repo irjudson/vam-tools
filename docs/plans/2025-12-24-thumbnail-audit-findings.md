@@ -136,7 +136,7 @@ The current 96,228 images either:
 
 1. **Add application_name to all operations**
    - Currently shows NULL for bulk operations
-   - Set in connection string: `?application_name=vam-tools`
+   - Set in connection string: `?application_name=lumina`
 
 2. **Preserve critical job records**
    - Don't delete SUCCESS thumbnail jobs

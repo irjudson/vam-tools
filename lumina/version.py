@@ -1,4 +1,4 @@
-"""Version information for vam-tools."""
+"""Version information for lumina."""
 
 import subprocess
 from pathlib import Path

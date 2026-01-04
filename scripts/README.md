@@ -15,14 +15,14 @@ scripts/
 
 ## Test Isolation Scripts
 
-These scripts provide **triple-layer isolation** for vam-tools pytest processes, preventing interference with other projects on the same machine.
+These scripts provide **triple-layer isolation** for lumina pytest processes, preventing interference with other projects on the same machine.
 
 ## Isolation Methods
 
 The scripts use three complementary approaches:
 
-1. **PROJECT_ID Environment Variable** - Uniquely identifies vam-tools test runs
-2. **Virtual Environment Path** - Matches only `/home/irjudson/Projects/vam-tools/venv/bin/pytest`
+1. **PROJECT_ID Environment Variable** - Uniquely identifies lumina test runs
+2. **Virtual Environment Path** - Matches only `/home/irjudson/Projects/lumina/venv/bin/pytest`
 3. **pytest-xdist Worker Group** - Configured in `pyproject.toml` as `vam_tools_workers`
 
 ## Scripts
@@ -43,13 +43,13 @@ Run tests with proper isolation:
 ```
 
 The script:
-- Sets `PROJECT_ID=vam-tools` environment variable
+- Sets `PROJECT_ID=lumina` environment variable
 - Uses the project's venv pytest explicitly
 - pytest-xdist workers use `vam_tools_workers` group (from pyproject.toml)
 
 ### `kill_tests.sh`
 
-Safely kill ONLY vam-tools pytest processes:
+Safely kill ONLY lumina pytest processes:
 
 ```bash
 ./scripts/kill_tests.sh
@@ -98,11 +98,11 @@ Check which pytest processes are running:
 # See all pytest processes
 ps aux | grep pytest
 
-# See only vam-tools pytest
-ps aux | grep "/home/irjudson/Projects/vam-tools/venv/bin/pytest"
+# See only lumina pytest
+ps aux | grep "/home/irjudson/Projects/lumina/venv/bin/pytest"
 
 # See only PROJECT_ID marked processes
-ps aux | grep "PROJECT_ID=vam-tools"
+ps aux | grep "PROJECT_ID=lumina"
 ```
 
 ## Why Three Layers?

@@ -19,7 +19,7 @@ Phase 1 of the Lumina redesign is **100% complete** with comprehensive test cove
 - `vam_tools/db/schemas.py` - Pydantic request/response schemas
 
 **Functionality:**
-- ✅ Connection to PostgreSQL (`vam-tools` database)
+- ✅ Connection to PostgreSQL (`lumina` database)
 - ✅ SQLAlchemy engine with connection pooling (10 connections, 20 overflow)
 - ✅ Global `catalogs` table for catalog registry
 - ✅ Full CRUD operations
@@ -126,7 +126,7 @@ Phase 1 of the Lumina redesign is **100% complete** with comprehensive test cove
 ======================== 19 passed in 3.36s ========================
 ```
 
-**Test Database:** `vam-tools-test` (isolated from production)
+**Test Database:** `lumina-test` (isolated from production)
 
 See `TEST_RESULTS.md` for detailed test documentation.
 
@@ -140,7 +140,7 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_USER=pg
 POSTGRES_PASSWORD=buffalo-jump
-POSTGRES_DB=vam-tools
+POSTGRES_DB=lumina
 
 # Redis
 REDIS_HOST=localhost
@@ -178,7 +178,7 @@ pytest --cov=vam_tools tests/
 
 ## Architecture Compliance
 
-Phase 1 implementation matches the design specification in `docs/plans/2025-11-10-vam-tools-redesign.md`:
+Phase 1 implementation matches the design specification in `docs/plans/2025-11-10-lumina-redesign.md`:
 
 - ✅ PostgreSQL database layer with SQLAlchemy
 - ✅ Celery task queue with Redis broker
@@ -251,7 +251,7 @@ Phase 2 will implement:
 4. Image metadata storage
 5. Progress tracking updates
 
-See `docs/plans/2025-11-10-vam-tools-redesign.md` for Phase 2 details.
+See `docs/plans/2025-11-10-lumina-redesign.md` for Phase 2 details.
 
 ---
 

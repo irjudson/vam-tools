@@ -4,7 +4,7 @@ echo "Waiting for new duplicate detection job..."
 sleep 2
 
 # Find the newest duplicate detection job
-JOB_ID=$(PGPASSWORD=buffalo-jump psql -h localhost -U pg -d vam-tools -t -c "SELECT id FROM jobs WHERE job_type = 'detect_duplicates' ORDER BY created_at DESC LIMIT 1;" 2>&1 | grep -v WARNING | tr -d ' ')
+JOB_ID=$(PGPASSWORD=buffalo-jump psql -h localhost -U pg -d lumina -t -c "SELECT id FROM jobs WHERE job_type = 'detect_duplicates' ORDER BY created_at DESC LIMIT 1;" 2>&1 | grep -v WARNING | tr -d ' ')
 
 if [ -z "$JOB_ID" ]; then
     echo "No job found yet"
@@ -19,7 +19,7 @@ LAST_MESSAGE=""
 
 while true; do
     # Get job status
-    RESULT=$(PGPASSWORD=buffalo-jump psql -h localhost -U pg -d vam-tools -t -c "
+    RESULT=$(PGPASSWORD=buffalo-jump psql -h localhost -U pg -d lumina -t -c "
         SELECT
             status,
             result->'message',
@@ -41,7 +41,7 @@ while true; do
     if [ "$STATUS" = "SUCCESS" ]; then
         echo ""
         echo "✅ JOB COMPLETE!"
-        PGPASSWORD=buffalo-jump psql -h localhost -U pg -d vam-tools -c "
+        PGPASSWORD=buffalo-jump psql -h localhost -U pg -d lumina -c "
             SELECT
                 result->'duplicate_groups' as groups,
                 result->'total_duplicates' as duplicates,
@@ -54,7 +54,7 @@ while true; do
     if [ "$STATUS" = "FAILURE" ]; then
         echo ""
         echo "❌ JOB FAILED!"
-        PGPASSWORD=buffalo-jump psql -h localhost -U pg -d vam-tools -c "
+        PGPASSWORD=buffalo-jump psql -h localhost -U pg -d lumina -c "
             SELECT error FROM jobs WHERE id = '$JOB_ID';
         " 2>&1 | grep -v WARNING
         exit 1

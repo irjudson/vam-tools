@@ -67,7 +67,7 @@ docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ -x 
 The `docker-compose.test.yml` file creates three services:
 
 1. **postgres-test** - Isolated PostgreSQL 16 database
-   - Database: `vam-tools-test`
+   - Database: `lumina-test`
    - Uses tmpfs for automatic cleanup
    - Health checks ensure DB is ready before tests run
 
@@ -147,7 +147,7 @@ To completely remove all test containers and volumes:
 docker-compose -f docker-compose.test.yml down -v
 
 # Remove test images (to force rebuild)
-docker rmi vam-tools-test-runner postgres:16 redis:7-alpine
+docker rmi lumina-test-runner postgres:16 redis:7-alpine
 ```
 
 ### Viewing Logs
@@ -197,7 +197,7 @@ docker-compose -f docker-compose.test.yml run --rm test-runner pytest tests/ --d
 ## File Structure
 
 ```
-vam-tools/
+lumina/
 ├── docker-compose.test.yml    # Test environment configuration
 ├── Dockerfile.test            # Test container image
 ├── .dockerignore              # Files to exclude from Docker build
@@ -211,7 +211,7 @@ vam-tools/
 The test environment sets these variables automatically:
 
 - `POSTGRES_HOST=postgres-test`
-- `POSTGRES_DB=vam-tools-test`
+- `POSTGRES_DB=lumina-test`
 - `TESTING=1`
 - `LOG_LEVEL=WARNING`
 - `PYTHONDONTWRITEBYTECODE=1`

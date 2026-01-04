@@ -215,7 +215,7 @@ clean-all: clean
 # ============================================================================
 
 db-shell:
-	@docker compose exec postgres psql -U pg vam-tools
+	@docker compose exec postgres psql -U pg lumina
 
 db-reset:
 	@echo "Resetting database..."

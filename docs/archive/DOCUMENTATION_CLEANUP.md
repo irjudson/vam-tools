@@ -83,7 +83,7 @@ Created `docs/README.md` as a comprehensive index with:
 ### 4. Documentation Structure
 
 ```
-vam-tools/
+lumina/
 ├── README.md                              # Main project documentation
 ├── docs/
 │   ├── README.md                          # Documentation index

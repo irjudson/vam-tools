@@ -194,7 +194,7 @@ Priority: MEDIUM (optional)
 
 ### Check database schema
 ```bash
-PGPASSWORD='buffalo-jump' psql -h localhost -U pg -d vam-tools -c "
+PGPASSWORD='buffalo-jump' psql -h localhost -U pg -d lumina -c "
 SELECT table_name FROM information_schema.tables
 WHERE table_schema = 'public' AND table_name LIKE 'import%';
 "
@@ -202,7 +202,7 @@ WHERE table_schema = 'public' AND table_name LIKE 'import%';
 
 ### Check duplicate stats
 ```bash
-PGPASSWORD='buffalo-jump' psql -h localhost -U pg -d vam-tools -c "
+PGPASSWORD='buffalo-jump' psql -h localhost -U pg -d lumina -c "
 SELECT COUNT(*) as groups,
        SUM((SELECT COUNT(*) FROM duplicate_members WHERE group_id = dg.id)) as total_images
 FROM duplicate_groups dg
@@ -212,7 +212,7 @@ WHERE catalog_id = 'bd40ca52-c3f7-4877-9c97-1c227389c8c4';
 
 ### Check import workflow tables
 ```bash
-PGPASSWORD='buffalo-jump' psql -h localhost -U pg -d vam-tools -c "
+PGPASSWORD='buffalo-jump' psql -h localhost -U pg -d lumina -c "
 SELECT * FROM import_jobs_summary LIMIT 10;
 "
 ```

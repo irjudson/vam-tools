@@ -171,7 +171,7 @@ docs/features/                          → Only has burst-management.md (move t
 ## Final Directory Structure
 
 ```
-vam-tools/
+lumina/
 ├── README.md                          # Updated: links, stats, features
 ├── LICENSE
 ├── Makefile

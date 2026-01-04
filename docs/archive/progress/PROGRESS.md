@@ -108,7 +108,7 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_USER=pg
 POSTGRES_PASSWORD=buffalo-jump
-POSTGRES_DB=vam-tools
+POSTGRES_DB=lumina
 
 # Redis
 REDIS_HOST=localhost
@@ -151,7 +151,7 @@ REDIS_PASSWORD=buffalo-jump
 
 ## Design Document
 
-Full design is in: `docs/plans/2025-11-10-vam-tools-redesign.md`
+Full design is in: `docs/plans/2025-11-10-lumina-redesign.md`
 
 ## Test Results
 

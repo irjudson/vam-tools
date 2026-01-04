@@ -82,7 +82,7 @@
 **Files**:
 - `vam_tools/core/catalog_config.py` - Backend (250 lines)
 - `vam_tools/web/catalogs_api.py` - REST API (200 lines)
-- `~/.vam-tools/catalogs.json` - Persistent storage
+- `~/.lumina/catalogs.json` - Persistent storage
 - `MULTI_CATALOG_SUMMARY.md` - Feature documentation
 
 ---
@@ -250,7 +250,7 @@ tests/
 
 ### Configuration Files
 ```
-~/.vam-tools/
+~/.lumina/
 └── catalogs.json               ← Persistent catalog config
 ```
 
