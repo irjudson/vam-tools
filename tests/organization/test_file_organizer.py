@@ -517,12 +517,7 @@ class TestErrorHandling:
             # Add image with WRONG checksum to simulate corruption detection
             from datetime import datetime
 
-            from lumina.core.types import (
-                DateInfo,
-                FileType,
-                ImageMetadata,
-                ImageRecord,
-            )
+            from lumina.core.types import DateInfo, FileType, ImageMetadata, ImageRecord
 
             db.add_image(
                 ImageRecord(
