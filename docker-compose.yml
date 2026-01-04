@@ -1,3 +1,5 @@
+name: lumina
+
 services:
 
   # Web API server
@@ -5,7 +7,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: vam-web
+    container_name: lumina-web
     # No GPU needed - web API just dispatches jobs to workers
     ports:
       - "8765:8000"
@@ -44,11 +46,11 @@ services:
       retries: 3
 
   # Celery worker - Handles background jobs (scalable)
-  celery-worker:
+  cw:
     build:
       context: .
       dockerfile: Dockerfile
-    # No container_name - allows scaling with --scale celery-worker=N
+    # No container_name - allows scaling with --scale cw=N
     deploy:
       replicas: 6
     runtime: nvidia
@@ -60,7 +62,7 @@ services:
       - /mnt/synology:/host/synology:ro
       # Mount test photos for development
       - ./test-photos:/app/test-photos:ro
-      - ./vam_tools:/app/vam_tools
+      - ./lumina:/app/lumina
     environment:
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
@@ -95,7 +97,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: vam-flower
+    container_name: lumina-flower
     ports:
       - "5555:5555"
     environment:
