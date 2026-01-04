@@ -79,6 +79,6 @@ typing_extensions==4.15.0
 tzdata==2025.2
 uvicorn==0.38.0
 uvloop==0.22.1
--e git+ssh://git@github.com/irjudson/vam-tools.git@eccd36657c277b7dd5da653bf2be79dbf7b0a885#egg=vam_tools
+-e git+ssh://git@github.com/irjudson/lumina.git@eccd36657c277b7dd5da653bf2be79dbf7b0a885#egg=lumina
 watchfiles==1.1.1
 websockets==15.0.1

@@ -431,7 +431,7 @@ Before running in production:
    ```
 
 5. **Report issue**:
-   - GitHub: https://github.com/irjudson/vam-tools/issues
+   - GitHub: https://github.com/irjudson/lumina/issues
    - Include: transaction log, error messages, steps to reproduce
 
 ---

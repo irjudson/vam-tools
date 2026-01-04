@@ -16,7 +16,7 @@
 
 ```bash
 # Clone or navigate to the project
-cd vam-tools
+cd lumina
 
 # Create virtual environment
 python -m venv venv
@@ -621,8 +621,8 @@ See `REQUIREMENTS.md` for the complete roadmap.
 ## Getting Help
 
 - **Documentation**: See `README.md` and `/docs` folder
-- **Issues**: [GitHub Issues](https://github.com/irjudson/vam-tools/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/irjudson/vam-tools/discussions)
+- **Issues**: [GitHub Issues](https://github.com/irjudson/lumina/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/irjudson/lumina/discussions)
 
 ## Safety and Data Protection
 

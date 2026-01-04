@@ -121,9 +121,9 @@ lumina-server = "lumina.cli.server:server"
 lumina-generate-thumbnails = "lumina.cli.generate_thumbnails:generate"
 
 [project.urls]
-Homepage = "https://github.com/irjudson/vam-tools"
-Repository = "https://github.com/irjudson/vam-tools"
-Issues = "https://github.com/irjudson/vam-tools/issues"
+Homepage = "https://github.com/irjudson/lumina"
+Repository = "https://github.com/irjudson/lumina"
+Issues = "https://github.com/irjudson/lumina/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

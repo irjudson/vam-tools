@@ -84,4 +84,4 @@ Historical documents and deprecated scripts are in the [archive/](archive/) dire
 ## Additional Resources
 
 - **Main README**: [../README.md](../README.md) - Project overview and quick start
-- **GitHub Repository**: https://github.com/irjudson/vam-tools
+- **GitHub Repository**: https://github.com/irjudson/lumina

@@ -412,7 +412,7 @@ All commits must pass:
 
 ```bash
 # Clone and setup
-cd vam-tools
+cd lumina
 python -m venv venv
 source venv/bin/activate
 pip install -e ".[dev]"

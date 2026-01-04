@@ -6,13 +6,13 @@ A professional photo and video library manager with GPU-accelerated analysis, in
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-616%20passing-success.svg)](https://github.com/irjudson/vam-tools)
-[![Coverage](https://img.shields.io/badge/coverage-79%25-green.svg)](https://github.com/irjudson/vam-tools)
+[![Tests](https://img.shields.io/badge/tests-616%20passing-success.svg)](https://github.com/irjudson/lumina)
+[![Coverage](https://img.shields.io/badge/coverage-79%25-green.svg)](https://github.com/irjudson/lumina)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ## Quick Links
 
-📖 **[Full Documentation](./docs/)** | 🚀 **[Quick Start](#quick-start)** | 🐛 **[Issues](https://github.com/irjudson/vam-tools/issues)** | 💬 **[Discussions](https://github.com/irjudson/vam-tools/discussions)**
+📖 **[Full Documentation](./docs/)** | 🚀 **[Quick Start](#quick-start)** | 🐛 **[Issues](https://github.com/irjudson/lumina/issues)** | 💬 **[Discussions](https://github.com/irjudson/lumina/discussions)**
 
 ---
 
@@ -94,8 +94,8 @@ Download from [exiftool.org](https://exiftool.org/) and add to PATH.
 
 ```bash
 # Clone the repository
-git clone https://github.com/irjudson/vam-tools.git
-cd vam-tools
+git clone https://github.com/irjudson/lumina.git
+cd lumina
 
 # Create and activate virtual environment
 python -m venv venv
@@ -281,9 +281,9 @@ Lumina builds on excellent open-source projects:
 
 ## Project Links
 
-- **Repository**: https://github.com/irjudson/vam-tools
-- **Issues**: https://github.com/irjudson/vam-tools/issues
-- **Discussions**: https://github.com/irjudson/vam-tools/discussions
+- **Repository**: https://github.com/irjudson/lumina
+- **Issues**: https://github.com/irjudson/lumina/issues
+- **Discussions**: https://github.com/irjudson/lumina/discussions
 - **Documentation**: [./docs](./docs)
 
 ---

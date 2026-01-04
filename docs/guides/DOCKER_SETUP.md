@@ -162,8 +162,8 @@ sudo systemctl restart docker
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/irjudson/vam-tools.git
-cd vam-tools
+git clone https://github.com/irjudson/lumina.git
+cd lumina
 ```
 
 ### 2. Configure Environment
@@ -623,5 +623,5 @@ tar -xzf catalog-backup-20250101.tar.gz -C $CATALOG_PATH
 
 ## Support
 
-- **Issues**: https://github.com/irjudson/vam-tools/issues
-- **Discussions**: https://github.com/irjudson/vam-tools/discussions
+- **Issues**: https://github.com/irjudson/lumina/issues
+- **Discussions**: https://github.com/irjudson/lumina/discussions

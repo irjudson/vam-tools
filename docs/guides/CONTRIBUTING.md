@@ -16,7 +16,7 @@ Thank you for your interest in contributing to Lumina! This guide will help you 
 
 ```bash
 git clone git@github.com:irjudson/vam-tools.git
-cd vam-tools
+cd lumina
 ```
 
 ### 2. Create Virtual Environment
@@ -346,8 +346,8 @@ This shouldn't happen (hooks match CI), but if it does:
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/irjudson/vam-tools/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/irjudson/vam-tools/discussions)
+- **Issues**: [GitHub Issues](https://github.com/irjudson/lumina/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/irjudson/lumina/discussions)
 - **Documentation**: See README.md and `/docs` folder
 
 ## Code of Conduct

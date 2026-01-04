@@ -97,7 +97,7 @@ This document tracks the development progress of Lumina features. GitHub renders
 ### High Priority
 
 #### Duplicate Resolution UI
-[Issue #12](https://github.com/irjudson/vam-tools/issues/12)
+[Issue #12](https://github.com/irjudson/lumina/issues/12)
 
 Interactive UI for reviewing and resolving duplicates with confidence.
 
@@ -116,7 +116,7 @@ Interactive UI for reviewing and resolving duplicates with confidence.
 ### Medium Priority
 
 #### Batch Edit Operations
-[Issue #15](https://github.com/irjudson/vam-tools/issues/15)
+[Issue #15](https://github.com/irjudson/lumina/issues/15)
 
 Efficiently perform operations on multiple files.
 
@@ -130,7 +130,7 @@ Efficiently perform operations on multiple files.
 ---
 
 #### Advanced Analytics Dashboard
-[Issue #16](https://github.com/irjudson/vam-tools/issues/16)
+[Issue #16](https://github.com/irjudson/lumina/issues/16)
 
 Visualize and understand your photo collection.
 
@@ -220,6 +220,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 Have an idea? Open an issue!
 
-- [Submit Feature Request](https://github.com/irjudson/vam-tools/issues/new?template=feature_request.md)
-- [Report Bug](https://github.com/irjudson/vam-tools/issues/new?template=bug_report.md)
-- [Discuss Ideas](https://github.com/irjudson/vam-tools/discussions)
+- [Submit Feature Request](https://github.com/irjudson/lumina/issues/new?template=feature_request.md)
+- [Report Bug](https://github.com/irjudson/lumina/issues/new?template=bug_report.md)
+- [Discuss Ideas](https://github.com/irjudson/lumina/discussions)

@@ -528,7 +528,7 @@ If you're still stuck after trying these solutions:
 ### 1. Search Existing Issues
 
 Check if others have reported the same problem:
-- [GitHub Issues](https://github.com/irjudson/vam-tools/issues)
+- [GitHub Issues](https://github.com/irjudson/lumina/issues)
 
 ### 2. Gather Diagnostic Information
 
@@ -552,7 +552,7 @@ vam-analyze /path/to/catalog -s /path/to/photos -v > debug.log 2>&1
 
 ### 3. Open an Issue
 
-[Create a new issue](https://github.com/irjudson/vam-tools/issues/new) with:
+[Create a new issue](https://github.com/irjudson/lumina/issues/new) with:
 - Clear description of the problem
 - Steps to reproduce
 - Expected vs actual behavior
@@ -562,7 +562,7 @@ vam-analyze /path/to/catalog -s /path/to/photos -v > debug.log 2>&1
 ### 4. Community Discussion
 
 For questions and general discussion:
-- [GitHub Discussions](https://github.com/irjudson/vam-tools/discussions)
+- [GitHub Discussions](https://github.com/irjudson/lumina/discussions)
 
 ---
 
