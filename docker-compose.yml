@@ -28,7 +28,6 @@ services:
       - POSTGRES_PASSWORD=buffalo-jump
       - POSTGRES_DB=lumina
       - CELERY_BROKER_URL=redis://:buffalo-jump@redis:6379/2
-      - CELERY_RESULT_BACKEND=redis://:buffalo-jump@redis:6379/2
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=buffalo-jump
@@ -70,7 +69,6 @@ services:
       - POSTGRES_PASSWORD=buffalo-jump
       - POSTGRES_DB=lumina
       - CELERY_BROKER_URL=redis://:buffalo-jump@redis:6379/2
-      - CELERY_RESULT_BACKEND=redis://:buffalo-jump@redis:6379/2
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=buffalo-jump
@@ -102,7 +100,6 @@ services:
       - "5555:5555"
     environment:
       - CELERY_BROKER_URL=redis://:buffalo-jump@redis:6379/2
-      - CELERY_RESULT_BACKEND=redis://:buffalo-jump@redis:6379/2
     command: celery -A lumina.celery_app flower --port=5555
     restart: unless-stopped
     profiles:
