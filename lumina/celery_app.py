@@ -21,12 +21,17 @@ from .db.config import settings
 logger = logging.getLogger(__name__)
 
 # Create Celery app
-# Redis is ONLY used as message broker, NOT for storing results
-# All job state/results are tracked in PostgreSQL via the Job model
+# Redis is used as message broker
+# PostgreSQL is used as result backend for chord coordination
+# Job state/results are also tracked in PostgreSQL via the Job model
+# Using database backend instead of Redis to avoid memory bloat
+database_backend_url = settings.database_url.replace(
+    "postgresql://", "db+postgresql://"
+)
 app = Celery(
     "lumina",
     broker=settings.redis_url,
-    backend=None,  # DO NOT store results in Redis - use PostgreSQL Job model
+    backend=database_backend_url,  # PostgreSQL backend for chord support
 )
 
 # Import tasks to register them
@@ -41,6 +46,10 @@ app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    # Result backend settings
+    result_expires=7200,  # Expire results after 2 hours to prevent database bloat
+    result_backend_always_retry=True,  # Retry on database connection issues
+    result_backend_max_retries=10,
     # Task execution settings
     task_track_started=True,
     task_time_limit=3600,  # 1 hour max per task (jobs must be broken into sub-tasks)
@@ -49,8 +58,9 @@ app.conf.update(
     # With parallel batch pattern, we track progress in DB so lost tasks can be recovered
     task_acks_late=False,  # Acknowledge immediately when task starts
     task_reject_on_worker_lost=False,  # Don't requeue - we handle recovery in job_recovery.py
-    # NO result backend - all state tracked in PostgreSQL Job model
-    # Redis only used for message brokering, NOT result storage
+    # PostgreSQL backend used for chord coordination
+    # Results auto-expire after 2 hours, cleaned up by PostgreSQL VACUUM
+    # Job state also tracked separately in Job model for long-term persistence
     # Worker settings
     worker_prefetch_multiplier=1,  # Take one task at a time
     worker_max_tasks_per_child=100,  # Restart less often - we track state in DB
