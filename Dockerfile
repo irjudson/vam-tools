@@ -1,7 +1,7 @@
 # Multi-stage build for Lumina
 # Use NVIDIA CUDA base image for GPU acceleration
-# Using CUDA 12.6 for RTX 5060 Ti Blackwell (sm_120) support
-FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04 as base
+# Using CUDA 13.0 for enhanced GPU support
+FROM nvidia/cuda:13.0.0-runtime-ubuntu22.04 as base
 
 # Install Python 3.11
 RUN apt-get update && apt-get install -y \
