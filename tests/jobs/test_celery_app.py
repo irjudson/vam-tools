@@ -8,8 +8,9 @@ from lumina.celery_app import app as celery_app
 def test_celery_app_configured():
     """Test that Celery app is properly configured."""
     assert celery_app.conf.broker_url is not None
-    # result_backend should be None - we use PostgreSQL Job model instead
-    assert celery_app.conf.result_backend is None
+    # result_backend uses PostgreSQL for chord support
+    assert celery_app.conf.result_backend is not None
+    assert "postgresql" in celery_app.conf.result_backend
     assert celery_app.conf.task_serializer == "json"
     assert celery_app.conf.result_serializer == "json"
 
