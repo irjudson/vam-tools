@@ -780,3 +780,56 @@ def cancel_and_requeue_job(
         logger.error(f"Task {task_name} not found, cannot queue continuation")
 
     return new_job_id
+
+
+def start_chord_progress_monitor(
+    parent_job_id: str,
+    catalog_id: str,
+    job_type: str,
+    expected_workers: Optional[int] = None,
+    use_celery_backend: bool = False,
+    comparison_start_time: Optional[str] = None,
+    countdown: int = 30,
+) -> None:
+    """
+    Start a progress monitor for a chord of workers.
+
+    This function launches a background task that periodically checks progress
+    and publishes updates. It supports two monitoring modes:
+
+    1. job_batches mode (default): Monitors BatchManager progress via job_batches table
+    2. celery_taskmeta mode: Monitors Celery result backend for worker completion
+       (used for chords that don't use job_batches, like duplicate comparison)
+
+    Args:
+        parent_job_id: The coordinator's task ID
+        catalog_id: The catalog UUID
+        job_type: Job type for BatchManager
+        expected_workers: Expected number of workers (required if use_celery_backend=True)
+        use_celery_backend: If True, monitor celery_taskmeta; if False, monitor job_batches
+        comparison_start_time: ISO timestamp when workers started (for celery_taskmeta mode)
+        countdown: Seconds to wait before first check (default: 30)
+    """
+    from .celery_app import app
+
+    # Validate parameters
+    if use_celery_backend and (
+        expected_workers is None or comparison_start_time is None
+    ):
+        raise ValueError(
+            "expected_workers and comparison_start_time required when use_celery_backend=True"
+        )
+
+    # Schedule the progress monitor task
+    app.send_task(
+        "chord_progress_monitor",
+        kwargs={
+            "parent_job_id": parent_job_id,
+            "catalog_id": catalog_id,
+            "job_type": job_type,
+            "expected_workers": expected_workers,
+            "use_celery_backend": use_celery_backend,
+            "comparison_start_time": comparison_start_time,
+        },
+        countdown=countdown,
+    )

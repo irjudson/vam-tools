@@ -1742,3 +1742,140 @@ def detect_bursts_task(
             },
         )
         raise
+
+
+@app.task(bind=True, base=ProgressTask, name="chord_progress_monitor")
+def chord_progress_monitor_task(
+    self: ProgressTask,
+    parent_job_id: str,
+    catalog_id: str,
+    job_type: str,
+    expected_workers: Optional[int] = None,
+    use_celery_backend: bool = False,
+    comparison_start_time: Optional[str] = None,
+) -> None:
+    """
+    Generic progress monitor for chord-based jobs.
+
+    Periodically checks progress and publishes updates until all workers complete.
+    Supports two monitoring modes:
+
+    1. job_batches mode: Monitors BatchManager progress (default)
+    2. celery_taskmeta mode: Monitors Celery result backend for worker completion
+
+    Args:
+        parent_job_id: The coordinator's task ID
+        catalog_id: The catalog UUID
+        job_type: Job type for BatchManager
+        expected_workers: Expected number of workers (for celery_taskmeta mode)
+        use_celery_backend: If True, monitor celery_taskmeta; if False, monitor job_batches
+        comparison_start_time: ISO timestamp when workers started (for celery_taskmeta mode)
+    """
+    monitor_id = self.request.id or "unknown"
+
+    try:
+        if use_celery_backend:
+            # Mode 2: Monitor celery_taskmeta for worker completion
+            # Used by jobs that don't use job_batches (e.g., duplicate comparison)
+            from ..db import get_db_context
+            from .coordinator import publish_job_progress as publish_progress_func
+
+            with get_db_context() as session:
+                # Count workers that completed after the comparison phase started
+                result = session.execute(
+                    text(
+                        """
+                        SELECT
+                            COUNT(*) FILTER (WHERE status = 'SUCCESS') as completed,
+                            COUNT(*) FILTER (WHERE status = 'FAILURE') as failed
+                        FROM celery_taskmeta
+                        WHERE date_done >= :start_time
+                    """
+                    ),
+                    {"start_time": comparison_start_time},
+                )
+                row = result.fetchone()
+                completed = row[0] if row else 0
+                failed = row[1] if row else 0
+
+                remaining = expected_workers - completed - failed  # type: ignore[operator]
+                progress_pct = (
+                    int((completed * 100) / expected_workers)  # type: ignore[operator]
+                    if expected_workers and expected_workers > 0
+                    else 0
+                )
+
+                # Publish progress using publish_progress
+                from .progress_publisher import publish_progress
+
+                publish_progress(
+                    parent_job_id,
+                    "PROGRESS",
+                    current=completed,
+                    total=expected_workers or 0,
+                    message=f"{job_type.replace('_', ' ').title()} workers: {completed}/{expected_workers} completed ({progress_pct}%), {failed} failed",
+                    extra={
+                        "phase": "processing",
+                        "workers_completed": completed,
+                        "workers_failed": failed,
+                        "workers_remaining": remaining,
+                        "workers_total": expected_workers,
+                    },
+                )
+
+                logger.info(
+                    f"[{monitor_id}] {job_type} progress: {completed}/{expected_workers} workers completed, "
+                    f"{failed} failed, {remaining} remaining"
+                )
+
+                # If not all workers done, schedule another check
+                if remaining > 0:
+                    chord_progress_monitor_task.apply_async(
+                        kwargs={
+                            "parent_job_id": parent_job_id,
+                            "catalog_id": catalog_id,
+                            "job_type": job_type,
+                            "expected_workers": expected_workers,
+                            "use_celery_backend": use_celery_backend,
+                            "comparison_start_time": comparison_start_time,
+                        },
+                        countdown=30,  # Check again in 30 seconds
+                    )
+
+        else:
+            # Mode 1: Monitor job_batches table (default for most jobs)
+            from .coordinator import BatchManager, publish_job_progress
+
+            batch_manager = BatchManager(catalog_id, parent_job_id, job_type)
+            progress = batch_manager.get_progress()
+
+            # Publish progress update
+            publish_job_progress(
+                parent_job_id,
+                progress,
+                f"{job_type.replace('_', ' ').title()}: {progress.completed_batches}/{progress.total_batches} batches complete ({progress.percent_complete}%)",
+                phase="processing",
+            )
+
+            logger.info(
+                f"[{monitor_id}] {job_type} progress: {progress.completed_batches}/{progress.total_batches} batches completed, "
+                f"{progress.running_batches} running, {progress.pending_batches} pending, {progress.failed_batches} failed"
+            )
+
+            # If not all batches done, schedule another check
+            if not progress.is_complete:
+                chord_progress_monitor_task.apply_async(
+                    kwargs={
+                        "parent_job_id": parent_job_id,
+                        "catalog_id": catalog_id,
+                        "job_type": job_type,
+                        "expected_workers": expected_workers,
+                        "use_celery_backend": use_celery_backend,
+                        "comparison_start_time": comparison_start_time,
+                    },
+                    countdown=30,  # Check again in 30 seconds
+                )
+
+    except Exception as e:
+        logger.warning(f"[{monitor_id}] Progress monitor error: {e}")
+        # Don't fail - just skip this monitoring cycle

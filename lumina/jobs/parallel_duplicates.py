@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -33,6 +34,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Result
 
 from ..db import CatalogDB as CatalogDatabase
+from ..db import get_db_context
 from ..db.models import Job
 from .celery_app import app
 from .coordinator import (
@@ -268,6 +270,17 @@ def duplicates_coordinator_task(
             )
 
             chord(hash_tasks)(comparison_callback)
+
+            # Start progress monitoring using generic monitor (job_batches mode)
+            from .coordinator import start_chord_progress_monitor
+
+            start_chord_progress_monitor(
+                parent_job_id=parent_job_id,
+                catalog_id=catalog_id,
+                job_type="duplicates_hash",
+                use_celery_backend=False,  # Use job_batches table for tracking
+                countdown=30,
+            )
 
             logger.info(
                 f"[{parent_job_id}] Hash chord dispatched: {num_batches} sub-tasks"
@@ -610,7 +623,21 @@ def duplicates_comparison_phase_task(
             similarity_threshold=similarity_threshold,
         )
 
-        chord(group(comparison_tasks))(finalizer)
+        # Store worker task IDs for progress tracking
+        chord_result = chord(group(comparison_tasks))(finalizer)
+
+        # Start progress monitoring task using generic monitor
+        from .coordinator import start_chord_progress_monitor
+
+        start_chord_progress_monitor(
+            parent_job_id=parent_job_id,
+            catalog_id=catalog_id,
+            job_type="duplicate_comparison",
+            expected_workers=num_worker_tasks,
+            use_celery_backend=True,
+            comparison_start_time=datetime.utcnow().isoformat(),
+            countdown=30,
+        )
 
         logger.info(
             f"[{task_id}] Comparison chord dispatched: {num_worker_tasks} workers → finalizer"

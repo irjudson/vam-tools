@@ -140,6 +140,17 @@ def reorganize_coordinator_task(
 
         chord(worker_tasks)(finalizer)
 
+        # Start progress monitoring using generic monitor (job_batches mode)
+        from .coordinator import start_chord_progress_monitor
+
+        start_chord_progress_monitor(
+            parent_job_id=parent_job_id,
+            catalog_id=catalog_id,
+            job_type="reorganize",
+            use_celery_backend=False,  # Use job_batches table for tracking
+            countdown=30,
+        )
+
         logger.info(f"[{parent_job_id}] Dispatched {num_batches} workers → finalizer")
 
         # Update job to STARTED

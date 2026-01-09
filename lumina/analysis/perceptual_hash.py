@@ -227,7 +227,7 @@ def _load_image_for_hashing(image_path: Path) -> Optional[Image.Image]:
             img = Image.open(image_path)
             # Convert to RGB if needed
             if img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
+                img = img.convert("RGB")  # type: ignore[assignment]
             return img
 
         # Standard formats (JPEG, PNG, GIF, WebP)

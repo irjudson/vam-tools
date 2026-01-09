@@ -314,6 +314,17 @@ def scan_coordinator_task(
         # Execute the chord (sub-tasks in parallel, then finalizer)
         chord(worker_tasks)(finalizer)
 
+        # Start progress monitoring using generic monitor (job_batches mode)
+        from .coordinator import start_chord_progress_monitor
+
+        start_chord_progress_monitor(
+            parent_job_id=parent_job_id,
+            catalog_id=catalog_id,
+            job_type="scan",
+            use_celery_backend=False,  # Use job_batches table for tracking
+            countdown=30,
+        )
+
         logger.info(
             f"[{parent_job_id}] Chord dispatched: {num_batches} sub-tasks → finalizer"
         )
